@@ -1,0 +1,16 @@
+{
+  "name": "pharmacy-hub",
+  "version": "1.0.0",
+  "description": "Smart Pharmacy Management, POS, Stock & Multi-tier Pricing System",
+  "scripts": {
+    "start": "node server/index.js",
+    "build": "cd client && npm install && npm run build && cd ../server && npm install",
+    "install:all": "cd server && npm install && cd ../client && npm install",
+    "dev:server": "cd server && node index.js",
+    "dev:client": "cd client && npm run dev",
+    "dev": "npm run start"
+  },
+  "keywords": ["pharmacy", "pos", "inventory", "pricing", "fefo", "android", "windows"],
+  "author": "",
+  "license": "MIT"
+}
