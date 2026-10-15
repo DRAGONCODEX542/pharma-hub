@@ -33,7 +33,11 @@ import {
   Globe,
   ExternalLink,
   UserCheck,
-  Send
+  Send,
+  LogIn,
+  LogOut,
+  User,
+  KeyRound
 } from 'lucide-react';
 
 export default function App() {
@@ -46,6 +50,26 @@ export default function App() {
     address: '104 Healthcare Boulevard',
     phone: '+254 700 123456',
     detected_country: 'Kenya'
+  });
+
+  // User Authentication State
+  const [currentUser, setCurrentUser] = useState(() => {
+    try {
+      const stored = localStorage.getItem('pharmahub_user');
+      return stored ? JSON.parse(stored) : null;
+    } catch (e) {
+      return null;
+    }
+  });
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [authMode, setAuthMode] = useState('login'); // 'login' or 'register'
+  const [authForm, setAuthForm] = useState({
+    name: '',
+    email: '',
+    password: '',
+    pharmacy_name: '',
+    phone: '',
+    currency_symbol: 'KSh'
   });
 
   const [dashboardData, setDashboardData] = useState(null);
@@ -410,6 +434,62 @@ export default function App() {
     }
   };
 
+  // User Auth Handlers
+  const handleLogin = async (e) => {
+    e?.preventDefault();
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: authForm.email, password: authForm.password })
+      });
+      const data = await res.json();
+      if (data.success) {
+        localStorage.setItem('pharmahub_user', JSON.stringify(data.user));
+        localStorage.setItem('pharmahub_token', data.token);
+        setCurrentUser(data.user);
+        setShowAuthModal(false);
+        showToast(`Welcome back, ${data.user.name}!`, 'success');
+        fetchAllData();
+      } else {
+        showToast(data.error || 'Login failed', 'error');
+      }
+    } catch (err) {
+      showToast('Error logging in', 'error');
+    }
+  };
+
+  const handleRegister = async (e) => {
+    e?.preventDefault();
+    try {
+      const res = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(authForm)
+      });
+      const data = await res.json();
+      if (data.success) {
+        localStorage.setItem('pharmahub_user', JSON.stringify(data.user));
+        localStorage.setItem('pharmahub_token', data.token);
+        setCurrentUser(data.user);
+        setShowAuthModal(false);
+        showToast(`Account created for ${data.user.pharmacy_name}!`, 'success');
+        fetchAllData();
+      } else {
+        showToast(data.error || 'Registration failed', 'error');
+      }
+    } catch (err) {
+      showToast('Error creating account', 'error');
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('pharmahub_user');
+    localStorage.removeItem('pharmahub_token');
+    setCurrentUser(null);
+    showToast('Signed out successfully. Switched to demo mode.', 'success');
+  };
+
   // Record Repayment
   const handleRecordRepayment = async (e) => {
     e.preventDefault();
@@ -719,6 +799,36 @@ export default function App() {
               <Boxes className="w-4 h-4" />
               <span>Receive Stock</span>
             </button>
+
+            {/* Auth Button */}
+            {currentUser ? (
+              <div className="flex items-center space-x-1.5">
+                <div className="hidden sm:flex items-center space-x-1.5 px-2.5 py-1.5 bg-violet-50 border border-violet-200 rounded-xl">
+                  <div className="w-5 h-5 rounded-full bg-violet-500 flex items-center justify-center text-white text-[10px] font-bold">
+                    {currentUser.name ? currentUser.name[0].toUpperCase() : 'U'}
+                  </div>
+                  <span className="text-xs font-semibold text-violet-800 max-w-[80px] truncate">
+                    {currentUser.name || currentUser.email}
+                  </span>
+                </div>
+                <button
+                  onClick={handleLogout}
+                  className="flex items-center space-x-1 px-2.5 py-1.5 bg-red-50 hover:bg-red-100 border border-red-200 text-red-600 rounded-xl text-xs font-semibold transition"
+                  title="Sign Out"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Sign Out</span>
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => { setShowAuthModal(true); setAuthMode('login'); }}
+                className="flex items-center space-x-1.5 px-3 py-2 bg-violet-600 hover:bg-violet-700 text-white text-xs font-semibold rounded-xl transition shadow-sm"
+              >
+                <LogIn className="w-4 h-4" />
+                <span>Sign In</span>
+              </button>
+            )}
           </div>
         </header>
 
@@ -2523,6 +2633,175 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* ============================================================ */}
+      {/* AUTH MODAL — Login / Register                               */}
+      {/* ============================================================ */}
+      {showAuthModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+
+            {/* Modal Header */}
+            <div className="relative bg-gradient-to-br from-violet-600 to-indigo-700 px-6 pt-6 pb-8 text-white">
+              <button
+                onClick={() => setShowAuthModal(false)}
+                className="absolute top-4 right-4 p-1.5 rounded-lg hover:bg-white/20 transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+              <div className="flex items-center space-x-3 mb-1">
+                <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
+                  <KeyRound className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold">
+                    {authMode === 'login' ? 'Welcome back' : 'Create your account'}
+                  </h2>
+                  <p className="text-xs text-violet-200">
+                    {authMode === 'login'
+                      ? 'Sign in to access your pharmacy data'
+                      : 'Free forever — no credit card required'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Tab switcher */}
+              <div className="flex mt-4 bg-white/15 rounded-xl p-1">
+                <button
+                  onClick={() => setAuthMode('login')}
+                  className={`flex-1 py-1.5 rounded-lg text-sm font-semibold transition ${
+                    authMode === 'login' ? 'bg-white text-violet-700 shadow' : 'text-white/80 hover:text-white'
+                  }`}
+                >
+                  Sign In
+                </button>
+                <button
+                  onClick={() => setAuthMode('register')}
+                  className={`flex-1 py-1.5 rounded-lg text-sm font-semibold transition ${
+                    authMode === 'register' ? 'bg-white text-violet-700 shadow' : 'text-white/80 hover:text-white'
+                  }`}
+                >
+                  Create Account
+                </button>
+              </div>
+            </div>
+
+            {/* Form Body */}
+            <div className="px-6 py-5 space-y-4">
+
+              {authMode === 'register' && (
+                <>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1.5">Full Name</label>
+                    <input
+                      type="text"
+                      placeholder="Dr. Jane Wambui"
+                      value={authForm.name}
+                      onChange={e => setAuthForm(f => ({ ...f, name: e.target.value }))}
+                      className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-violet-400 focus:border-transparent outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1.5">Pharmacy Name</label>
+                    <input
+                      type="text"
+                      placeholder="HealthFirst Pharmacy"
+                      value={authForm.pharmacy_name}
+                      onChange={e => setAuthForm(f => ({ ...f, pharmacy_name: e.target.value }))}
+                      className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-violet-400 focus:border-transparent outline-none"
+                    />
+                  </div>
+                </>
+              )}
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1.5">Email Address</label>
+                <input
+                  type="email"
+                  placeholder="jane@pharmacy.com"
+                  value={authForm.email}
+                  onChange={e => setAuthForm(f => ({ ...f, email: e.target.value }))}
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-violet-400 focus:border-transparent outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1.5">Password</label>
+                <input
+                  type="password"
+                  placeholder={authMode === 'register' ? 'Create a strong password' : 'Your password'}
+                  value={authForm.password}
+                  onChange={e => setAuthForm(f => ({ ...f, password: e.target.value }))}
+                  onKeyDown={e => e.key === 'Enter' && (authMode === 'login' ? handleLogin(e) : handleRegister(e))}
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-violet-400 focus:border-transparent outline-none"
+                />
+              </div>
+
+              {authMode === 'register' && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1.5">Phone (optional)</label>
+                    <input
+                      type="tel"
+                      placeholder="+254 700 000000"
+                      value={authForm.phone}
+                      onChange={e => setAuthForm(f => ({ ...f, phone: e.target.value }))}
+                      className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-violet-400 focus:border-transparent outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1.5">Currency Symbol</label>
+                    <select
+                      value={authForm.currency_symbol}
+                      onChange={e => setAuthForm(f => ({ ...f, currency_symbol: e.target.value }))}
+                      className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-violet-400 focus:border-transparent outline-none bg-white"
+                    >
+                      <option value="KSh">KSh (Kenya)</option>
+                      <option value="$">$ (USD)</option>
+                      <option value="£">£ (UK)</option>
+                      <option value="₦">₦ (Nigeria)</option>
+                      <option value="₹">₹ (India)</option>
+                      <option value="UGX">UGX (Uganda)</option>
+                      <option value="TZS">TZS (Tanzania)</option>
+                      <option value="GH₵">GH₵ (Ghana)</option>
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              <button
+                onClick={authMode === 'login' ? handleLogin : handleRegister}
+                className="w-full py-3 bg-violet-600 hover:bg-violet-700 active:bg-violet-800 text-white font-bold rounded-xl transition text-sm shadow-lg shadow-violet-500/30"
+              >
+                {authMode === 'login' ? 'Sign In to My Pharmacy' : 'Create Free Account'}
+              </button>
+
+              <p className="text-center text-xs text-slate-500">
+                {authMode === 'login' ? (
+                  <>Don't have an account?{' '}
+                    <button onClick={() => setAuthMode('register')} className="text-violet-600 font-semibold hover:underline">
+                      Sign up free
+                    </button>
+                  </>
+                ) : (
+                  <>Already have an account?{' '}
+                    <button onClick={() => setAuthMode('login')} className="text-violet-600 font-semibold hover:underline">
+                      Sign in
+                    </button>
+                  </>
+                )}
+              </p>
+
+              {authMode === 'register' && (
+                <p className="text-center text-[10px] text-slate-400 leading-relaxed">
+                  🔒 Your data is stored securely. By creating an account you agree to our terms of service.
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

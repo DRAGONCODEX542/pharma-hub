@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
-import { db, initDatabase } from './db.js';
+import crypto from 'node:crypto';
+import { db, initDatabase, hashPassword, verifyPassword } from './db.js';
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -10,6 +11,119 @@ app.use(express.json());
 
 // Initialize DB schema & seed data
 initDatabase();
+
+// In-memory token store for sessions
+const activeSessions = new Map();
+
+// --- AUTHENTICATION ENDPOINTS ---
+app.post('/api/auth/register', (req, res) => {
+  try {
+    const { name, email, password, pharmacy_name, phone = '', address = '', currency_symbol = 'KSh' } = req.body;
+
+    if (!name || !email || !password || !pharmacy_name) {
+      return res.status(400).json({ error: 'Name, email, password, and pharmacy name are required' });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(cleanEmail);
+    if (existing) {
+      return res.status(400).json({ error: 'An account with this email already exists' });
+    }
+
+    const passHash = hashPassword(password);
+    const nowStr = new Date().toISOString().replace('T', ' ').slice(0, 19);
+
+    const stmt = db.prepare(`
+      INSERT INTO users (name, email, password_hash, pharmacy_name, phone, address, currency_symbol, role, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'admin', ?)
+    `);
+    const result = stmt.run(name.trim(), cleanEmail, passHash, pharmacy_name.trim(), phone, address, currency_symbol, nowStr);
+    const userId = result.lastInsertRowid;
+
+    // Generate session token
+    const token = crypto.randomBytes(32).toString('hex');
+    const userObj = {
+      id: userId,
+      name: name.trim(),
+      email: cleanEmail,
+      pharmacy_name: pharmacy_name.trim(),
+      role: 'admin',
+      currency_symbol,
+      phone,
+      address
+    };
+    activeSessions.set(token, userObj);
+
+    // Also update current active pharmacy settings to match the user's pharmacy
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('pharmacy_name', ?)").run(pharmacy_name.trim());
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('currency_symbol', ?)").run(currency_symbol);
+    if (phone) db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('phone', ?)").run(phone);
+    if (address) db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('address', ?)").run(address);
+
+    res.json({
+      success: true,
+      message: 'Account created successfully',
+      token,
+      user: userObj
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/auth/login', (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    const user = db.prepare('SELECT * FROM users WHERE email = ?').get(cleanEmail);
+
+    if (!user || !verifyPassword(password, user.password_hash)) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    const token = crypto.randomBytes(32).toString('hex');
+    const userObj = {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      pharmacy_name: user.pharmacy_name,
+      role: user.role,
+      currency_symbol: user.currency_symbol || 'KSh',
+      phone: user.phone || '',
+      address: user.address || ''
+    };
+    activeSessions.set(token, userObj);
+
+    // Apply their pharmacy settings
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('pharmacy_name', ?)").run(user.pharmacy_name);
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('currency_symbol', ?)").run(user.currency_symbol || 'KSh');
+
+    res.json({
+      success: true,
+      token,
+      user: userObj
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/auth/me', (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.json({ authenticated: false });
+  }
+  const token = authHeader.split(' ')[1];
+  const user = activeSessions.get(token);
+  if (!user) {
+    return res.json({ authenticated: false });
+  }
+  res.json({ authenticated: true, user });
+});
 
 // --- SETTINGS ENDPOINTS ---
 app.get('/api/settings', (req, res) => {
