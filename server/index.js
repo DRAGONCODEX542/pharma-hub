@@ -1159,10 +1159,14 @@ app.get('/api/market-prices', (req, res) => {
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
+import { registerSeoRoutes } from './seo.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const distPath = path.join(__dirname, '../client/dist');
+
+// Register dynamic SEO routes (sitemap.xml, robots.txt, /drugs, /drugs/:slug)
+registerSeoRoutes(app);
 
 if (fs.existsSync(distPath)) {
   app.use(express.static(distPath));
