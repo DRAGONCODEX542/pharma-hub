@@ -9,6 +9,11 @@ function slugify(text) {
 }
 
 export function registerSeoRoutes(app) {
+  // Google Search Console Verification File
+  app.get('/google78436fe9f8ffa4a2.html', (req, res) => {
+    res.type('text/html').send('google-site-verification: google78436fe9f8ffa4a2.html');
+  });
+
   // 1. Dynamic robots.txt
   app.get('/robots.txt', (req, res) => {
     const host = req.get('host') || 'pharmahub.onrender.com';
