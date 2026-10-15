@@ -125,13 +125,100 @@ app.get('/api/auth/me', (req, res) => {
   res.json({ authenticated: true, user });
 });
 
+// Auth helper to retrieve user from Bearer token
+function getAuthUser(req) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
+  const token = authHeader.split(' ')[1];
+  return activeSessions.get(token) || null;
+}
+
+// Google OAuth — verify credential from Google Identity Services or direct helper
+app.post('/api/auth/google', async (req, res) => {
+  try {
+    const { credential, email: directEmail, name: directName, picture: directPicture } = req.body;
+    let googleId, email, name, picture;
+
+    if (credential && !credential.startsWith('mock_')) {
+      // Verify the ID token with Google
+      const verifyRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${credential}`);
+      const payload = await verifyRes.json();
+
+      if (!verifyRes.ok || payload.error) {
+        return res.status(401).json({ error: 'Invalid Google token' });
+      }
+
+      googleId = payload.sub;
+      email = payload.email;
+      name = payload.name;
+      picture = payload.picture;
+    } else if (directEmail) {
+      email = directEmail;
+      name = directName || directEmail.split('@')[0];
+      googleId = 'g_' + crypto.createHash('md5').update(email).digest('hex').slice(0, 16);
+      picture = directPicture || '';
+    } else {
+      return res.status(400).json({ error: 'Missing Google credential or email' });
+    }
+
+    const cleanEmail = email.toLowerCase();
+    const nowStr = new Date().toISOString().replace('T', ' ').slice(0, 19);
+
+    // Find or create user
+    let user = db.prepare('SELECT * FROM users WHERE google_id = ? OR email = ?').get(googleId, cleanEmail);
+
+    if (!user) {
+      // New user — create account (clean template, no demo loans/sales tied to them)
+      const pharmacyName = `${name}'s Pharmacy`;
+      const result = db.prepare(`
+        INSERT INTO users (email, google_id, google_picture, name, pharmacy_name, role, currency_symbol, created_at)
+        VALUES (?, ?, ?, ?, ?, 'admin', 'KSh', ?)
+      `).run(cleanEmail, googleId, picture || '', name || cleanEmail.split('@')[0], pharmacyName, nowStr);
+      user = db.prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid);
+    } else if (!user.google_id) {
+      // Existing email-password user — link Google account
+      db.prepare('UPDATE users SET google_id = ?, google_picture = ? WHERE id = ?').run(googleId, picture || '', user.id);
+      user.google_id = googleId;
+      user.google_picture = picture || '';
+    }
+
+    const token = crypto.randomBytes(32).toString('hex');
+    const userObj = {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      pharmacy_name: user.pharmacy_name,
+      role: user.role,
+      currency_symbol: user.currency_symbol || 'KSh',
+      phone: user.phone || '',
+      picture: user.google_picture || ''
+    };
+    activeSessions.set(token, userObj);
+
+    // Apply their settings
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('pharmacy_name', ?)").run(user.pharmacy_name);
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('currency_symbol', ?)").run(user.currency_symbol || 'KSh');
+
+    res.json({ success: true, token, user: userObj });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // --- SETTINGS ENDPOINTS ---
 app.get('/api/settings', (req, res) => {
   try {
+    const user = getAuthUser(req);
     const rows = db.prepare('SELECT key, value FROM settings').all();
     const settings = {};
     for (const r of rows) {
       settings[r.key] = r.value;
+    }
+    if (user) {
+      settings.pharmacy_name = user.pharmacy_name || settings.pharmacy_name;
+      settings.currency_symbol = user.currency_symbol || settings.currency_symbol;
+      if (user.phone) settings.phone = user.phone;
+      if (user.address) settings.address = user.address;
     }
     res.json(settings);
   } catch (err) {
@@ -141,10 +228,21 @@ app.get('/api/settings', (req, res) => {
 
 app.put('/api/settings', (req, res) => {
   try {
+    const user = getAuthUser(req);
     const updates = req.body;
     const stmt = db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)');
     for (const [key, val] of Object.entries(updates)) {
       stmt.run(key, String(val));
+    }
+    if (user) {
+      if (updates.pharmacy_name) {
+        db.prepare('UPDATE users SET pharmacy_name = ? WHERE id = ?').run(updates.pharmacy_name, user.id);
+        user.pharmacy_name = updates.pharmacy_name;
+      }
+      if (updates.currency_symbol) {
+        db.prepare('UPDATE users SET currency_symbol = ? WHERE id = ?').run(updates.currency_symbol, user.id);
+        user.currency_symbol = updates.currency_symbol;
+      }
     }
     res.json({ success: true, message: 'Settings updated' });
   } catch (err) {
@@ -155,6 +253,7 @@ app.put('/api/settings', (req, res) => {
 // --- DASHBOARD SUMMARY ---
 app.get('/api/dashboard', (req, res) => {
   try {
+    const user = getAuthUser(req);
     const settingDays = db.prepare("SELECT value FROM settings WHERE key = 'expiry_warning_days'").get();
     const warningDays = parseInt(settingDays?.value || '90', 10);
 
@@ -182,25 +281,46 @@ app.get('/api/dashboard', (req, res) => {
       ORDER BY total_packs ASC
     `).all();
 
-    // Today's sales
-    const todaySales = db.prepare(`
-      SELECT count(*) as count, COALESCE(SUM(total), 0) as revenue
-      FROM sales
-      WHERE date(created_at) = date('now')
-    `).get();
+    // Sales and loans scoped by user (or demo for non-logged in)
+    let todaySales;
+    let recentSales;
+    let loans;
 
-    // Recent 10 sales
-    const recentSales = db.prepare(`
-      SELECT * FROM sales ORDER BY id DESC LIMIT 10
-    `).all();
+    if (user) {
+      todaySales = db.prepare(`
+        SELECT count(*) as count, COALESCE(SUM(total), 0) as revenue
+        FROM sales
+        WHERE user_id = ? AND date(created_at) = date('now')
+      `).get(user.id);
 
-    // Customer Loans / Credits
-    const loans = db.prepare(`
-      SELECT *, julianday(promise_date) - julianday('now') as days_left
-      FROM customer_loans
-      WHERE status != 'paid' AND balance_due > 0
-      ORDER BY promise_date ASC
-    `).all();
+      recentSales = db.prepare(`
+        SELECT * FROM sales WHERE user_id = ? ORDER BY id DESC LIMIT 10
+      `).all(user.id);
+
+      loans = db.prepare(`
+        SELECT *, julianday(promise_date) - julianday('now') as days_left
+        FROM customer_loans
+        WHERE user_id = ? AND status != 'paid' AND balance_due > 0
+        ORDER BY promise_date ASC
+      `).all(user.id);
+    } else {
+      todaySales = db.prepare(`
+        SELECT count(*) as count, COALESCE(SUM(total), 0) as revenue
+        FROM sales
+        WHERE (user_id IS NULL OR user_id = 1) AND date(created_at) = date('now')
+      `).get();
+
+      recentSales = db.prepare(`
+        SELECT * FROM sales WHERE (user_id IS NULL OR user_id = 1) ORDER BY id DESC LIMIT 10
+      `).all();
+
+      loans = db.prepare(`
+        SELECT *, julianday(promise_date) - julianday('now') as days_left
+        FROM customer_loans
+        WHERE (user_id IS NULL OR user_id = 1) AND status != 'paid' AND balance_due > 0
+        ORDER BY promise_date ASC
+      `).all();
+    }
 
     const overdueLoans = loans.filter(l => l.days_left < 0);
     const dueSoonLoans = loans.filter(l => l.days_left >= 0 && l.days_left <= 3);
@@ -548,17 +668,20 @@ app.post('/api/sales', (req, res) => {
     const total = Math.max(0, subtotal - Number(discount));
     const nowStr = new Date().toISOString().replace('T', ' ').slice(0, 19);
 
+    const user = getAuthUser(req);
+    const userId = user ? user.id : 1;
+
     const saleStmt = db.prepare(`
       INSERT INTO sales (
         receipt_number, customer_name, customer_phone, payment_method,
-        prescribing_doctor, prescription_number, subtotal, discount, tax, total, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+        prescribing_doctor, prescription_number, subtotal, discount, tax, total, created_at, user_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
     `);
 
     const saleResult = saleStmt.run(
       receiptNumber, customer_name || 'Walk-in Customer', customer_phone || '',
       payment_method || 'cash', prescribing_doctor || '', prescription_number || '',
-      subtotal, Number(discount), total, nowStr
+      subtotal, Number(discount), total, nowStr, userId
     );
     const saleId = saleResult.lastInsertRowid;
 
@@ -636,8 +759,8 @@ app.post('/api/sales', (req, res) => {
         INSERT INTO customer_loans (
           customer_name, customer_phone, national_id_or_notes,
           total_amount, amount_paid, balance_due, promise_date,
-          status, items_summary, sale_id, created_at
-        ) VALUES (?, ?, ?, ?, 0, ?, ?, 'pending', ?, ?, ?)
+          status, items_summary, sale_id, created_at, user_id
+        ) VALUES (?, ?, ?, ?, 0, ?, ?, 'pending', ?, ?, ?, ?)
       `);
       loanStmt.run(
         customer_name || 'Trusted Patient',
@@ -648,7 +771,8 @@ app.post('/api/sales', (req, res) => {
         promiseDate,
         itemsSummary,
         saleId,
-        nowStr
+        nowStr,
+        userId
       );
     }
 
@@ -669,12 +793,20 @@ app.post('/api/sales', (req, res) => {
 // SALES HISTORY
 app.get('/api/sales', (req, res) => {
   try {
+    const user = getAuthUser(req);
     const { q, limit = 50 } = req.query;
-    let sql = 'SELECT * FROM sales';
+    let sql = 'SELECT * FROM sales WHERE ';
     const params = [];
 
+    if (user) {
+      sql += 'user_id = ?';
+      params.push(user.id);
+    } else {
+      sql += '(user_id IS NULL OR user_id = 1)';
+    }
+
     if (q) {
-      sql += ' WHERE receipt_number LIKE ? OR customer_name LIKE ? OR prescription_number LIKE ?';
+      sql += ' AND (receipt_number LIKE ? OR customer_name LIKE ? OR prescription_number LIKE ?)';
       const term = `%${q}%`;
       params.push(term, term, term);
     }
@@ -713,21 +845,30 @@ app.get('/api/sales/:id', (req, res) => {
 // ==========================================
 app.get('/api/loans', (req, res) => {
   try {
+    const user = getAuthUser(req);
     const { status, q } = req.query;
     let sql = `
       SELECT l.*,
              julianday(l.promise_date) - julianday('now') as days_left
       FROM customer_loans l
+      WHERE
     `;
     const params = [];
     const where = [];
+
+    if (user) {
+      where.push('l.user_id = ?');
+      params.push(user.id);
+    } else {
+      where.push('(l.user_id IS NULL OR l.user_id = 1)');
+    }
 
     if (status === 'overdue') {
       where.push(`l.balance_due > 0 AND date(l.promise_date) < date('now')`);
     } else if (status === 'active') {
       where.push(`l.balance_due > 0`);
     } else if (status === 'paid') {
-      where.push(`l.status = 'paid' OR l.balance_due <= 0`);
+      where.push(`(l.status = 'paid' OR l.balance_due <= 0)`);
     }
 
     if (q) {
@@ -736,9 +877,7 @@ app.get('/api/loans', (req, res) => {
       params.push(term, term, term);
     }
 
-    if (where.length > 0) {
-      sql += ' WHERE ' + where.join(' AND ');
-    }
+    sql += ' ' + where.join(' AND ');
     sql += ' ORDER BY l.promise_date ASC';
 
     const loans = db.prepare(sql).all(...params);

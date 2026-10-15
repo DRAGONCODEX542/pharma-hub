@@ -30,10 +30,12 @@ export function initDatabase() {
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       email TEXT UNIQUE NOT NULL,
-      password_hash TEXT NOT NULL,
+      password_hash TEXT,
+      google_id TEXT UNIQUE,
+      google_picture TEXT,
       name TEXT NOT NULL,
       pharmacy_name TEXT NOT NULL,
-      role TEXT DEFAULT 'admin', -- 'admin', 'cashier'
+      role TEXT DEFAULT 'admin',
       phone TEXT,
       address TEXT,
       currency_symbol TEXT DEFAULT 'KSh',
@@ -142,6 +144,10 @@ export function initDatabase() {
       created_at TEXT NOT NULL
     );
   `);
+
+  // Safe schema migrations for existing databases
+  try { db.exec('ALTER TABLE sales ADD COLUMN user_id INTEGER;'); } catch (e) {}
+  try { db.exec('ALTER TABLE customer_loans ADD COLUMN user_id INTEGER;'); } catch (e) {}
 
   // Default settings if empty
   const getSetting = db.prepare('SELECT value FROM settings WHERE key = ?');
