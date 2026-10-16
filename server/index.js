@@ -252,6 +252,12 @@ app.get('/api/auth/me', (req, res) => {
   res.json({ authenticated: true, user });
 });
 
+app.get('/api/auth/config', (req, res) => {
+  res.json({
+    googleClientId: process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID || ''
+  });
+});
+
 // Google OAuth — verify credential securely
 app.post('/api/auth/google', authRateLimiter, async (req, res) => {
   try {
