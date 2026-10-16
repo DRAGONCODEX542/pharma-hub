@@ -190,6 +190,60 @@ app.post('/api/auth/login', authRateLimiter, (req, res) => {
   }
 });
 
+// Phone Number Login Endpoint
+app.post('/api/auth/phone-login', authRateLimiter, (req, res) => {
+  try {
+    const { phone, password } = req.body;
+    if (!phone || !password) {
+      return res.status(400).json({ error: 'Phone number and password are required' });
+    }
+
+    const cleanPhone = phone.trim().replace(/\s+/g, '');
+    const phoneDigits = cleanPhone.replace(/\D/g, '');
+    if (phoneDigits.length < 8) {
+      return res.status(400).json({ error: 'Please enter a valid phone number' });
+    }
+
+    const users = db.prepare("SELECT * FROM users WHERE phone IS NOT NULL AND phone != ''").all();
+    const user = users.find(u => {
+      if (!u.phone) return false;
+      const uDigits = u.phone.replace(/\D/g, '');
+      return uDigits === phoneDigits || (phoneDigits.length >= 9 && uDigits.endsWith(phoneDigits.slice(-9)));
+    });
+
+    if (!user || !verifyPassword(password, user.password_hash)) {
+      return res.status(401).json({ error: 'Invalid phone number or password' });
+    }
+
+    const token = crypto.randomBytes(48).toString('hex');
+    const isSuperAdmin = user.role === 'superadmin' || (process.env.OWNER_EMAIL && user.email.toLowerCase() === process.env.OWNER_EMAIL.trim().toLowerCase());
+    const sessionTTL = isSuperAdmin ? 30 * 24 * 60 * 60 * 1000 : SESSION_TTL_MS;
+
+    const userObj = {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      pharmacy_name: user.pharmacy_name,
+      role: user.role,
+      currency_symbol: user.currency_symbol || 'KSh',
+      phone: user.phone || '',
+      address: user.address || ''
+    };
+    activeSessions.set(token, { user: userObj, expiresAt: Date.now() + sessionTTL });
+
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('pharmacy_name', ?)").run(user.pharmacy_name);
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('currency_symbol', ?)").run(user.currency_symbol || 'KSh');
+
+    res.json({
+      success: true,
+      token,
+      user: userObj
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/auth/me', (req, res) => {
   const user = getAuthUser(req);
   if (!user) {

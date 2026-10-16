@@ -88,6 +88,9 @@ export default function App() {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [isDemoGuest, setIsDemoGuest] = useState(false);
   const [authMode, setAuthMode] = useState('login'); // 'login' or 'register'
+  const [authMethod, setAuthMethod] = useState('email'); // 'email' or 'phone'
+  const [phoneLoginForm, setPhoneLoginForm] = useState({ phone: '', password: '' });
+  const [selectedMedId, setSelectedMedId] = useState(null); // tracks active selection with liquid highlight
   const [authForm, setAuthForm] = useState({
     name: '',
     email: '',
@@ -277,6 +280,33 @@ export default function App() {
   useEffect(() => {
     fetchAllData();
   }, [isDemoGuest]);
+
+  // Automatic Google One Tap login prompt on visit (just like other modern websites)
+  useEffect(() => {
+    if (currentUser || isDemoGuest) return;
+    const initGis = () => {
+      if (window.google?.accounts?.id) {
+        try {
+          const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID || '1029384756-pharmahub.apps.googleusercontent.com';
+          window.google.accounts.id.initialize({
+            client_id: clientId,
+            callback: (response) => {
+              if (response?.credential) {
+                handleGoogleLogin({ credential: response.credential });
+              }
+            },
+            auto_select: false,
+            cancel_on_tap_outside: true
+          });
+          window.google.accounts.id.prompt();
+        } catch (err) {
+          console.warn('Google One Tap auto prompt:', err);
+        }
+      }
+    };
+    const timer = setTimeout(initGis, 1200);
+    return () => clearTimeout(timer);
+  }, [currentUser, isDemoGuest]);
 
   // Filtered medicines for POS
   const filteredMeds = useMemo(() => {
@@ -606,9 +636,42 @@ export default function App() {
         console.warn('Google One Tap prompt failed', e);
       }
     }
-    // If Google Client ID is not configured, inform user and open standard email/password form
+    // If Google Client ID is not configured, inform user and open standard login form
     showToast('Google Sign-In ready. Please enter your credentials below.', 'info');
     setShowAuthModal(true);
+  };
+
+  // Phone Number Login Handler
+  const handlePhoneLogin = async (e) => {
+    e?.preventDefault();
+    if (!phoneLoginForm.phone?.trim() || !phoneLoginForm.password) {
+      showToast('Please enter both your phone number and password', 'error');
+      return;
+    }
+    try {
+      const res = await fetch('/api/auth/phone-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone: phoneLoginForm.phone.trim(),
+          password: phoneLoginForm.password
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        localStorage.setItem('pharmahub_user', JSON.stringify(data.user));
+        localStorage.setItem('pharmahub_token', data.token);
+        setCurrentUser(data.user);
+        setIsDemoGuest(false);
+        setShowAuthModal(false);
+        showToast(`Welcome back, ${data.user.name}! 🎉`, 'success');
+        fetchAllData();
+      } else {
+        showToast(data.error || 'Phone login failed', 'error');
+      }
+    } catch (err) {
+      showToast('Error signing in with phone', 'error');
+    }
   };
 
   // Record Repayment
@@ -840,13 +903,17 @@ export default function App() {
           </div>
 
           <div className="lg:col-span-5">
-            <div className="bg-white text-slate-900 rounded-3xl p-6 sm:p-8 shadow-2xl shadow-emerald-950/70 border border-slate-100">
-              <div className="flex bg-slate-100 p-1 rounded-2xl mb-6">
+            <div className="liquid-glass text-slate-900 dark:text-white rounded-3xl p-6 sm:p-8 shadow-2xl relative overflow-hidden apple-spring">
+              
+              {/* Apple Segmented Control for Sign In vs Register */}
+              <div className="flex bg-black/[0.05] dark:bg-white/[0.08] p-1 rounded-2xl mb-6">
                 <button
                   type="button"
                   onClick={() => setAuthMode('login')}
-                  className={`flex-1 py-2.5 rounded-xl font-bold text-xs transition ${
-                    authMode === 'login' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-900'
+                  className={`flex-1 py-2.5 rounded-xl font-bold text-xs transition apple-spring ${
+                    authMode === 'login'
+                      ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm'
+                      : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
                   }`}
                 >
                   Sign In
@@ -854,30 +921,32 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setAuthMode('register')}
-                  className={`flex-1 py-2.5 rounded-xl font-bold text-xs transition ${
-                    authMode === 'register' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-900'
+                  className={`flex-1 py-2.5 rounded-xl font-bold text-xs transition apple-spring ${
+                    authMode === 'register'
+                      ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm'
+                      : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
                   }`}
                 >
                   Create Account
                 </button>
               </div>
 
-              <div className="mb-6">
-                <h2 className="text-xl font-bold text-slate-900">
+              <div className="mb-5">
+                <h2 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight">
                   {authMode === 'login' ? 'Welcome back, Pharmacist' : 'Set up your free pharmacy'}
                 </h2>
-                <p className="text-xs text-slate-500 mt-1">
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                   {authMode === 'login'
-                    ? 'Enter your credentials or use Google to continue'
+                    ? 'Sign in with Google, phone number, or email to access your dispensary'
                     : 'Your clean template is pre-loaded with essential medicines'}
                 </p>
               </div>
 
-              {/* Google Sign In Button */}
+              {/* 1. Primary One-Click Google Sign In */}
               <button
                 type="button"
                 onClick={triggerGoogleSignIn}
-                className="w-full py-3 px-4 border border-slate-200 hover:border-slate-300 hover:bg-slate-50 font-semibold text-sm text-slate-700 rounded-2xl flex items-center justify-center space-x-3 transition shadow-sm mb-4"
+                className="w-full py-3 px-4 bg-white/90 dark:bg-slate-800/80 hover:bg-white dark:hover:bg-slate-800 border border-black/[0.08] dark:border-white/[0.1] font-semibold text-sm text-slate-700 dark:text-slate-200 rounded-2xl flex items-center justify-center space-x-3 transition shadow-sm mb-4 apple-press"
               >
                 <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
                   <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
@@ -888,108 +957,175 @@ export default function App() {
                 <span>Continue with Google</span>
               </button>
 
-              <div className="relative my-4">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-slate-200"></div>
+              {/* In Login mode: show sub-switcher for Email vs Phone login */}
+              {authMode === 'login' && (
+                <div className="flex bg-black/[0.04] dark:bg-white/[0.05] p-1 rounded-xl mb-4">
+                  <button
+                    type="button"
+                    onClick={() => setAuthMethod('email')}
+                    className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition apple-spring flex items-center justify-center gap-1.5 ${
+                      authMethod === 'email'
+                        ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm'
+                        : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    <span>✉️ Email</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAuthMethod('phone')}
+                    className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition apple-spring flex items-center justify-center gap-1.5 ${
+                      authMethod === 'phone'
+                        ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm'
+                        : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    <span>📱 Phone Number</span>
+                  </button>
                 </div>
-                <div className="relative flex justify-center text-xs uppercase">
-                  <span className="bg-white px-3 text-slate-400 font-semibold tracking-wider">or email</span>
-                </div>
-              </div>
+              )}
 
-              <form onSubmit={authMode === 'login' ? handleLogin : handleRegister} className="space-y-3.5">
-                {authMode === 'register' && (
-                  <>
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Your Full Name</label>
-                      <input
-                        type="text"
-                        required
-                        placeholder="Dr. Faith Mwangi"
-                        value={authForm.name}
-                        onChange={e => setAuthForm(f => ({ ...f, name: e.target.value }))}
-                        className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:bg-white outline-none transition"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Pharmacy / Chemist Name</label>
-                      <input
-                        type="text"
-                        required
-                        placeholder="CarePoint Community Pharmacy"
-                        value={authForm.pharmacy_name}
-                        onChange={e => setAuthForm(f => ({ ...f, pharmacy_name: e.target.value }))}
-                        className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:bg-white outline-none transition"
-                      />
-                    </div>
-                  </>
-                )}
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Email Address</label>
-                  <input
-                    type="email"
-                    required
-                    placeholder="pharmacist@example.com"
-                    value={authForm.email}
-                    onChange={e => setAuthForm(f => ({ ...f, email: e.target.value }))}
-                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:bg-white outline-none transition"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Password</label>
-                  <input
-                    type="password"
-                    required
-                    placeholder={authMode === 'register' ? 'Choose a secure password' : 'Enter your password'}
-                    value={authForm.password}
-                    onChange={e => setAuthForm(f => ({ ...f, password: e.target.value }))}
-                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:bg-white outline-none transition"
-                  />
-                </div>
-
-                {authMode === 'register' && (
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Currency</label>
-                      <select
-                        value={authForm.currency_symbol || detectedLocale.currency}
-                        onChange={e => setAuthForm(f => ({ ...f, currency_symbol: e.target.value }))}
-                        className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:bg-white outline-none transition"
-                      >
-                        <option value="KSh">KSh (Kenya)</option>
-                        <option value="$">$ (USD)</option>
-                        <option value="£">£ (UK)</option>
-                        <option value="₦">₦ (Nigeria)</option>
-                        <option value="₹">₹ (India)</option>
-                        <option value="UGX">UGX (Uganda)</option>
-                        <option value="TZS">TZS (Tanzania)</option>
-                        <option value="GH₵">GH₵ (Ghana)</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Phone (Optional)</label>
-                      <input
-                        type="tel"
-                        placeholder="+254 7..."
-                        value={authForm.phone}
-                        onChange={e => setAuthForm(f => ({ ...f, phone: e.target.value }))}
-                        className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:bg-white outline-none transition"
-                      />
-                    </div>
+              {authMode === 'register' && (
+                <div className="relative my-3">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-black/[0.08] dark:border-white/[0.1]"></div>
                   </div>
-                )}
+                  <div className="relative flex justify-center text-[10px] uppercase">
+                    <span className="bg-white/80 dark:bg-slate-900 px-3 text-slate-400 font-semibold tracking-wider">or register with email</span>
+                  </div>
+                </div>
+              )}
 
-                <button
-                  type="submit"
-                  className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold rounded-2xl transition shadow-lg shadow-emerald-600/30 text-sm mt-2"
-                >
-                  {authMode === 'login' ? 'Sign In to My Pharmacy' : 'Create Free Account & Start'}
-                </button>
-              </form>
+              {/* Login with Phone Number */}
+              {authMode === 'login' && authMethod === 'phone' && (
+                <form onSubmit={handlePhoneLogin} className="space-y-3.5">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Your Registered Phone Number</label>
+                    <input
+                      type="tel"
+                      required
+                      placeholder="+254 700 000 000"
+                      value={phoneLoginForm.phone}
+                      onChange={e => setPhoneLoginForm(f => ({ ...f, phone: e.target.value }))}
+                      className="w-full px-3.5 py-2.5 bg-white/70 dark:bg-slate-800 border border-black/[0.08] dark:border-white/[0.1] rounded-xl text-sm dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none transition"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Password / Security PIN</label>
+                    <input
+                      type="password"
+                      required
+                      placeholder="Enter your password"
+                      value={phoneLoginForm.password}
+                      onChange={e => setPhoneLoginForm(f => ({ ...f, password: e.target.value }))}
+                      className="w-full px-3.5 py-2.5 bg-white/70 dark:bg-slate-800 border border-black/[0.08] dark:border-white/[0.1] rounded-xl text-sm dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none transition"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-bold rounded-2xl transition shadow-lg shadow-emerald-600/30 text-sm mt-2 apple-spring"
+                  >
+                    Sign In with Phone
+                  </button>
+                </form>
+              )}
 
-              <div className="mt-5 pt-4 border-t border-slate-100 text-center">
+              {/* Standard Email Form (Login or Register) */}
+              {(authMode === 'register' || (authMode === 'login' && authMethod === 'email')) && (
+                <form onSubmit={authMode === 'login' ? handleLogin : handleRegister} className="space-y-3.5">
+                  {authMode === 'register' && (
+                    <>
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Your Full Name</label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="Dr. Faith Mwangi"
+                          value={authForm.name}
+                          onChange={e => setAuthForm(f => ({ ...f, name: e.target.value }))}
+                          className="w-full px-3.5 py-2.5 bg-white/70 dark:bg-slate-800 border border-black/[0.08] dark:border-white/[0.1] rounded-xl text-sm dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none transition"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Pharmacy / Chemist Name</label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="CarePoint Community Pharmacy"
+                          value={authForm.pharmacy_name}
+                          onChange={e => setAuthForm(f => ({ ...f, pharmacy_name: e.target.value }))}
+                          className="w-full px-3.5 py-2.5 bg-white/70 dark:bg-slate-800 border border-black/[0.08] dark:border-white/[0.1] rounded-xl text-sm dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none transition"
+                        />
+                      </div>
+                    </>
+                  )}
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Genuine Email Address</label>
+                    <input
+                      type="email"
+                      required
+                      placeholder="pharmacist@example.com"
+                      value={authForm.email}
+                      onChange={e => setAuthForm(f => ({ ...f, email: e.target.value }))}
+                      className="w-full px-3.5 py-2.5 bg-white/70 dark:bg-slate-800 border border-black/[0.08] dark:border-white/[0.1] rounded-xl text-sm dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none transition"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Password</label>
+                    <input
+                      type="password"
+                      required
+                      placeholder={authMode === 'register' ? 'Choose a secure password (min 6)' : 'Enter your password'}
+                      value={authForm.password}
+                      onChange={e => setAuthForm(f => ({ ...f, password: e.target.value }))}
+                      className="w-full px-3.5 py-2.5 bg-white/70 dark:bg-slate-800 border border-black/[0.08] dark:border-white/[0.1] rounded-xl text-sm dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none transition"
+                    />
+                  </div>
+
+                  {authMode === 'register' && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Currency</label>
+                        <select
+                          value={authForm.currency_symbol || detectedLocale.currency}
+                          onChange={e => setAuthForm(f => ({ ...f, currency_symbol: e.target.value }))}
+                          className="w-full px-3 py-2.5 bg-white/70 dark:bg-slate-800 border border-black/[0.08] dark:border-white/[0.1] rounded-xl text-sm dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none transition"
+                        >
+                          <option value="KSh">KSh (Kenya)</option>
+                          <option value="$">$ (USD)</option>
+                          <option value="£">£ (UK)</option>
+                          <option value="₦">₦ (Nigeria)</option>
+                          <option value="₹">₹ (India)</option>
+                          <option value="UGX">UGX (Uganda)</option>
+                          <option value="TZS">TZS (Tanzania)</option>
+                          <option value="GH₵">GH₵ (Ghana)</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Phone Number</label>
+                        <input
+                          type="tel"
+                          placeholder="+254 700 000 000"
+                          value={authForm.phone}
+                          onChange={e => setAuthForm(f => ({ ...f, phone: e.target.value }))}
+                          className="w-full px-3 py-2.5 bg-white/70 dark:bg-slate-800 border border-black/[0.08] dark:border-white/[0.1] rounded-xl text-sm dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none transition"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  <button
+                    type="submit"
+                    className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-bold rounded-2xl transition shadow-lg shadow-emerald-600/30 text-sm mt-2 apple-spring"
+                  >
+                    {authMode === 'login' ? 'Sign In to My Pharmacy' : 'Create Free Account & Start'}
+                  </button>
+                </form>
+              )}
+
+              <div className="mt-5 pt-4 border-t border-black/[0.06] dark:border-white/[0.08] text-center">
                 <button
                   type="button"
                   onClick={() => {
@@ -1289,7 +1425,10 @@ export default function App() {
                     return (
                       <div
                         key={med.id}
-                        className={`apple-card apple-card-interactive rounded-2xl p-4 flex flex-col justify-between ${
+                        onClick={() => setSelectedMedId(med.id)}
+                        className={`bento-card p-4 flex flex-col justify-between cursor-pointer apple-spring ${
+                          selectedMedId === med.id ? 'liquid-selected' : ''
+                        } ${
                           isOutOfStock ? 'opacity-55 border-rose-200 dark:border-rose-800/40' : ''
                         }`}
                       >
@@ -3130,102 +3269,159 @@ export default function App() {
                 <span>Continue with Google</span>
               </button>
 
-              <div className="relative my-2">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-slate-200 dark:border-white/10"></div>
+              {/* In Login mode: show sub-switcher for Email vs Phone login */}
+              {authMode === 'login' && (
+                <div className="flex bg-black/[0.04] dark:bg-white/[0.05] p-1 rounded-xl mb-3">
+                  <button
+                    type="button"
+                    onClick={() => setAuthMethod('email')}
+                    className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition apple-spring flex items-center justify-center gap-1.5 ${
+                      authMethod === 'email'
+                        ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm'
+                        : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    <span>✉️ Email</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAuthMethod('phone')}
+                    className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition apple-spring flex items-center justify-center gap-1.5 ${
+                      authMethod === 'phone'
+                        ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm'
+                        : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    <span>📱 Phone Number</span>
+                  </button>
                 </div>
-                <div className="relative flex justify-center text-[10px] uppercase">
-                  <span className="bg-white dark:bg-[#16161A] px-2 text-slate-400 font-semibold tracking-wider">or with email</span>
-                </div>
-              </div>
-
-              {authMode === 'register' && (
-                <>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Pharmacist Full Name</label>
-                    <input
-                      type="text"
-                      placeholder="Dr. Jane Wambui"
-                      value={authForm.name}
-                      onChange={e => setAuthForm(f => ({ ...f, name: e.target.value }))}
-                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-xs dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none transition"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Pharmacy / Chemist Name</label>
-                    <input
-                      type="text"
-                      placeholder="HealthFirst Community Chemist"
-                      value={authForm.pharmacy_name}
-                      onChange={e => setAuthForm(f => ({ ...f, pharmacy_name: e.target.value }))}
-                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-xs dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none transition"
-                    />
-                  </div>
-                </>
               )}
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Genuine Email Address</label>
-                <input
-                  type="email"
-                  placeholder="name@pharmacy.com"
-                  value={authForm.email}
-                  onChange={e => setAuthForm(f => ({ ...f, email: e.target.value }))}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-xs dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none transition"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Password</label>
-                <input
-                  type="password"
-                  placeholder={authMode === 'register' ? 'Minimum 6 characters' : 'Enter password'}
-                  value={authForm.password}
-                  onChange={e => setAuthForm(f => ({ ...f, password: e.target.value }))}
-                  onKeyDown={e => e.key === 'Enter' && (authMode === 'login' ? handleLogin(e) : handleRegister(e))}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-xs dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none transition"
-                />
-              </div>
-
-              {authMode === 'register' && (
-                <div className="grid grid-cols-2 gap-2.5">
+              {/* Login with Phone Number inside Modal */}
+              {authMode === 'login' && authMethod === 'phone' ? (
+                <div className="space-y-3">
                   <div>
-                    <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Phone Number</label>
+                    <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Your Phone Number</label>
                     <input
                       type="tel"
+                      required
                       placeholder="+254 700 000 000"
-                      value={authForm.phone}
-                      onChange={e => setAuthForm(f => ({ ...f, phone: e.target.value }))}
+                      value={phoneLoginForm.phone}
+                      onChange={e => setPhoneLoginForm(f => ({ ...f, phone: e.target.value }))}
                       className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-xs dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none transition"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Currency</label>
-                    <select
-                      value={authForm.currency_symbol || detectedLocale.currency}
-                      onChange={e => setAuthForm(f => ({ ...f, currency_symbol: e.target.value }))}
-                      className="w-full px-2.5 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-xs dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none transition"
-                    >
-                      <option value="KSh">KSh (Kenya)</option>
-                      <option value="$">$ (USD)</option>
-                      <option value="£">£ (UK)</option>
-                      <option value="₦">₦ (Nigeria)</option>
-                      <option value="₹">₹ (India)</option>
-                      <option value="UGX">UGX (Uganda)</option>
-                      <option value="TZS">TZS (Tanzania)</option>
-                      <option value="GH₵">GH₵ (Ghana)</option>
-                    </select>
+                    <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Password / Security PIN</label>
+                    <input
+                      type="password"
+                      required
+                      placeholder="Enter password"
+                      value={phoneLoginForm.password}
+                      onChange={e => setPhoneLoginForm(f => ({ ...f, password: e.target.value }))}
+                      onKeyDown={e => e.key === 'Enter' && handlePhoneLogin(e)}
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-xs dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none transition"
+                    />
                   </div>
+                  <button
+                    type="button"
+                    onClick={handlePhoneLogin}
+                    className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-bold rounded-xl transition text-xs shadow-md shadow-emerald-600/30 apple-spring mt-2"
+                  >
+                    Sign In with Phone
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {authMode === 'register' && (
+                    <>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Pharmacist Full Name</label>
+                        <input
+                          type="text"
+                          placeholder="Dr. Jane Wambui"
+                          value={authForm.name}
+                          onChange={e => setAuthForm(f => ({ ...f, name: e.target.value }))}
+                          className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-xs dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none transition"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Pharmacy / Chemist Name</label>
+                        <input
+                          type="text"
+                          placeholder="HealthFirst Community Chemist"
+                          value={authForm.pharmacy_name}
+                          onChange={e => setAuthForm(f => ({ ...f, pharmacy_name: e.target.value }))}
+                          className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-xs dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none transition"
+                        />
+                      </div>
+                    </>
+                  )}
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Genuine Email Address</label>
+                    <input
+                      type="email"
+                      placeholder="name@pharmacy.com"
+                      value={authForm.email}
+                      onChange={e => setAuthForm(f => ({ ...f, email: e.target.value }))}
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-xs dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none transition"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Password</label>
+                    <input
+                      type="password"
+                      placeholder={authMode === 'register' ? 'Minimum 6 characters' : 'Enter password'}
+                      value={authForm.password}
+                      onChange={e => setAuthForm(f => ({ ...f, password: e.target.value }))}
+                      onKeyDown={e => e.key === 'Enter' && (authMode === 'login' ? handleLogin(e) : handleRegister(e))}
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-xs dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none transition"
+                    />
+                  </div>
+
+                  {authMode === 'register' && (
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Phone Number</label>
+                        <input
+                          type="tel"
+                          placeholder="+254 700 000 000"
+                          value={authForm.phone}
+                          onChange={e => setAuthForm(f => ({ ...f, phone: e.target.value }))}
+                          className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-xs dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none transition"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Currency</label>
+                        <select
+                          value={authForm.currency_symbol || detectedLocale.currency}
+                          onChange={e => setAuthForm(f => ({ ...f, currency_symbol: e.target.value }))}
+                          className="w-full px-2.5 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-xs dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none transition"
+                        >
+                          <option value="KSh">KSh (Kenya)</option>
+                          <option value="$">$ (USD)</option>
+                          <option value="£">£ (UK)</option>
+                          <option value="₦">₦ (Nigeria)</option>
+                          <option value="₹">₹ (India)</option>
+                          <option value="UGX">UGX (Uganda)</option>
+                          <option value="TZS">TZS (Tanzania)</option>
+                          <option value="GH₵">GH₵ (Ghana)</option>
+                        </select>
+                      </div>
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={authMode === 'login' ? handleLogin : handleRegister}
+                    className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-bold rounded-xl transition text-xs shadow-md shadow-emerald-600/30 apple-spring"
+                  >
+                    {authMode === 'login' ? 'Sign In to My Pharmacy' : 'Create Free Account & Start'}
+                  </button>
                 </div>
               )}
-
-              <button
-                type="button"
-                onClick={authMode === 'login' ? handleLogin : handleRegister}
-                className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-bold rounded-xl transition text-xs shadow-md shadow-emerald-600/30 apple-spring"
-              >
-                {authMode === 'login' ? 'Sign In to My Pharmacy' : 'Create Free Account & Start'}
-              </button>
 
               <div className="text-center text-xs text-slate-500 dark:text-slate-400 pt-1">
                 {authMode === 'login' ? (
