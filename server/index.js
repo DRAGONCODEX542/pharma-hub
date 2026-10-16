@@ -9,14 +9,66 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
+// --- ENTERPRISE SECURITY HEADERS & HARDENING ---
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  res.removeHeader('X-Powered-By');
+  next();
+});
+
 // Initialize DB schema & seed data
 initDatabase();
 
-// In-memory token store for sessions
+// In-memory token store for sessions with expiration
+// Maps token -> { user, expiresAt }
 const activeSessions = new Map();
+const SESSION_TTL_MS = 14 * 24 * 60 * 60 * 1000; // 14 days
+
+// Auth helper to retrieve user from Bearer token
+function getAuthUser(req) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
+  const token = authHeader.split(' ')[1];
+  const session = activeSessions.get(token);
+  if (!session) return null;
+
+  // Handle session expiration
+  if (session.expiresAt && Date.now() > session.expiresAt) {
+    activeSessions.delete(token);
+    return null;
+  }
+  return session.user || session;
+}
+
+// In-memory IP rate limiter for authentication endpoints
+const authRateLimits = new Map();
+function authRateLimiter(req, res, next) {
+  const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
+  const now = Date.now();
+  const windowMs = 5 * 60 * 1000; // 5 minute window
+  const maxRequests = 40; // Max 40 attempts per 5 minutes per IP
+
+  const record = authRateLimits.get(ip) || { count: 0, resetAt: now + windowMs };
+  if (now > record.resetAt) {
+    record.count = 1;
+    record.resetAt = now + windowMs;
+  } else {
+    record.count += 1;
+  }
+  authRateLimits.set(ip, record);
+
+  if (record.count > maxRequests) {
+    return res.status(429).json({ error: 'Too many authentication attempts. Please try again in a few minutes.' });
+  }
+  next();
+}
 
 // --- AUTHENTICATION ENDPOINTS ---
-app.post('/api/auth/register', (req, res) => {
+app.post('/api/auth/register', authRateLimiter, (req, res) => {
   try {
     const { name, email, password, pharmacy_name, phone = '', address = '', currency_symbol = 'KSh' } = req.body;
 
@@ -25,6 +77,27 @@ app.post('/api/auth/register', (req, res) => {
     }
 
     const cleanEmail = email.trim().toLowerCase();
+    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+    if (!emailRegex.test(cleanEmail)) {
+      return res.status(400).json({ error: 'Please enter a genuine, valid email address (e.g. name@domain.com)' });
+    }
+
+    if (phone && phone.trim()) {
+      const cleanPhone = phone.trim();
+      const phoneDigits = cleanPhone.replace(/\D/g, '');
+      if (phoneDigits.length < 8 || phoneDigits.length > 15 || !/^\+?[0-9\s\-()]{8,20}$/.test(cleanPhone)) {
+        return res.status(400).json({ error: 'Please enter a genuine phone number with valid digits' });
+      }
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters long' });
+    }
+
+    if (process.env.OWNER_EMAIL && cleanEmail === process.env.OWNER_EMAIL.trim().toLowerCase()) {
+      return res.status(400).json({ error: 'This email is reserved for system administration. Please sign in directly.' });
+    }
+
     const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(cleanEmail);
     if (existing) {
       return res.status(400).json({ error: 'An account with this email already exists' });
@@ -37,10 +110,10 @@ app.post('/api/auth/register', (req, res) => {
       INSERT INTO users (name, email, password_hash, pharmacy_name, phone, address, currency_symbol, role, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, 'admin', ?)
     `);
-    const result = stmt.run(name.trim(), cleanEmail, passHash, pharmacy_name.trim(), phone, address, currency_symbol, nowStr);
+    const result = stmt.run(name.trim(), cleanEmail, passHash, pharmacy_name.trim(), phone.trim(), address.trim(), currency_symbol, nowStr);
     const userId = result.lastInsertRowid;
 
-    // Generate session token
+    // Generate session token with TTL
     const token = crypto.randomBytes(32).toString('hex');
     const userObj = {
       id: userId,
@@ -49,16 +122,16 @@ app.post('/api/auth/register', (req, res) => {
       pharmacy_name: pharmacy_name.trim(),
       role: 'admin',
       currency_symbol,
-      phone,
-      address
+      phone: phone.trim(),
+      address: address.trim()
     };
-    activeSessions.set(token, userObj);
+    activeSessions.set(token, { user: userObj, expiresAt: Date.now() + SESSION_TTL_MS });
 
     // Also update current active pharmacy settings to match the user's pharmacy
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('pharmacy_name', ?)").run(pharmacy_name.trim());
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('currency_symbol', ?)").run(currency_symbol);
-    if (phone) db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('phone', ?)").run(phone);
-    if (address) db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('address', ?)").run(address);
+    if (phone) db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('phone', ?)").run(phone.trim());
+    if (address) db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('address', ?)").run(address.trim());
 
     res.json({
       success: true,
@@ -71,7 +144,7 @@ app.post('/api/auth/register', (req, res) => {
   }
 });
 
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', authRateLimiter, (req, res) => {
   try {
     const { email, password } = req.body;
     if (!email || !password) {
@@ -85,7 +158,12 @@ app.post('/api/auth/login', (req, res) => {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    const token = crypto.randomBytes(32).toString('hex');
+    const token = crypto.randomBytes(48).toString('hex');
+    const isSuperAdmin = user.role === 'superadmin' || (process.env.OWNER_EMAIL && cleanEmail === process.env.OWNER_EMAIL.trim().toLowerCase());
+    const sessionTTL = isSuperAdmin
+      ? 30 * 24 * 60 * 60 * 1000
+      : SESSION_TTL_MS;
+
     const userObj = {
       id: user.id,
       name: user.name,
@@ -96,7 +174,7 @@ app.post('/api/auth/login', (req, res) => {
       phone: user.phone || '',
       address: user.address || ''
     };
-    activeSessions.set(token, userObj);
+    activeSessions.set(token, { user: userObj, expiresAt: Date.now() + sessionTTL });
 
     // Apply their pharmacy settings
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('pharmacy_name', ?)").run(user.pharmacy_name);
@@ -113,62 +191,62 @@ app.post('/api/auth/login', (req, res) => {
 });
 
 app.get('/api/auth/me', (req, res) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.json({ authenticated: false });
-  }
-  const token = authHeader.split(' ')[1];
-  const user = activeSessions.get(token);
+  const user = getAuthUser(req);
   if (!user) {
     return res.json({ authenticated: false });
   }
   res.json({ authenticated: true, user });
 });
 
-// Auth helper to retrieve user from Bearer token
-function getAuthUser(req) {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
-  const token = authHeader.split(' ')[1];
-  return activeSessions.get(token) || null;
-}
-
-// Google OAuth — verify credential from Google Identity Services or direct helper
-app.post('/api/auth/google', async (req, res) => {
+// Google OAuth — verify credential securely
+app.post('/api/auth/google', authRateLimiter, async (req, res) => {
   try {
     const { credential, email: directEmail, name: directName, picture: directPicture } = req.body;
     let googleId, email, name, picture;
 
     if (credential && !credential.startsWith('mock_')) {
-      // Verify the ID token with Google
+      // Verify the ID token directly with Google API
       const verifyRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${credential}`);
       const payload = await verifyRes.json();
 
-      if (!verifyRes.ok || payload.error) {
-        return res.status(401).json({ error: 'Invalid Google token' });
+      if (!verifyRes.ok || payload.error || !payload.email) {
+        return res.status(401).json({ error: 'Invalid Google authentication token' });
       }
 
       googleId = payload.sub;
-      email = payload.email;
+      email = payload.email.toLowerCase();
       name = payload.name;
       picture = payload.picture;
-    } else if (directEmail) {
-      email = directEmail;
+    } else if (process.env.NODE_ENV !== 'production' && directEmail) {
+      // Dev-only fallback, never allow spoofing owner email
+      const cleanDirect = directEmail.trim().toLowerCase();
+      if (process.env.OWNER_EMAIL && cleanDirect === process.env.OWNER_EMAIL.trim().toLowerCase()) {
+        return res.status(403).json({ error: 'Owner account requires password authentication' });
+      }
+      email = cleanDirect;
       name = directName || directEmail.split('@')[0];
-      googleId = 'g_' + crypto.createHash('md5').update(email).digest('hex').slice(0, 16);
+      googleId = 'g_' + crypto.createHash('sha256').update(email).digest('hex').slice(0, 16);
       picture = directPicture || '';
     } else {
-      return res.status(400).json({ error: 'Missing Google credential or email' });
+      return res.status(400).json({ error: 'Google sign-in requires official Google token or email and password sign in' });
     }
 
     const cleanEmail = email.toLowerCase();
     const nowStr = new Date().toISOString().replace('T', ' ').slice(0, 19);
 
+    // If attempting to log into owner account, verify that it's permitted
+    if (process.env.OWNER_EMAIL && cleanEmail === process.env.OWNER_EMAIL.trim().toLowerCase()) {
+      const ownerRecord = db.prepare('SELECT * FROM users WHERE email = ?').get(cleanEmail);
+      if (ownerRecord && ownerRecord.password_hash && !ownerRecord.google_id) {
+        return res.status(403).json({ error: 'System administrator must sign in using master password' });
+      }
+    }
+
     // Find or create user
     let user = db.prepare('SELECT * FROM users WHERE google_id = ? OR email = ?').get(googleId, cleanEmail);
 
     if (!user) {
-      // New user — create account (clean template, no demo loans/sales tied to them)
+      // New user — create clean account
       const pharmacyName = `${name}'s Pharmacy`;
       const result = db.prepare(`
         INSERT INTO users (email, google_id, google_picture, name, pharmacy_name, role, currency_symbol, created_at)
@@ -176,13 +254,14 @@ app.post('/api/auth/google', async (req, res) => {
       `).run(cleanEmail, googleId, picture || '', name || cleanEmail.split('@')[0], pharmacyName, nowStr);
       user = db.prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid);
     } else if (!user.google_id) {
-      // Existing email-password user — link Google account
+      // Existing email-password user — link Google account securely
       db.prepare('UPDATE users SET google_id = ?, google_picture = ? WHERE id = ?').run(googleId, picture || '', user.id);
       user.google_id = googleId;
       user.google_picture = picture || '';
     }
 
-    const token = crypto.randomBytes(32).toString('hex');
+    const isSuperAdmin = user.role === 'superadmin' || (process.env.OWNER_EMAIL && cleanEmail === process.env.OWNER_EMAIL.trim().toLowerCase());
+    const token = crypto.randomBytes(48).toString('hex');
     const userObj = {
       id: user.id,
       name: user.name,
@@ -193,7 +272,8 @@ app.post('/api/auth/google', async (req, res) => {
       phone: user.phone || '',
       picture: user.google_picture || ''
     };
-    activeSessions.set(token, userObj);
+    const sessionTTL = isSuperAdmin ? 30 * 24 * 60 * 60 * 1000 : SESSION_TTL_MS;
+    activeSessions.set(token, { user: userObj, expiresAt: Date.now() + sessionTTL });
 
     // Apply their settings
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('pharmacy_name', ?)").run(user.pharmacy_name);

@@ -37,11 +37,35 @@ import {
   LogIn,
   LogOut,
   User,
-  KeyRound
+  KeyRound,
+  Sun,
+  Moon
 } from 'lucide-react';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('pos'); // 'pos', 'dashboard', 'inventory', 'batches', 'loans', 'sales', 'settings'
+  
+  // Apple Dark Mode / Theme State
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    try {
+      const saved = localStorage.getItem('pharmahub_theme');
+      if (saved) return saved === 'dark';
+      return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('pharmahub_theme', 'dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('pharmahub_theme', 'light');
+    }
+  }, [isDarkMode]);
+
   const [settings, setSettings] = useState({
     pharmacy_name: 'HealthFirst Pharmacy',
     currency_symbol: 'KSh',
@@ -218,7 +242,7 @@ export default function App() {
 
   // Authenticated fetch helper
   const authFetch = (url, options = {}) => {
-    const token = localStorage.getItem('pharmahub_token');
+    const token = isDemoGuest ? null : localStorage.getItem('pharmahub_token');
     const headers = { ...(options.headers || {}) };
     if (token) headers['Authorization'] = `Bearer ${token}`;
     return fetch(url, { ...options, headers });
@@ -252,7 +276,7 @@ export default function App() {
 
   useEffect(() => {
     fetchAllData();
-  }, []);
+  }, [isDemoGuest]);
 
   // Filtered medicines for POS
   const filteredMeds = useMemo(() => {
@@ -277,8 +301,8 @@ export default function App() {
       setShowAlternativeModal(true);
 
       const [altRes, marketRes] = await Promise.all([
-        fetch(`/api/medicines/${medicine.id}/alternatives`).then(r => r.json()),
-        fetch(`/api/market-prices?q=${encodeURIComponent(medicine.molecule_name || medicine.brand_name)}`).then(r => r.json())
+        authFetch(`/api/medicines/${medicine.id}/alternatives`).then(r => r.json()),
+        authFetch(`/api/market-prices?q=${encodeURIComponent(medicine.molecule_name || medicine.brand_name)}`).then(r => r.json())
       ]);
 
       setAlternativesData(altRes);
@@ -296,7 +320,7 @@ export default function App() {
     if (!marketSearchQuery.trim()) return;
     try {
       setBenchmarkLoading(true);
-      const res = await fetch(`/api/market-prices?q=${encodeURIComponent(marketSearchQuery.trim())}`).then(r => r.json());
+      const res = await authFetch(`/api/market-prices?q=${encodeURIComponent(marketSearchQuery.trim())}`).then(r => r.json());
       setStandaloneMarketData(res);
     } catch (err) {
       showToast('Market search failed', 'error');
@@ -407,7 +431,7 @@ export default function App() {
         loan_notes: loanNotes
       };
 
-      const res = await fetch('/api/sales', {
+      const res = await authFetch('/api/sales', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -422,7 +446,7 @@ export default function App() {
         }
 
         // Fetch full receipt details
-        const receiptDetails = await fetch(`/api/sales/${data.sale_id}`).then(r => r.json());
+        const receiptDetails = await authFetch(`/api/sales/${data.sale_id}`).then(r => r.json());
         setCurrentReceipt(receiptDetails);
         setShowReceiptModal(true);
 
@@ -446,11 +470,22 @@ export default function App() {
   // User Auth Handlers
   const handleLogin = async (e) => {
     e?.preventDefault();
+    if (!authForm.email || !authForm.password) {
+      showToast('Please enter both email and password', 'error');
+      return;
+    }
+    const cleanEmail = authForm.email.trim().toLowerCase();
+    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+    if (!emailRegex.test(cleanEmail)) {
+      showToast('Please enter a genuine, valid email address', 'error');
+      return;
+    }
+
     try {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: authForm.email, password: authForm.password })
+        body: JSON.stringify({ email: cleanEmail, password: authForm.password })
       });
       const data = await res.json();
       if (data.success) {
@@ -471,11 +506,43 @@ export default function App() {
 
   const handleRegister = async (e) => {
     e?.preventDefault();
+    if (!authForm.name?.trim() || !authForm.email?.trim() || !authForm.password || !authForm.pharmacy_name?.trim()) {
+      showToast('Name, email, password, and pharmacy name are required', 'error');
+      return;
+    }
+
+    const cleanEmail = authForm.email.trim().toLowerCase();
+    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+    if (!emailRegex.test(cleanEmail)) {
+      showToast('Please enter a genuine, valid email address (e.g. name@domain.com)', 'error');
+      return;
+    }
+
+    if (authForm.phone && authForm.phone.trim()) {
+      const cleanPhone = authForm.phone.trim();
+      const phoneDigits = cleanPhone.replace(/\D/g, '');
+      if (phoneDigits.length < 8 || phoneDigits.length > 15 || !/^\+?[0-9\s\-()]{8,20}$/.test(cleanPhone)) {
+        showToast('Please enter a genuine phone number with valid digits', 'error');
+        return;
+      }
+    }
+
+    if (authForm.password.length < 6) {
+      showToast('Password must be at least 6 characters long', 'error');
+      return;
+    }
+
     try {
       const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(authForm)
+        body: JSON.stringify({
+          ...authForm,
+          email: cleanEmail,
+          name: authForm.name.trim(),
+          pharmacy_name: authForm.pharmacy_name.trim(),
+          phone: authForm.phone?.trim() || ''
+        })
       });
       const data = await res.json();
       if (data.success) {
@@ -531,25 +598,17 @@ export default function App() {
   };
 
   const triggerGoogleSignIn = () => {
-    if (window.google?.accounts?.id) {
+    if (window.google?.accounts?.id && import.meta.env.VITE_GOOGLE_CLIENT_ID) {
       try {
-        window.google.accounts.id.prompt((notification) => {
-          if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
-            const email = window.prompt("Enter your Google email address to sign in:");
-            if (email && email.includes('@')) {
-              handleGoogleLogin({ email: email.trim(), name: email.split('@')[0] });
-            }
-          }
-        });
+        window.google.accounts.id.prompt();
         return;
       } catch (e) {
-        // Fall back below
+        console.warn('Google One Tap prompt failed', e);
       }
     }
-    const email = window.prompt("Enter your Google email address to sign in:");
-    if (email && email.includes('@')) {
-      handleGoogleLogin({ email: email.trim(), name: email.split('@')[0] });
-    }
+    // If Google Client ID is not configured, inform user and open standard email/password form
+    showToast('Google Sign-In ready. Please enter your credentials below.', 'info');
+    setShowAuthModal(true);
   };
 
   // Record Repayment
@@ -557,7 +616,7 @@ export default function App() {
     e.preventDefault();
     if (!selectedLoanForRepayment) return;
     try {
-      const res = await fetch(`/api/loans/${selectedLoanForRepayment.id}/repayments`, {
+      const res = await authFetch(`/api/loans/${selectedLoanForRepayment.id}/repayments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -596,7 +655,7 @@ export default function App() {
         } : null
       };
 
-      const res = await fetch('/api/medicines', {
+      const res = await authFetch('/api/medicines', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -618,7 +677,7 @@ export default function App() {
   const handleCreateBatch = async (e) => {
     e.preventDefault();
     try {
-      const res = await fetch('/api/batches', {
+      const res = await authFetch('/api/batches', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newBatchForm)
@@ -640,7 +699,7 @@ export default function App() {
   const handleSaveSettings = async (e) => {
     e.preventDefault();
     try {
-      await fetch('/api/settings', {
+      await authFetch('/api/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(settings)
@@ -956,175 +1015,109 @@ export default function App() {
   }
 
   return (
-    <div className="flex flex-col md:flex-row min-h-screen bg-slate-50 text-slate-800">
-      {/* Toast Notification */}
+    <div className="flex flex-col md:flex-row min-h-screen bg-[#F5F5F7] dark:bg-[#0B0B0E] text-slate-800 dark:text-slate-100 transition-colors duration-300">
+      {/* Toast Notification — Apple-style */}
       {notification && (
         <div
-          className={`fixed top-4 right-4 z-50 px-5 py-3 rounded-xl shadow-xl flex items-center space-x-2 text-sm font-semibold transition-all transform animate-bounce ${
-            notification.type === 'error' ? 'bg-rose-600 text-white' : 'bg-emerald-600 text-white'
+          className={`fixed top-4 right-4 z-50 px-5 py-3 rounded-2xl shadow-2xl flex items-center space-x-2.5 text-sm font-semibold apple-spring ${
+            notification.type === 'error'
+              ? 'bg-rose-600 text-white shadow-rose-500/30'
+              : 'bg-emerald-600 text-white shadow-emerald-500/30'
           }`}
+          style={{ boxShadow: notification.type === 'error' ? '0 8px 32px rgba(225,29,72,0.35)' : '0 8px 32px rgba(5,150,105,0.35)' }}
         >
-          {notification.type === 'error' ? <AlertTriangle className="w-5 h-5" /> : <CheckCircle2 className="w-5 h-5" />}
+          {notification.type === 'error' ? <AlertTriangle className="w-4.5 h-4.5 shrink-0" /> : <CheckCircle2 className="w-4.5 h-4.5 shrink-0" />}
           <span>{notification.message}</span>
         </div>
       )}
 
       {/* Desktop Sidebar Navigation */}
-      <aside className="hidden md:flex flex-col w-64 bg-slate-900 text-slate-300 border-r border-slate-800 select-none">
-        <div className="p-5 flex items-center space-x-3 border-b border-slate-800">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-400 flex items-center justify-center text-white shadow-lg shadow-emerald-900/30">
-            <Pill className="w-6 h-6 transform -rotate-45" />
+      <aside className="hidden md:flex flex-col w-60 bg-slate-900 dark:bg-[#0D0D11] text-slate-300 border-r border-slate-800 dark:border-white/[0.06] select-none shrink-0">
+        <div className="p-5 flex items-center space-x-3 border-b border-slate-800 dark:border-white/[0.06]">
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-400 flex items-center justify-center text-white shadow-lg shadow-emerald-900/30">
+            <Pill className="w-5 h-5 transform -rotate-45" />
           </div>
-          <div>
-            <h1 className="text-white font-bold text-lg leading-tight truncate">{settings.pharmacy_name}</h1>
-            <span className="text-xs text-emerald-400 font-medium flex items-center gap-1">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> {settings.currency_symbol} Active
+          <div className="min-w-0">
+            <h1 className="text-white font-bold text-sm leading-tight truncate">{settings.pharmacy_name}</h1>
+            <span className="text-[11px] text-emerald-400 font-medium flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+              {isDemoGuest ? 'Demo Mode' : `${settings.currency_symbol} Active`}
             </span>
           </div>
         </div>
 
-        <nav className="flex-1 p-3 space-y-1">
-          <button
-            onClick={() => setActiveTab('pos')}
-            className={`w-full flex items-center space-x-3 px-3.5 py-3 rounded-xl text-sm font-medium transition ${
-              activeTab === 'pos'
-                ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-900/40'
-                : 'hover:bg-slate-800 text-slate-400 hover:text-white'
-            }`}
-          >
-            <ShoppingCart className="w-5 h-5" />
-            <span>POS & Dispense</span>
-            {cart.length > 0 && (
-              <span className="ml-auto bg-emerald-400 text-slate-950 font-bold text-xs px-2 py-0.5 rounded-full">
-                {cart.length}
-              </span>
-            )}
-          </button>
-
-          <button
-            onClick={() => setActiveTab('dashboard')}
-            className={`w-full flex items-center space-x-3 px-3.5 py-3 rounded-xl text-sm font-medium transition ${
-              activeTab === 'dashboard'
-                ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-900/40'
-                : 'hover:bg-slate-800 text-slate-400 hover:text-white'
-            }`}
-          >
-            <LayoutDashboard className="w-5 h-5" />
-            <span>Dashboard & Alerts</span>
-            {dashboardData?.expiringCount > 0 && (
-              <span className="ml-auto bg-amber-500 text-slate-950 font-bold text-xs px-2 py-0.5 rounded-full">
-                {dashboardData.expiringCount}
-              </span>
-            )}
-          </button>
-
-          {/* PATIENT LOANS / PHARMACY CREDIT TAB */}
-          <button
-            onClick={() => setActiveTab('loans')}
-            className={`w-full flex items-center space-x-3 px-3.5 py-3 rounded-xl text-sm font-medium transition ${
-              activeTab === 'loans'
-                ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-900/40'
-                : 'hover:bg-slate-800 text-slate-400 hover:text-white'
-            }`}
-          >
-            <HandCoins className="w-5 h-5 text-amber-400" />
-            <span>Trust Loans & Debts</span>
-            {overdueLoansCount > 0 && (
-              <span className="ml-auto bg-rose-500 text-white font-bold text-xs px-2 py-0.5 rounded-full animate-pulse">
-                {overdueLoansCount} due
-              </span>
-            )}
-          </button>
-
-          <button
-            onClick={() => setActiveTab('inventory')}
-            className={`w-full flex items-center space-x-3 px-3.5 py-3 rounded-xl text-sm font-medium transition ${
-              activeTab === 'inventory'
-                ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-900/40'
-                : 'hover:bg-slate-800 text-slate-400 hover:text-white'
-            }`}
-          >
-            <Pill className="w-5 h-5" />
-            <span>Medicines & Pricing</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('batches')}
-            className={`w-full flex items-center space-x-3 px-3.5 py-3 rounded-xl text-sm font-medium transition ${
-              activeTab === 'batches'
-                ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-900/40'
-                : 'hover:bg-slate-800 text-slate-400 hover:text-white'
-            }`}
-          >
-            <Boxes className="w-5 h-5" />
-            <span>Batches & Expiry (FEFO)</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('sales')}
-            className={`w-full flex items-center space-x-3 px-3.5 py-3 rounded-xl text-sm font-medium transition ${
-              activeTab === 'sales'
-                ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-900/40'
-                : 'hover:bg-slate-800 text-slate-400 hover:text-white'
-            }`}
-          >
-            <Receipt className="w-5 h-5" />
-            <span>Sales History</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('settings')}
-            className={`w-full flex items-center space-x-3 px-3.5 py-3 rounded-xl text-sm font-medium transition ${
-              activeTab === 'settings'
-                ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-900/40'
-                : 'hover:bg-slate-800 text-slate-400 hover:text-white'
-            }`}
-          >
-            <Settings className="w-5 h-5" />
-            <span>Pharmacy Settings</span>
-          </button>
+        <nav className="flex-1 p-2.5 space-y-0.5">
+          {[
+            { id: 'pos', icon: ShoppingCart, label: 'POS & Dispense', badge: cart.length > 0 ? cart.length : null, badgeColor: 'bg-emerald-400 text-slate-950' },
+            { id: 'dashboard', icon: LayoutDashboard, label: 'Dashboard', badge: dashboardData?.expiringCount > 0 ? dashboardData.expiringCount : null, badgeColor: 'bg-amber-500 text-slate-950' },
+            { id: 'loans', icon: HandCoins, label: 'Trust Loans', badge: overdueLoansCount > 0 ? `${overdueLoansCount} due` : null, badgeColor: 'bg-rose-500 text-white animate-pulse' },
+            { id: 'inventory', icon: Pill, label: 'Medicines & Pricing', badge: null },
+            { id: 'batches', icon: Boxes, label: 'Batches & Expiry', badge: null },
+            { id: 'sales', icon: Receipt, label: 'Sales History', badge: null },
+            { id: 'settings', icon: Settings, label: 'Settings', badge: null },
+          ].map(({ id, icon: Icon, label, badge, badgeColor }) => (
+            <button
+              key={id}
+              onClick={() => setActiveTab(id)}
+              className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all apple-spring ${
+                activeTab === id
+                  ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-900/40'
+                  : 'hover:bg-slate-800 dark:hover:bg-white/[0.06] text-slate-400 hover:text-white'
+              }`}
+            >
+              <Icon className="w-4.5 h-4.5 shrink-0" />
+              <span className="truncate">{label}</span>
+              {badge !== null && (
+                <span className={`ml-auto text-[11px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ${badgeColor}`}>
+                  {badge}
+                </span>
+              )}
+            </button>
+          ))}
         </nav>
 
-        {/* Mobile / Android Connectivity Card */}
-        <div className="p-4 m-3 bg-slate-800/80 rounded-2xl border border-slate-700/60 text-xs">
-          <div className="flex items-center space-x-2 text-emerald-400 font-semibold mb-1">
-            <QrCode className="w-4 h-4" />
-            <span>Android Access</span>
+        {/* User Card in Sidebar Footer */}
+        {currentUser && (
+          <div className="p-3 border-t border-slate-800 dark:border-white/[0.06]">
+            <div className="flex items-center space-x-2.5 p-2.5 bg-slate-800/70 dark:bg-white/[0.04] rounded-xl">
+              <div className="w-7 h-7 rounded-full bg-emerald-500 flex items-center justify-center text-white text-xs font-bold shrink-0">
+                {currentUser.name ? currentUser.name[0].toUpperCase() : 'U'}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-semibold text-white truncate">{currentUser.name?.split(' ')[0] || 'User'}</p>
+                <p className="text-[10px] text-slate-500 truncate">{currentUser.email}</p>
+              </div>
+              <button onClick={handleLogout} title="Sign Out" className="text-slate-500 hover:text-red-400 transition p-1">
+                <LogOut className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
-          <p className="text-slate-400 text-[11px] leading-relaxed">
-            Open on your Android phone/tablet on the same Wi-Fi network at:
-          </p>
-          <div className="mt-2 bg-slate-950 p-2 rounded-lg font-mono text-[11px] text-teal-300 break-all select-all">
-            http://192.168.0.168:5000
-          </div>
-        </div>
+        )}
       </aside>
 
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col h-screen overflow-hidden">
-        {/* Top Header */}
-        <header className="h-16 bg-white border-b border-slate-200 px-4 md:px-6 flex items-center justify-between shrink-0">
+        {/* Top Header — Apple frosted glass */}
+        <header className="h-14 apple-glass border-b border-black/[0.06] dark:border-white/[0.07] px-4 md:px-5 flex items-center justify-between shrink-0 sticky top-0 z-30">
           <div className="flex items-center space-x-3">
-            <div className="md:hidden w-8 h-8 rounded-lg bg-emerald-600 flex items-center justify-center text-white">
-              <Pill className="w-5 h-5 transform -rotate-45" />
+            <div className="md:hidden w-7 h-7 rounded-lg bg-emerald-600 flex items-center justify-center text-white">
+              <Pill className="w-4 h-4 transform -rotate-45" />
             </div>
             <div>
-              <h2 className="text-base md:text-lg font-bold text-slate-900 capitalize flex items-center gap-2">
-                {activeTab === 'pos' && 'Dispensing Counter & POS'}
-                {activeTab === 'dashboard' && 'Pharmacy Performance & Alerts'}
-                {activeTab === 'loans' && 'Customer Trust Loans & Reminders'}
-                {activeTab === 'inventory' && 'Drug Catalog & Multi-Tier Pricing'}
-                {activeTab === 'batches' && 'Stock Intake & Expiry Monitoring'}
-                {activeTab === 'sales' && 'Completed Sales & Receipts'}
-                {activeTab === 'settings' && 'System Configuration'}
+              <h2 className="text-sm md:text-base font-bold text-slate-900 dark:text-white capitalize flex items-center gap-2 leading-tight">
+                {activeTab === 'pos' && 'Dispensing Counter'}
+                {activeTab === 'dashboard' && 'Pharmacy Dashboard'}
+                {activeTab === 'loans' && 'Trust Loans & Credits'}
+                {activeTab === 'inventory' && 'Medicines & Pricing'}
+                {activeTab === 'batches' && 'Batches & Expiry'}
+                {activeTab === 'sales' && 'Sales History'}
+                {activeTab === 'settings' && 'Settings'}
               </h2>
-              <p className="text-xs text-slate-500 hidden sm:block">
-                Smart Brand vs Generic Comparison • FEFO Batch Allocation
-              </p>
+              <p className="text-[11px] text-slate-400 dark:text-slate-500 hidden sm:block">PharmaHub • Smart Pharmacy OS</p>
             </div>
           </div>
 
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-1.5">
             {/* Auto-detected Currency & Country Tag */}
             <div
               onClick={() => {
@@ -1135,91 +1128,133 @@ export default function App() {
                 }));
                 showToast(`Applied ${detectedLocale.country} currency (${detectedLocale.currency})`, 'success');
               }}
-              className="cursor-pointer hidden sm:flex items-center space-x-1 px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-semibold transition"
-              title="Click to automatically apply your detected local currency"
+              className="cursor-pointer hidden sm:flex items-center space-x-1 px-2 py-1.5 bg-emerald-50 dark:bg-emerald-900/20 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 border border-emerald-200 dark:border-emerald-700/40 text-emerald-800 dark:text-emerald-300 rounded-xl text-xs font-semibold transition apple-spring"
+              title="Click to apply detected local currency"
             >
-              <Globe className="w-3.5 h-3.5 text-emerald-600" />
-              <span>{settings.currency_symbol} ({settings.detected_country || detectedLocale.country})</span>
+              <Globe className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+              <span>{settings.currency_symbol}</span>
             </div>
 
             <button
               onClick={fetchAllData}
-              className="p-2 text-slate-500 hover:text-emerald-600 hover:bg-slate-100 rounded-xl transition"
+              className="p-2 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition apple-spring"
               title="Refresh Data"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             </button>
             <button
               onClick={() => setShowAddMedicineModal(true)}
-              className="hidden sm:flex items-center space-x-1.5 px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-xl transition shadow-sm"
+              className="hidden sm:flex items-center space-x-1.5 px-2.5 py-1.5 bg-slate-800 dark:bg-slate-700 hover:bg-slate-700 dark:hover:bg-slate-600 text-white text-xs font-semibold rounded-xl transition apple-spring shadow-sm"
             >
-              <Plus className="w-4 h-4" />
-              <span>Add Medicine</span>
+              <Plus className="w-3.5 h-3.5" />
+              <span>Add Drug</span>
             </button>
             <button
               onClick={() => setShowAddBatchModal(true)}
-              className="hidden sm:flex items-center space-x-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-xl transition shadow-sm shadow-emerald-700/20"
+              className="hidden sm:flex items-center space-x-1.5 px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-xl transition apple-spring shadow-sm"
             >
-              <Boxes className="w-4 h-4" />
-              <span>Receive Stock</span>
+              <Boxes className="w-3.5 h-3.5" />
+              <span>Restock</span>
             </button>
 
             {/* Auth Button */}
             {currentUser ? (
               <div className="flex items-center space-x-1.5">
-                <div className="hidden sm:flex items-center space-x-1.5 px-2.5 py-1.5 bg-violet-50 border border-violet-200 rounded-xl">
-                  <div className="w-5 h-5 rounded-full bg-violet-500 flex items-center justify-center text-white text-[10px] font-bold">
+                <div className="hidden sm:flex items-center space-x-1.5 px-2.5 py-1.5 bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-700/50 rounded-xl">
+                  <div className="w-5 h-5 rounded-full bg-emerald-500 flex items-center justify-center text-white text-[10px] font-bold">
                     {currentUser.name ? currentUser.name[0].toUpperCase() : 'U'}
                   </div>
-                  <span className="text-xs font-semibold text-violet-800 max-w-[80px] truncate">
-                    {currentUser.name || currentUser.email}
+                  <span className="text-xs font-semibold text-emerald-800 dark:text-emerald-300 max-w-[80px] truncate">
+                    {currentUser.name?.split(' ')[0] || currentUser.email}
                   </span>
                 </div>
                 <button
                   onClick={handleLogout}
-                  className="flex items-center space-x-1 px-2.5 py-1.5 bg-red-50 hover:bg-red-100 border border-red-200 text-red-600 rounded-xl text-xs font-semibold transition"
+                  className="flex items-center space-x-1 px-2.5 py-1.5 bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/40 border border-red-200 dark:border-red-700/40 text-red-600 dark:text-red-400 rounded-xl text-xs font-semibold transition apple-spring"
                   title="Sign Out"
                 >
                   <LogOut className="w-3.5 h-3.5" />
                   <span className="hidden sm:inline">Sign Out</span>
                 </button>
               </div>
+            ) : isDemoGuest ? (
+              <button
+                onClick={() => { setIsDemoGuest(false); setShowAuthModal(true); setAuthMode('register'); }}
+                className="flex items-center space-x-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-xl transition apple-spring shadow-sm"
+              >
+                <LogIn className="w-4 h-4" />
+                <span>Create Account</span>
+              </button>
             ) : (
               <button
                 onClick={() => { setShowAuthModal(true); setAuthMode('login'); }}
-                className="flex items-center space-x-1.5 px-3 py-2 bg-violet-600 hover:bg-violet-700 text-white text-xs font-semibold rounded-xl transition shadow-sm"
+                className="flex items-center space-x-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-xl transition apple-spring shadow-sm"
               >
                 <LogIn className="w-4 h-4" />
                 <span>Sign In</span>
               </button>
             )}
+
+            {/* Dark Mode Toggle */}
+            <button
+              onClick={() => setIsDarkMode(d => !d)}
+              className="p-2 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition apple-spring"
+              title={isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+            >
+              {isDarkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            </button>
           </div>
         </header>
 
+        {/* Demo Mode Banner — Apple-style floating pill */}
+        {isDemoGuest && (
+          <div className="bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200 dark:border-amber-700/40 px-4 py-2 flex items-center justify-between gap-3 shrink-0">
+            <div className="flex items-center gap-2 text-amber-800 dark:text-amber-300">
+              <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse shrink-0"></span>
+              <span className="text-xs font-semibold">Demo Mode</span>
+              <span className="text-xs text-amber-600 dark:text-amber-400 hidden sm:inline">· Previewing sample pharmacy data. Changes won't be saved.</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => { setShowAuthModal(true); setAuthMode('register'); }}
+                className="text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 px-3 py-1.5 rounded-lg transition apple-press"
+              >
+                Create Free Account
+              </button>
+              <button
+                onClick={() => { setShowAuthModal(true); setAuthMode('login'); }}
+                className="text-xs font-semibold text-amber-700 dark:text-amber-300 hover:underline"
+              >
+                Sign In
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Tab Content Panels */}
-        <div className="flex-1 overflow-y-auto pb-20 md:pb-6 p-4 md:p-6">
+        <div className="flex-1 overflow-y-auto pb-20 md:pb-6 p-4 md:p-5 bg-[#F5F5F7] dark:bg-[#0B0B0E]">
           {/* ============================================================ */}
           {/* 1. POS & DISPENSING TAB                                      */}
           {/* ============================================================ */}
           {activeTab === 'pos' && (
-            <div className="flex flex-col lg:flex-row gap-6 h-full">
+            <div className="flex flex-col lg:flex-row gap-4 h-full">
               {/* Product Catalog & Search Column */}
               <div className="flex-1 flex flex-col min-w-0">
                 {/* Search Bar & Category Filters */}
-                <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200/80 mb-4 space-y-3">
+                <div className="apple-card p-3.5 mb-4 space-y-3">
                   <div className="relative">
-                    <Search className="w-5 h-5 absolute left-3.5 top-3 text-slate-400" />
+                    <Search className="w-4.5 h-4.5 absolute left-3 top-2.5 text-slate-400 dark:text-slate-500" />
                     <input
                       type="text"
-                      placeholder="Search Brand (Augmentin), Generic (Amoxicillin), Barcode, or Manufacturer..."
+                      placeholder="Search brand, generic, barcode, or manufacturer..."
                       value={posSearch}
                       onChange={(e) => setPosSearch(e.target.value)}
-                      className="w-full pl-11 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition"
+                      className="w-full pl-10 pr-4 py-2.5 bg-[#F5F5F7] dark:bg-slate-800 border border-black/[0.06] dark:border-white/[0.08] rounded-xl text-sm dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 transition apple-spring"
                     />
                     {posSearch && (
                       <button
                         onClick={() => setPosSearch('')}
-                        className="absolute right-3 top-3 text-slate-400 hover:text-slate-600"
+                        className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
                       >
                         <X className="w-4 h-4" />
                       </button>
@@ -1231,38 +1266,38 @@ export default function App() {
                       <button
                         key={cat}
                         onClick={() => setPosCategory(cat)}
-                        className={`px-3.5 py-1.5 rounded-lg font-semibold transition shrink-0 ${
+                        className={`px-3 py-1.5 rounded-lg font-semibold transition apple-press shrink-0 text-[11px] ${
                           posCategory === cat
-                            ? 'bg-slate-900 text-white shadow-sm'
-                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                            ? 'bg-slate-900 dark:bg-emerald-600 text-white shadow-sm'
+                            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
                         }`}
                       >
                         {cat}
                       </button>
                     ))}
-                    <span className="text-slate-300">|</span>
-                    <span className="text-slate-400 text-[11px] self-center">
-                      Showing {filteredMeds.length} products
+                    <span className="text-slate-200 dark:text-slate-700">|</span>
+                    <span className="text-slate-400 dark:text-slate-600 text-[11px] self-center">
+                      {filteredMeds.length} products
                     </span>
                   </div>
                 </div>
 
                 {/* Medicine Cards Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3.5 overflow-y-auto pr-1">
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 overflow-y-auto pr-1">
                   {filteredMeds.map((med) => {
                     const isOutOfStock = med.total_packs <= 0 && med.total_loose_units <= 0;
                     return (
                       <div
                         key={med.id}
-                        className={`bg-white rounded-2xl p-4 border transition flex flex-col justify-between shadow-sm hover:shadow-md ${
-                          isOutOfStock ? 'opacity-60 border-rose-200 bg-rose-50/20' : 'border-slate-200 hover:border-emerald-300'
+                        className={`apple-card apple-card-interactive rounded-2xl p-4 flex flex-col justify-between ${
+                          isOutOfStock ? 'opacity-55 border-rose-200 dark:border-rose-800/40' : ''
                         }`}
                       >
                         <div>
                           <div className="flex items-start justify-between gap-2 mb-1.5">
                             <div>
-                              <h3 className="font-bold text-slate-900 text-base leading-snug">{med.brand_name}</h3>
-                              <p className="text-xs text-emerald-700 font-medium">{med.molecule_name}</p>
+                              <h3 className="font-bold text-slate-900 dark:text-white text-sm leading-snug">{med.brand_name}</h3>
+                              <p className="text-xs text-emerald-700 dark:text-emerald-400 font-medium">{med.molecule_name}</p>
                             </div>
                             <span
                               className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full shrink-0 ${
@@ -2328,54 +2363,79 @@ export default function App() {
           )}
         </div>
 
-        {/* Mobile Navigation Bar (Android & Mobile View) */}
-        <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 py-2 px-3 flex justify-around items-center z-40 shadow-lg">
+        {/* Mobile Navigation Bar (Apple iOS Frosted Glass & Safe Area) */}
+        <nav className="md:hidden fixed bottom-0 left-0 right-0 apple-glass border-t border-black/[0.06] dark:border-white/[0.08] px-2 py-1.5 flex justify-around items-center z-40 ios-safe-bottom shadow-[0_-4px_24px_rgba(0,0,0,0.06)]">
           <button
             onClick={() => setActiveTab('pos')}
-            className={`flex flex-col items-center py-1 px-2 rounded-lg text-xs ${
-              activeTab === 'pos' ? 'text-emerald-600 font-bold' : 'text-slate-400'
+            className={`flex flex-col items-center py-1 px-3 rounded-2xl text-[11px] font-semibold transition apple-spring relative ${
+              activeTab === 'pos' ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-slate-400 dark:text-slate-500'
             }`}
           >
-            <ShoppingCart className="w-5 h-5 mb-0.5" />
+            <div className="relative">
+              <ShoppingCart className="w-5 h-5 mb-0.5" />
+              {cart.length > 0 && (
+                <span className="absolute -top-1 -right-2 bg-emerald-500 text-white font-extrabold text-[9px] w-4 h-4 rounded-full flex items-center justify-center shadow-sm">
+                  {cart.length}
+                </span>
+              )}
+            </div>
             <span>POS</span>
           </button>
+
           <button
             onClick={() => setActiveTab('loans')}
-            className={`flex flex-col items-center py-1 px-2 rounded-lg text-xs ${
-              activeTab === 'loans' ? 'text-amber-600 font-bold' : 'text-slate-400'
+            className={`flex flex-col items-center py-1 px-3 rounded-2xl text-[11px] font-semibold transition apple-spring relative ${
+              activeTab === 'loans' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-400 dark:text-slate-500'
             }`}
           >
-            <HandCoins className="w-5 h-5 mb-0.5" />
+            <div className="relative">
+              <HandCoins className="w-5 h-5 mb-0.5" />
+              {overdueLoansCount > 0 && (
+                <span className="absolute -top-1 -right-2 bg-rose-500 text-white font-extrabold text-[9px] w-4 h-4 rounded-full flex items-center justify-center shadow-sm animate-pulse">
+                  {overdueLoansCount}
+                </span>
+              )}
+            </div>
             <span>Loans</span>
           </button>
+
           <button
             onClick={() => setActiveTab('dashboard')}
-            className={`flex flex-col items-center py-1 px-2 rounded-lg text-xs ${
-              activeTab === 'dashboard' ? 'text-emerald-600 font-bold' : 'text-slate-400'
+            className={`flex flex-col items-center py-1 px-3 rounded-2xl text-[11px] font-semibold transition apple-spring relative ${
+              activeTab === 'dashboard' ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-slate-400 dark:text-slate-500'
             }`}
           >
-            <LayoutDashboard className="w-5 h-5 mb-0.5" />
-            <span>Alerts</span>
+            <div className="relative">
+              <LayoutDashboard className="w-5 h-5 mb-0.5" />
+              {dashboardData?.expiringCount > 0 && (
+                <span className="absolute -top-1 -right-2 bg-amber-500 text-white font-extrabold text-[9px] w-4 h-4 rounded-full flex items-center justify-center shadow-sm">
+                  {dashboardData.expiringCount}
+                </span>
+              )}
+            </div>
+            <span>Dashboard</span>
           </button>
+
           <button
             onClick={() => setActiveTab('inventory')}
-            className={`flex flex-col items-center py-1 px-2 rounded-lg text-xs ${
-              activeTab === 'inventory' ? 'text-emerald-600 font-bold' : 'text-slate-400'
+            className={`flex flex-col items-center py-1 px-3 rounded-2xl text-[11px] font-semibold transition apple-spring ${
+              activeTab === 'inventory' ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-slate-400 dark:text-slate-500'
             }`}
           >
             <Pill className="w-5 h-5 mb-0.5" />
             <span>Drugs</span>
           </button>
+
           <button
             onClick={() => setActiveTab('settings')}
-            className={`flex flex-col items-center py-1 px-2 rounded-lg text-xs ${
-              activeTab === 'settings' ? 'text-emerald-600 font-bold' : 'text-slate-400'
+            className={`flex flex-col items-center py-1 px-3 rounded-2xl text-[11px] font-semibold transition apple-spring ${
+              activeTab === 'settings' ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-slate-400 dark:text-slate-500'
             }`}
           >
             <Settings className="w-5 h-5 mb-0.5" />
             <span>Settings</span>
           </button>
-        </div>
+        </nav>
       </main>
 
       {/* ============================================================ */}
@@ -2999,50 +3059,53 @@ export default function App() {
       )}
 
       {/* ============================================================ */}
-      {/* AUTH MODAL — Login / Register                               */}
+      {/* AUTH MODAL — Login / Register (Apple Cupertino Style)       */}
       {/* ============================================================ */}
       {showAuthModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+        <div className="fixed inset-0 bg-black/50 dark:bg-black/70 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-[#16161A] text-slate-900 dark:text-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border border-black/[0.08] dark:border-white/[0.08] apple-spring">
 
             {/* Modal Header */}
-            <div className="relative bg-gradient-to-br from-violet-600 to-indigo-700 px-6 pt-6 pb-8 text-white">
+            <div className="relative bg-gradient-to-tr from-emerald-600 via-teal-600 to-emerald-500 px-6 pt-6 pb-6 text-white">
               <button
                 onClick={() => setShowAuthModal(false)}
-                className="absolute top-4 right-4 p-1.5 rounded-lg hover:bg-white/20 transition"
+                className="absolute top-4 right-4 p-2 rounded-full bg-white/15 hover:bg-white/25 text-white transition apple-spring"
+                aria-label="Close"
               >
                 <X className="w-4 h-4" />
               </button>
-              <div className="flex items-center space-x-3 mb-1">
-                <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
+              <div className="flex items-center space-x-3 mb-2">
+                <div className="w-10 h-10 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center shadow-inner">
                   <KeyRound className="w-5 h-5 text-white" />
                 </div>
                 <div>
-                  <h2 className="text-xl font-bold">
-                    {authMode === 'login' ? 'Welcome back' : 'Create your account'}
+                  <h2 className="text-lg font-bold tracking-tight">
+                    {authMode === 'login' ? 'Welcome back' : 'Create pharmacy account'}
                   </h2>
-                  <p className="text-xs text-violet-200">
+                  <p className="text-xs text-emerald-100">
                     {authMode === 'login'
-                      ? 'Sign in to access your pharmacy data'
-                      : 'Free forever — no credit card required'}
+                      ? 'Sign in to access your pharmacy catalog & sales'
+                      : 'Free cloud OS — no credit card needed'}
                   </p>
                 </div>
               </div>
 
-              {/* Tab switcher */}
-              <div className="flex mt-4 bg-white/15 rounded-xl p-1">
+              {/* Segmented Control / Tab switcher */}
+              <div className="flex mt-3 bg-black/20 backdrop-blur-sm rounded-xl p-1">
                 <button
+                  type="button"
                   onClick={() => setAuthMode('login')}
-                  className={`flex-1 py-1.5 rounded-lg text-sm font-semibold transition ${
-                    authMode === 'login' ? 'bg-white text-violet-700 shadow' : 'text-white/80 hover:text-white'
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition apple-spring ${
+                    authMode === 'login' ? 'bg-white text-emerald-900 shadow-sm' : 'text-white/80 hover:text-white'
                   }`}
                 >
                   Sign In
                 </button>
                 <button
+                  type="button"
                   onClick={() => setAuthMode('register')}
-                  className={`flex-1 py-1.5 rounded-lg text-sm font-semibold transition ${
-                    authMode === 'register' ? 'bg-white text-violet-700 shadow' : 'text-white/80 hover:text-white'
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition apple-spring ${
+                    authMode === 'register' ? 'bg-white text-emerald-900 shadow-sm' : 'text-white/80 hover:text-white'
                   }`}
                 >
                   Create Account
@@ -3051,74 +3114,97 @@ export default function App() {
             </div>
 
             {/* Form Body */}
-            <div className="px-6 py-5 space-y-4">
+            <div className="px-6 py-5 space-y-3.5">
+              {/* Google Sign In option */}
+              <button
+                type="button"
+                onClick={triggerGoogleSignIn}
+                className="w-full py-2.5 px-3 bg-slate-50 dark:bg-slate-800/60 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-white/10 font-semibold text-xs text-slate-700 dark:text-slate-200 rounded-xl flex items-center justify-center space-x-2.5 transition apple-press"
+              >
+                <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
+                  <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                  <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                  <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+                  <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+                </svg>
+                <span>Continue with Google</span>
+              </button>
+
+              <div className="relative my-2">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-slate-200 dark:border-white/10"></div>
+                </div>
+                <div className="relative flex justify-center text-[10px] uppercase">
+                  <span className="bg-white dark:bg-[#16161A] px-2 text-slate-400 font-semibold tracking-wider">or with email</span>
+                </div>
+              </div>
 
               {authMode === 'register' && (
                 <>
                   <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1.5">Full Name</label>
+                    <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Pharmacist Full Name</label>
                     <input
                       type="text"
                       placeholder="Dr. Jane Wambui"
                       value={authForm.name}
                       onChange={e => setAuthForm(f => ({ ...f, name: e.target.value }))}
-                      className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-violet-400 focus:border-transparent outline-none"
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-xs dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none transition"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1.5">Pharmacy Name</label>
+                    <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Pharmacy / Chemist Name</label>
                     <input
                       type="text"
-                      placeholder="HealthFirst Pharmacy"
+                      placeholder="HealthFirst Community Chemist"
                       value={authForm.pharmacy_name}
                       onChange={e => setAuthForm(f => ({ ...f, pharmacy_name: e.target.value }))}
-                      className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-violet-400 focus:border-transparent outline-none"
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-xs dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none transition"
                     />
                   </div>
                 </>
               )}
 
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1.5">Email Address</label>
+                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Genuine Email Address</label>
                 <input
                   type="email"
-                  placeholder="jane@pharmacy.com"
+                  placeholder="name@pharmacy.com"
                   value={authForm.email}
                   onChange={e => setAuthForm(f => ({ ...f, email: e.target.value }))}
-                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-violet-400 focus:border-transparent outline-none"
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-xs dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none transition"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1.5">Password</label>
+                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Password</label>
                 <input
                   type="password"
-                  placeholder={authMode === 'register' ? 'Create a strong password' : 'Your password'}
+                  placeholder={authMode === 'register' ? 'Minimum 6 characters' : 'Enter password'}
                   value={authForm.password}
                   onChange={e => setAuthForm(f => ({ ...f, password: e.target.value }))}
                   onKeyDown={e => e.key === 'Enter' && (authMode === 'login' ? handleLogin(e) : handleRegister(e))}
-                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-violet-400 focus:border-transparent outline-none"
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-xs dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none transition"
                 />
               </div>
 
               {authMode === 'register' && (
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-2.5">
                   <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1.5">Phone (optional)</label>
+                    <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Phone Number</label>
                     <input
                       type="tel"
-                      placeholder="+254 700 000000"
+                      placeholder="+254 700 000 000"
                       value={authForm.phone}
                       onChange={e => setAuthForm(f => ({ ...f, phone: e.target.value }))}
-                      className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-violet-400 focus:border-transparent outline-none"
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-xs dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none transition"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1.5">Currency Symbol</label>
+                    <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Currency</label>
                     <select
-                      value={authForm.currency_symbol}
+                      value={authForm.currency_symbol || detectedLocale.currency}
                       onChange={e => setAuthForm(f => ({ ...f, currency_symbol: e.target.value }))}
-                      className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-violet-400 focus:border-transparent outline-none bg-white"
+                      className="w-full px-2.5 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-xs dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none transition"
                     >
                       <option value="KSh">KSh (Kenya)</option>
                       <option value="$">$ (USD)</option>
@@ -3134,31 +3220,32 @@ export default function App() {
               )}
 
               <button
+                type="button"
                 onClick={authMode === 'login' ? handleLogin : handleRegister}
-                className="w-full py-3 bg-violet-600 hover:bg-violet-700 active:bg-violet-800 text-white font-bold rounded-xl transition text-sm shadow-lg shadow-violet-500/30"
+                className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-bold rounded-xl transition text-xs shadow-md shadow-emerald-600/30 apple-spring"
               >
-                {authMode === 'login' ? 'Sign In to My Pharmacy' : 'Create Free Account'}
+                {authMode === 'login' ? 'Sign In to My Pharmacy' : 'Create Free Account & Start'}
               </button>
 
-              <p className="text-center text-xs text-slate-500">
+              <div className="text-center text-xs text-slate-500 dark:text-slate-400 pt-1">
                 {authMode === 'login' ? (
                   <>Don't have an account?{' '}
-                    <button onClick={() => setAuthMode('register')} className="text-violet-600 font-semibold hover:underline">
+                    <button type="button" onClick={() => setAuthMode('register')} className="text-emerald-600 dark:text-emerald-400 font-semibold hover:underline">
                       Sign up free
                     </button>
                   </>
                 ) : (
                   <>Already have an account?{' '}
-                    <button onClick={() => setAuthMode('login')} className="text-violet-600 font-semibold hover:underline">
+                    <button type="button" onClick={() => setAuthMode('login')} className="text-emerald-600 dark:text-emerald-400 font-semibold hover:underline">
                       Sign in
                     </button>
                   </>
                 )}
-              </p>
+              </div>
 
               {authMode === 'register' && (
-                <p className="text-center text-[10px] text-slate-400 leading-relaxed">
-                  🔒 Your data is stored securely. By creating an account you agree to our terms of service.
+                <p className="text-center text-[10px] text-slate-400 dark:text-slate-500 leading-relaxed">
+                  🔒 Data is protected with PBKDF2 encryption. Safe, fast, and multi-device synced.
                 </p>
               )}
             </div>

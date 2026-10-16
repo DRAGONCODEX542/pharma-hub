@@ -14,15 +14,31 @@ db.exec('PRAGMA foreign_keys = ON;');
 
 export function hashPassword(password) {
   const salt = crypto.randomBytes(16).toString('hex');
-  const hash = crypto.pbkdf2Sync(password, salt, 1000, 64, 'sha512').toString('hex');
-  return `${salt}:${hash}`;
+  const iterations = 100000;
+  const hash = crypto.pbkdf2Sync(password, salt, iterations, 64, 'sha512').toString('hex');
+  return `v2:${iterations}:${salt}:${hash}`;
 }
 
 export function verifyPassword(password, storedHash) {
-  if (!storedHash || !storedHash.includes(':')) return false;
-  const [salt, originalHash] = storedHash.split(':');
-  const hash = crypto.pbkdf2Sync(password, salt, 1000, 64, 'sha512').toString('hex');
-  return hash === originalHash;
+  if (!storedHash) return false;
+  try {
+    const parts = storedHash.split(':');
+    if (parts.length === 4 && parts[0] === 'v2') {
+      const iterations = parseInt(parts[1], 10);
+      const salt = parts[2];
+      const originalHash = parts[3];
+      const hash = crypto.pbkdf2Sync(password, salt, iterations, 64, 'sha512').toString('hex');
+      return crypto.timingSafeEqual(Buffer.from(hash, 'hex'), Buffer.from(originalHash, 'hex'));
+    } else if (parts.length === 2) {
+      // Backward-compatibility for legacy 1000-iteration accounts
+      const [salt, originalHash] = parts;
+      const hash = crypto.pbkdf2Sync(password, salt, 1000, 64, 'sha512').toString('hex');
+      return crypto.timingSafeEqual(Buffer.from(hash, 'hex'), Buffer.from(originalHash, 'hex'));
+    }
+  } catch {
+    return false;
+  }
+  return false;
 }
 
 export function initDatabase() {
@@ -191,6 +207,46 @@ export function initDatabase() {
       'overdue', 'Panadol Extra (1 Box), Losec 20mg (1 Strip)', null, '2026-10-05 14:20:00'
     );
   }
+
+  // ─── Safe schema migrations ───────────────────────────────────────────────
+  try { db.exec("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'admin';"); } catch (e) {}
+  // ─────────────────────────────────────────────────────────────────────────
+
+  // ─── Owner / Superadmin Account Seed ─────────────────────────────────────
+  // Credentials come exclusively from Render environment variables.
+  // NEVER hard-code real credentials here.
+  const OWNER_EMAIL    = process.env.OWNER_EMAIL;
+  const OWNER_PASSWORD = process.env.OWNER_PASSWORD;
+  const OWNER_NAME     = process.env.OWNER_NAME     || 'Owner';
+  const OWNER_PHONE    = process.env.OWNER_PHONE    || '';
+  const OWNER_PHARMACY = process.env.OWNER_PHARMACY || 'PharmaHub HQ';
+
+  if (OWNER_EMAIL && OWNER_PASSWORD) {
+    const existingOwner = db.prepare('SELECT id, role FROM users WHERE email = ?').get(OWNER_EMAIL);
+    if (!existingOwner) {
+      // Create fresh owner account
+      const ownerHash = hashPassword(OWNER_PASSWORD);
+      db.prepare(`
+        INSERT INTO users (email, password_hash, name, pharmacy_name, role, phone, currency_symbol, created_at)
+        VALUES (?, ?, ?, ?, 'superadmin', ?, 'KSh', ?)
+      `).run(OWNER_EMAIL, ownerHash, OWNER_NAME, OWNER_PHARMACY, OWNER_PHONE, new Date().toISOString());
+      console.log('[PharmaHub] ✅ Owner superadmin account created:', OWNER_EMAIL);
+    } else if (existingOwner.role !== 'superadmin') {
+      // Promote existing account to superadmin + refresh password hash
+      const ownerHash = hashPassword(OWNER_PASSWORD);
+      db.prepare(`
+        UPDATE users SET role = 'superadmin', password_hash = ?, phone = COALESCE(NULLIF(?, ''), phone)
+        WHERE email = ?
+      `).run(ownerHash, OWNER_PHONE, OWNER_EMAIL);
+      console.log('[PharmaHub] ✅ Owner account promoted to superadmin:', OWNER_EMAIL);
+    } else {
+      // Always refresh the password hash in case env var changed
+      const ownerHash = hashPassword(OWNER_PASSWORD);
+      db.prepare('UPDATE users SET password_hash = ? WHERE email = ?').run(ownerHash, OWNER_EMAIL);
+      console.log('[PharmaHub] ✅ Owner superadmin account verified:', OWNER_EMAIL);
+    }
+  }
+  // ─────────────────────────────────────────────────────────────────────────
 }
 
 function seedInitialData() {
