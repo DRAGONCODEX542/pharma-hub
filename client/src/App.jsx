@@ -40,7 +40,8 @@ import {
   KeyRound,
   Sun,
   Moon,
-  Edit3
+  Edit3,
+  MoreHorizontal
 } from 'lucide-react';
 
 const DEPARTMENTS = [
@@ -54,8 +55,70 @@ const DEPARTMENTS = [
   { id: 'Medical Supplies', label: 'Medical Supplies', icon: '🩹' }
 ];
 
+// 24/7 Continuous Non-Intrusive Healthcare & Pharma Partner Network Ads
+const SPONSORED_ADS = [
+  {
+    id: 1,
+    partner: 'MedSupply Direct Wholesalers',
+    tag: 'Verified Wholesaler',
+    title: 'Up to 18% Off Bulk Antibiotics & Analgesics',
+    desc: 'Direct factory pricing on bulk Amoxicillin, Paracetamol, and Azithromycin with verified batch certificates.',
+    cta: 'Wholesale Deals',
+    badge: 'Ad • Partner',
+    icon: '💊',
+    link: '#deals',
+    color: 'emerald'
+  },
+  {
+    id: 2,
+    partner: 'ColdChain Express Logistics',
+    tag: 'Cold Chain Delivery',
+    title: 'Certified 2°C–8°C Vaccine & Insulin Transport',
+    desc: 'Real-time temperature telemetry and verified GxP compliance across nationwide routes.',
+    cta: 'Cold Logistics',
+    badge: 'Ad • Logistics',
+    icon: '❄️',
+    link: '#logistics',
+    color: 'blue'
+  },
+  {
+    id: 3,
+    partner: 'OmniCare Diagnostic Systems',
+    tag: 'Medical Devices',
+    title: 'Digital BP Monitors, Glucometers & Rapid Test Strips',
+    desc: 'Equip your pharmacy counter with ISO-certified diagnostic kits at distributor bulk rates.',
+    cta: 'View Equipment',
+    badge: 'Ad • Devices',
+    icon: '🩺',
+    link: '#devices',
+    color: 'indigo'
+  },
+  {
+    id: 4,
+    partner: 'SafeDose Eco-Packaging',
+    tag: 'Pharma Packaging',
+    title: 'Tamper-Evident Amber Bottles & Child-Resistant Caps',
+    desc: 'Compliant dispensary containers, moisture-barrier blister rolls, and prescription labels in bulk.',
+    cta: 'Sample Kits',
+    badge: 'Ad • Packaging',
+    icon: '📦',
+    link: '#packaging',
+    color: 'amber'
+  }
+];
+
 export default function App() {
   const [activeTab, setActiveTab] = useState('pos'); // 'pos', 'dashboard', 'inventory', 'batches', 'loans', 'sales', 'settings'
+  const [showMobileMoreMenu, setShowMobileMoreMenu] = useState(false);
+  const [adIndex, setAdIndex] = useState(0);
+
+  // 24/7 Continuous Non-Intrusive Ad Rotation
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setAdIndex((prev) => (prev + 1) % SPONSORED_ADS.length);
+    }, 8500);
+    return () => clearInterval(timer);
+  }, []);
   
   // Apple Dark Mode / Theme State
   const [isDarkMode, setIsDarkMode] = useState(() => {
@@ -1455,6 +1518,30 @@ export default function App() {
           ))}
         </nav>
 
+        {/* 24/7 Sponsored Partner Widget (Desktop Non-Intrusive) */}
+        <div className="p-3 mx-2.5 mb-2 bg-gradient-to-br from-slate-800/80 to-slate-800/40 dark:from-white/[0.04] dark:to-white/[0.02] border border-white/10 rounded-2xl text-xs space-y-2">
+          <div className="flex items-center justify-between text-[10px]">
+            <span className="px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold uppercase tracking-wider text-[9px]">
+              {SPONSORED_ADS[adIndex].badge}
+            </span>
+            <span className="text-[10px] text-slate-400">24/7 Network</span>
+          </div>
+          <div className="flex items-start space-x-2">
+            <span className="text-xl p-1 bg-white/5 rounded-xl shrink-0">{SPONSORED_ADS[adIndex].icon}</span>
+            <div className="min-w-0">
+              <p className="font-bold text-white text-[11px] truncate">{SPONSORED_ADS[adIndex].partner}</p>
+              <p className="text-[10px] text-slate-300 leading-snug line-clamp-2 mt-0.5">{SPONSORED_ADS[adIndex].title}</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => showToast(`Connecting to ${SPONSORED_ADS[adIndex].partner}...`, 'info')}
+            className="w-full py-1.5 bg-emerald-600/90 hover:bg-emerald-500 text-white font-bold rounded-xl text-[11px] transition text-center block shadow-xs"
+          >
+            {SPONSORED_ADS[adIndex].cta} ↗
+          </button>
+        </div>
+
         {/* User Card in Sidebar Footer */}
         {currentUser && (
           <div className="p-3 border-t border-slate-800 dark:border-white/[0.06]">
@@ -1477,13 +1564,13 @@ export default function App() {
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col h-screen overflow-hidden">
         {/* Top Header — Apple frosted glass */}
-        <header className="h-14 apple-glass border-b border-black/[0.06] dark:border-white/[0.07] px-4 md:px-5 flex items-center justify-between shrink-0 sticky top-0 z-30">
-          <div className="flex items-center space-x-3">
-            <div className="md:hidden w-7 h-7 rounded-lg bg-emerald-600 flex items-center justify-center text-white">
-              <Pill className="w-4 h-4 transform -rotate-45" />
+        <header className="h-14 apple-glass border-b border-black/[0.06] dark:border-white/[0.07] px-3 md:px-5 flex items-center justify-between shrink-0 sticky top-0 z-30">
+          <div className="flex items-center space-x-2 md:space-x-3 min-w-0">
+            <div className="md:hidden w-8 h-8 rounded-xl bg-emerald-600 flex items-center justify-center text-white shrink-0 shadow-sm active:scale-95 transition">
+              <Pill className="w-4.5 h-4.5 transform -rotate-45" />
             </div>
-            <div>
-              <h2 className="text-sm md:text-base font-bold text-slate-900 dark:text-white capitalize flex items-center gap-2 leading-tight">
+            <div className="min-w-0">
+              <h2 className="text-sm md:text-base font-bold text-slate-900 dark:text-white capitalize flex items-center gap-1.5 leading-tight truncate max-w-[120px] xs:max-w-[170px] sm:max-w-none">
                 {activeTab === 'pos' && 'Dispensing Counter'}
                 {activeTab === 'dashboard' && 'Pharmacy Dashboard'}
                 {activeTab === 'loans' && 'Trust Loans & Credits'}
@@ -1496,7 +1583,7 @@ export default function App() {
             </div>
           </div>
 
-          <div className="flex items-center space-x-1.5">
+          <div className="flex items-center space-x-1 sm:space-x-1.5 shrink-0">
             {/* Auto-detected Currency & Country Tag */}
             <div
               onClick={() => {
@@ -1507,38 +1594,50 @@ export default function App() {
                 }));
                 showToast(`Applied ${detectedLocale.country} currency (${detectedLocale.currency})`, 'success');
               }}
-              className="cursor-pointer hidden sm:flex items-center space-x-1 px-2 py-1.5 bg-emerald-50 dark:bg-emerald-900/20 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 border border-emerald-200 dark:border-emerald-700/40 text-emerald-800 dark:text-emerald-300 rounded-xl text-xs font-semibold transition apple-spring"
+              className="cursor-pointer hidden sm:flex items-center space-x-1 px-2 py-1.5 bg-emerald-50 dark:bg-emerald-900/20 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 border border-emerald-200 dark:border-emerald-700/40 text-emerald-800 dark:text-emerald-300 rounded-xl text-xs font-semibold transition apple-spring min-h-[36px]"
               title="Click to apply detected local currency"
             >
-              <Globe className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+              <Globe className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
               <span>{settings.currency_symbol}</span>
             </div>
 
+            {/* Quick Restock Trigger (Mobile Optimized Icon) */}
+            <button
+              onClick={() => setShowAddBatchModal(true)}
+              className="flex sm:hidden p-2 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 bg-emerald-500/10 border border-emerald-300/60 dark:border-emerald-700/40 rounded-xl transition apple-spring min-w-[38px] min-h-[38px] items-center justify-center active:scale-95"
+              title="Quick Receive Stock"
+            >
+              <Boxes className="w-4 h-4" />
+            </button>
+
             <button
               onClick={fetchAllData}
-              className="p-2 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition apple-spring"
+              className="p-2 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition apple-spring min-w-[38px] min-h-[38px] flex items-center justify-center active:scale-95"
               title="Refresh Data"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             </button>
+
             <button
               onClick={() => { setTourStep(0); setShowFeatureTour(true); }}
-              className="flex items-center space-x-1.5 px-2.5 py-1.5 bg-indigo-50 dark:bg-indigo-950/40 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 border border-indigo-200/60 dark:border-indigo-700/40 text-indigo-700 dark:text-indigo-300 rounded-xl text-xs font-semibold transition apple-spring shadow-xs"
+              className="flex items-center space-x-1 px-2 sm:px-2.5 py-1.5 bg-indigo-50 dark:bg-indigo-950/40 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 border border-indigo-200/60 dark:border-indigo-700/40 text-indigo-700 dark:text-indigo-300 rounded-xl text-xs font-semibold transition apple-spring shadow-xs min-h-[38px] min-w-[38px] justify-center active:scale-95"
               title="Interactive System & Feature Tour"
             >
-              <Sparkles className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+              <Sparkles className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
               <span className="hidden md:inline">Feature Tour</span>
             </button>
+
             <button
               onClick={() => setShowAddMedicineModal(true)}
-              className="hidden sm:flex items-center space-x-1.5 px-2.5 py-1.5 bg-slate-800 dark:bg-slate-700 hover:bg-slate-700 dark:hover:bg-slate-600 text-white text-xs font-semibold rounded-xl transition apple-spring shadow-sm"
+              className="hidden sm:flex items-center space-x-1.5 px-2.5 py-1.5 bg-slate-800 dark:bg-slate-700 hover:bg-slate-700 dark:hover:bg-slate-600 text-white text-xs font-semibold rounded-xl transition apple-spring shadow-sm min-h-[38px]"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Add Drug</span>
             </button>
+
             <button
               onClick={() => setShowAddBatchModal(true)}
-              className="hidden sm:flex items-center space-x-1.5 px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-xl transition apple-spring shadow-sm"
+              className="hidden sm:flex items-center space-x-1.5 px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-xl transition apple-spring shadow-sm min-h-[38px]"
             >
               <Boxes className="w-3.5 h-3.5" />
               <span>Restock</span>
@@ -1546,8 +1645,8 @@ export default function App() {
 
             {/* Auth Button */}
             {currentUser ? (
-              <div className="flex items-center space-x-1.5">
-                <div className="hidden sm:flex items-center space-x-1.5 px-2.5 py-1.5 bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-700/50 rounded-xl">
+              <div className="flex items-center space-x-1">
+                <div className="hidden sm:flex items-center space-x-1.5 px-2.5 py-1.5 bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-700/50 rounded-xl min-h-[38px]">
                   <div className="w-5 h-5 rounded-full bg-emerald-500 flex items-center justify-center text-white text-[10px] font-bold">
                     {currentUser.name ? currentUser.name[0].toUpperCase() : 'U'}
                   </div>
@@ -1557,41 +1656,64 @@ export default function App() {
                 </div>
                 <button
                   onClick={handleLogout}
-                  className="flex items-center space-x-1 px-2.5 py-1.5 bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/40 border border-red-200 dark:border-red-700/40 text-red-600 dark:text-red-400 rounded-xl text-xs font-semibold transition apple-spring"
+                  className="flex items-center space-x-1 px-2.5 py-1.5 bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/40 border border-red-200 dark:border-red-700/40 text-red-600 dark:text-red-400 rounded-xl text-xs font-semibold transition apple-spring min-h-[38px] min-w-[38px] justify-center active:scale-95"
                   title="Sign Out"
                 >
-                  <LogOut className="w-3.5 h-3.5" />
+                  <LogOut className="w-4 h-4" />
                   <span className="hidden sm:inline">Sign Out</span>
                 </button>
               </div>
             ) : isDemoGuest ? (
               <button
                 onClick={() => { setIsDemoGuest(false); setShowAuthModal(true); setAuthMode('register'); }}
-                className="flex items-center space-x-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-xl transition apple-spring shadow-sm"
+                className="flex items-center space-x-1 px-2.5 sm:px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-xl transition apple-spring shadow-sm min-h-[38px] active:scale-95"
               >
                 <LogIn className="w-4 h-4" />
-                <span>Create Account</span>
+                <span className="hidden xs:inline">Create Account</span>
               </button>
             ) : (
               <button
                 onClick={() => { setShowAuthModal(true); setAuthMode('login'); }}
-                className="flex items-center space-x-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-xl transition apple-spring shadow-sm"
+                className="flex items-center space-x-1 px-2.5 sm:px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-xl transition apple-spring shadow-sm min-h-[38px] active:scale-95"
               >
                 <LogIn className="w-4 h-4" />
-                <span>Sign In</span>
+                <span className="hidden xs:inline">Sign In</span>
               </button>
             )}
 
             {/* Dark Mode Toggle */}
             <button
               onClick={() => setIsDarkMode(d => !d)}
-              className="p-2 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition apple-spring"
+              className="p-2 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition apple-spring min-h-[38px] min-w-[38px] flex items-center justify-center active:scale-95"
               title={isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
             >
-              {isDarkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+              {isDarkMode ? <Sun className="w-4.5 h-4.5" /> : <Moon className="w-4.5 h-4.5" />}
             </button>
           </div>
         </header>
+
+        {/* 24/7 Global Non-Intrusive Sponsored Partner Strip */}
+        <div className="bg-emerald-950/15 dark:bg-emerald-950/30 border-b border-black/[0.04] dark:border-white/[0.06] px-3 md:px-5 py-1.5 flex items-center justify-between text-[11px] shrink-0 transition-all select-none">
+          <div className="flex items-center space-x-2 min-w-0">
+            <span className="px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase tracking-wider bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 shrink-0 border border-emerald-500/30">
+              {SPONSORED_ADS[adIndex].badge}
+            </span>
+            <span className="font-bold text-slate-900 dark:text-white shrink-0 hidden xs:inline">
+              {SPONSORED_ADS[adIndex].partner}:
+            </span>
+            <span className="text-slate-700 dark:text-slate-300 truncate font-medium">
+              {SPONSORED_ADS[adIndex].title}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => showToast(`Connecting to ${SPONSORED_ADS[adIndex].partner} partner portal...`, 'info')}
+            className="ml-2 font-bold text-emerald-700 dark:text-emerald-400 hover:underline shrink-0 flex items-center space-x-0.5 text-xs active:scale-95 transition"
+          >
+            <span>{SPONSORED_ADS[adIndex].cta}</span>
+            <ExternalLink className="w-3 h-3" />
+          </button>
+        </div>
 
         {/* Demo Mode Banner — Apple-style floating pill */}
         {isDemoGuest && (
@@ -2730,6 +2852,41 @@ export default function App() {
                   </div>
                 )}
               </div>
+
+              {/* 24/7 Healthcare & Pharma Supply Partner Spotlight (Dashboard Native Ad Card) */}
+              <div className="bg-gradient-to-r from-emerald-50 via-teal-50 to-blue-50 dark:from-emerald-950/30 dark:via-slate-900 dark:to-blue-950/30 border border-emerald-200/80 dark:border-emerald-800/40 rounded-3xl p-5 shadow-sm space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="flex items-center space-x-2.5">
+                    <span className="text-2xl p-1.5 bg-white dark:bg-slate-800 rounded-2xl shadow-xs shrink-0">
+                      {SPONSORED_ADS[adIndex].icon}
+                    </span>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase tracking-wider bg-emerald-600 text-white shadow-xs">
+                          {SPONSORED_ADS[adIndex].badge}
+                        </span>
+                        <h4 className="font-bold text-slate-900 dark:text-white text-sm">
+                          {SPONSORED_ADS[adIndex].partner}
+                        </h4>
+                      </div>
+                      <p className="text-xs text-slate-600 dark:text-slate-300 font-semibold mt-0.5">
+                        {SPONSORED_ADS[adIndex].title}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => showToast(`Connecting to ${SPONSORED_ADS[adIndex].partner}...`, 'info')}
+                    className="self-start sm:self-auto px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs transition shadow-sm apple-spring shrink-0 flex items-center space-x-1.5"
+                  >
+                    <span>{SPONSORED_ADS[adIndex].cta}</span>
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  {SPONSORED_ADS[adIndex].desc}
+                </p>
+              </div>
             </div>
           )}
 
@@ -3196,79 +3353,249 @@ export default function App() {
           )}
         </div>
 
-        {/* Mobile Navigation Bar (Apple iOS Frosted Glass & Safe Area) */}
-        <nav className="md:hidden fixed bottom-0 left-0 right-0 apple-glass border-t border-black/[0.06] dark:border-white/[0.08] px-2 py-1.5 flex justify-around items-center z-40 ios-safe-bottom shadow-[0_-4px_24px_rgba(0,0,0,0.06)]">
+        {/* Mobile Navigation Bar (Apple iOS Frosted Glass & Touch Safe Area) */}
+        <nav className="md:hidden fixed bottom-0 left-0 right-0 apple-glass border-t border-black/[0.08] dark:border-white/[0.08] px-1 py-1 flex justify-around items-center z-40 ios-safe-bottom shadow-[0_-4px_24px_rgba(0,0,0,0.08)]">
+          {/* 1. POS */}
           <button
-            onClick={() => setActiveTab('pos')}
-            className={`flex flex-col items-center py-1 px-3 rounded-2xl text-[11px] font-semibold transition apple-spring relative ${
+            type="button"
+            onClick={() => { setActiveTab('pos'); setShowMobileMoreMenu(false); }}
+            className={`flex-1 flex flex-col items-center justify-center py-1.5 min-h-[48px] rounded-2xl transition apple-spring relative touch-manipulation active:scale-95 ${
               activeTab === 'pos' ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-slate-400 dark:text-slate-500'
             }`}
           >
             <div className="relative">
               <ShoppingCart className="w-5 h-5 mb-0.5" />
               {cart.length > 0 && (
-                <span className="absolute -top-1 -right-2 bg-emerald-500 text-white font-extrabold text-[9px] w-4 h-4 rounded-full flex items-center justify-center shadow-sm">
+                <span className="absolute -top-1.5 -right-2 bg-emerald-500 text-white font-extrabold text-[9px] w-4 h-4 rounded-full flex items-center justify-center shadow-sm">
                   {cart.length}
                 </span>
               )}
             </div>
-            <span>POS</span>
+            <span className="text-[10px] tracking-tight">POS</span>
           </button>
 
+          {/* 2. Drugs & Pricing */}
           <button
-            onClick={() => setActiveTab('loans')}
-            className={`flex flex-col items-center py-1 px-3 rounded-2xl text-[11px] font-semibold transition apple-spring relative ${
+            type="button"
+            onClick={() => { setActiveTab('inventory'); setShowMobileMoreMenu(false); }}
+            className={`flex-1 flex flex-col items-center justify-center py-1.5 min-h-[48px] rounded-2xl transition apple-spring touch-manipulation active:scale-95 ${
+              activeTab === 'inventory' ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-slate-400 dark:text-slate-500'
+            }`}
+          >
+            <Pill className="w-5 h-5 mb-0.5" />
+            <span className="text-[10px] tracking-tight">Drugs</span>
+          </button>
+
+          {/* 3. Batches & Expiry */}
+          <button
+            type="button"
+            onClick={() => { setActiveTab('batches'); setShowMobileMoreMenu(false); }}
+            className={`flex-1 flex flex-col items-center justify-center py-1.5 min-h-[48px] rounded-2xl transition apple-spring relative touch-manipulation active:scale-95 ${
+              activeTab === 'batches' ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-slate-400 dark:text-slate-500'
+            }`}
+          >
+            <div className="relative">
+              <Boxes className="w-5 h-5 mb-0.5" />
+              {dashboardData?.expiringCount > 0 && (
+                <span className="absolute -top-1.5 -right-2 bg-amber-500 text-white font-extrabold text-[9px] w-4 h-4 rounded-full flex items-center justify-center shadow-sm">
+                  {dashboardData.expiringCount}
+                </span>
+              )}
+            </div>
+            <span className="text-[10px] tracking-tight">Batches</span>
+          </button>
+
+          {/* 4. Trust Loans */}
+          <button
+            type="button"
+            onClick={() => { setActiveTab('loans'); setShowMobileMoreMenu(false); }}
+            className={`flex-1 flex flex-col items-center justify-center py-1.5 min-h-[48px] rounded-2xl transition apple-spring relative touch-manipulation active:scale-95 ${
               activeTab === 'loans' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-400 dark:text-slate-500'
             }`}
           >
             <div className="relative">
               <HandCoins className="w-5 h-5 mb-0.5" />
               {overdueLoansCount > 0 && (
-                <span className="absolute -top-1 -right-2 bg-rose-500 text-white font-extrabold text-[9px] w-4 h-4 rounded-full flex items-center justify-center shadow-sm animate-pulse">
+                <span className="absolute -top-1.5 -right-2 bg-rose-500 text-white font-extrabold text-[9px] w-4 h-4 rounded-full flex items-center justify-center shadow-sm animate-pulse">
                   {overdueLoansCount}
                 </span>
               )}
             </div>
-            <span>Loans</span>
+            <span className="text-[10px] tracking-tight">Loans</span>
           </button>
 
+          {/* 5. More Menu */}
           <button
-            onClick={() => setActiveTab('dashboard')}
-            className={`flex flex-col items-center py-1 px-3 rounded-2xl text-[11px] font-semibold transition apple-spring relative ${
-              activeTab === 'dashboard' ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-slate-400 dark:text-slate-500'
+            type="button"
+            onClick={() => setShowMobileMoreMenu(prev => !prev)}
+            className={`flex-1 flex flex-col items-center justify-center py-1.5 min-h-[48px] rounded-2xl transition apple-spring relative touch-manipulation active:scale-95 ${
+              ['dashboard', 'sales', 'settings'].includes(activeTab) || showMobileMoreMenu
+                ? 'text-emerald-600 dark:text-emerald-400 font-bold'
+                : 'text-slate-400 dark:text-slate-500'
             }`}
           >
             <div className="relative">
-              <LayoutDashboard className="w-5 h-5 mb-0.5" />
-              {dashboardData?.expiringCount > 0 && (
-                <span className="absolute -top-1 -right-2 bg-amber-500 text-white font-extrabold text-[9px] w-4 h-4 rounded-full flex items-center justify-center shadow-sm">
-                  {dashboardData.expiringCount}
-                </span>
+              <MoreHorizontal className="w-5 h-5 mb-0.5" />
+              {['dashboard', 'sales', 'settings'].includes(activeTab) && (
+                <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-emerald-500"></span>
               )}
             </div>
-            <span>Dashboard</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('inventory')}
-            className={`flex flex-col items-center py-1 px-3 rounded-2xl text-[11px] font-semibold transition apple-spring ${
-              activeTab === 'inventory' ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-slate-400 dark:text-slate-500'
-            }`}
-          >
-            <Pill className="w-5 h-5 mb-0.5" />
-            <span>Drugs</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('settings')}
-            className={`flex flex-col items-center py-1 px-3 rounded-2xl text-[11px] font-semibold transition apple-spring ${
-              activeTab === 'settings' ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-slate-400 dark:text-slate-500'
-            }`}
-          >
-            <Settings className="w-5 h-5 mb-0.5" />
-            <span>Settings</span>
+            <span className="text-[10px] tracking-tight">More</span>
           </button>
         </nav>
+
+        {/* Mobile "More" Bottom Sheet Drawer */}
+        {showMobileMoreMenu && (
+          <div className="fixed inset-0 z-50 md:hidden flex flex-col justify-end">
+            <div
+              className="fixed inset-0 bg-black/60 backdrop-blur-xs transition-opacity"
+              onClick={() => setShowMobileMoreMenu(false)}
+            />
+            <div className="relative w-full bg-white dark:bg-slate-900 rounded-t-[32px] shadow-2xl border-t border-black/[0.08] dark:border-white/10 p-5 z-10 max-h-[85vh] flex flex-col overflow-y-auto">
+              <div className="w-12 h-1.5 bg-slate-300 dark:bg-slate-700 rounded-full mx-auto mb-4 shrink-0" />
+              
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-white/10 mb-3">
+                <h3 className="font-bold text-slate-900 dark:text-white text-base">PharmaHub Navigation & Tools</h3>
+                <button
+                  onClick={() => setShowMobileMoreMenu(false)}
+                  className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-white rounded-xl"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Navigation Grid */}
+              <div className="grid grid-cols-2 gap-2.5 mb-4">
+                <button
+                  type="button"
+                  onClick={() => { setActiveTab('dashboard'); setShowMobileMoreMenu(false); }}
+                  className={`p-3 rounded-2xl border flex items-center space-x-3 text-left transition apple-spring ${
+                    activeTab === 'dashboard'
+                      ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-500/40 text-emerald-800 dark:text-emerald-300 font-bold'
+                      : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200/80 dark:border-white/5 text-slate-700 dark:text-slate-200'
+                  }`}
+                >
+                  <div className="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                    <LayoutDashboard className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold leading-tight">Dashboard</p>
+                    <p className="text-[10px] text-slate-400">KPIs & Expiry</p>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => { setActiveTab('sales'); setShowMobileMoreMenu(false); }}
+                  className={`p-3 rounded-2xl border flex items-center space-x-3 text-left transition apple-spring ${
+                    activeTab === 'sales'
+                      ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-500/40 text-emerald-800 dark:text-emerald-300 font-bold'
+                      : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200/80 dark:border-white/5 text-slate-700 dark:text-slate-200'
+                  }`}
+                >
+                  <div className="w-9 h-9 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
+                    <Receipt className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold leading-tight">Sales History</p>
+                    <p className="text-[10px] text-slate-400">Past Receipts</p>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => { setActiveTab('settings'); setShowMobileMoreMenu(false); }}
+                  className={`p-3 rounded-2xl border flex items-center space-x-3 text-left transition apple-spring ${
+                    activeTab === 'settings'
+                      ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-500/40 text-emerald-800 dark:text-emerald-300 font-bold'
+                      : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200/80 dark:border-white/5 text-slate-700 dark:text-slate-200'
+                  }`}
+                >
+                  <div className="w-9 h-9 rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0">
+                    <Settings className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold leading-tight">Settings</p>
+                    <p className="text-[10px] text-slate-400">Store Profile</p>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => { setShowMobileMoreMenu(false); setTourStep(0); setShowFeatureTour(true); }}
+                  className="p-3 rounded-2xl border border-indigo-200/60 dark:border-indigo-800/40 bg-indigo-50/70 dark:bg-indigo-950/40 text-indigo-800 dark:text-indigo-300 flex items-center space-x-3 text-left transition apple-spring"
+                >
+                  <div className="w-9 h-9 rounded-xl bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
+                    <Sparkles className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold leading-tight">Feature Tour</p>
+                    <p className="text-[10px] text-indigo-600/80 dark:text-indigo-400/80">Interactive Guide</p>
+                  </div>
+                </button>
+              </div>
+
+              {/* 24/7 Verified Partner Ad Spotlight inside Mobile Drawer */}
+              <div className="p-3 mb-4 rounded-2xl bg-gradient-to-r from-emerald-500/10 to-teal-500/10 dark:from-emerald-950/40 dark:to-teal-950/40 border border-emerald-500/20 text-xs space-y-2">
+                <div className="flex items-center justify-between text-[10px]">
+                  <span className="px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 font-bold uppercase tracking-wider text-[9px]">
+                    {SPONSORED_ADS[adIndex].badge}
+                  </span>
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400">24/7 Partner Spotlight</span>
+                </div>
+                <div className="flex items-start space-x-2.5">
+                  <span className="text-2xl p-1 bg-white dark:bg-slate-800 rounded-xl shrink-0 shadow-xs">{SPONSORED_ADS[adIndex].icon}</span>
+                  <div className="min-w-0">
+                    <p className="font-bold text-slate-900 dark:text-white text-xs truncate">{SPONSORED_ADS[adIndex].partner}</p>
+                    <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-snug mt-0.5">{SPONSORED_ADS[adIndex].title}</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowMobileMoreMenu(false);
+                    showToast(`Opening ${SPONSORED_ADS[adIndex].partner} partner portal...`, 'info');
+                  }}
+                  className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs transition text-center block shadow-xs"
+                >
+                  {SPONSORED_ADS[adIndex].cta} ↗
+                </button>
+              </div>
+
+              {/* User Profile / Auth Action */}
+              <div className="pt-2 border-t border-slate-100 dark:border-white/10 flex items-center justify-between">
+                {currentUser ? (
+                  <>
+                    <div className="flex items-center space-x-2 min-w-0">
+                      <div className="w-8 h-8 rounded-full bg-emerald-500 flex items-center justify-center text-white font-bold text-xs shrink-0">
+                        {currentUser.name ? currentUser.name[0].toUpperCase() : 'U'}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-bold text-xs text-slate-900 dark:text-white truncate">{currentUser.name}</p>
+                        <p className="text-[10px] text-slate-400 truncate">{currentUser.email}</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => { setShowMobileMoreMenu(false); handleLogout(); }}
+                      className="px-3 py-1.5 bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 font-bold rounded-xl text-xs border border-rose-200 dark:border-rose-800/40 flex items-center space-x-1"
+                    >
+                      <LogOut className="w-3.5 h-3.5" />
+                      <span>Sign Out</span>
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={() => { setShowMobileMoreMenu(false); setShowAuthModal(true); setAuthMode('login'); }}
+                    className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs flex items-center justify-center space-x-1.5 shadow-sm"
+                  >
+                    <LogIn className="w-4 h-4" />
+                    <span>Sign In to Pharmacy Account</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </main>
 
       {/* ============================================================ */}
@@ -4496,6 +4823,178 @@ export default function App() {
               </div>
 
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* INTERACTIVE FEATURE TOUR & SYSTEM WALKTHROUGH MODAL          */}
+      {/* ============================================================ */}
+      {showFeatureTour && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="relative w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-white/10 p-6 space-y-6 max-h-[90vh] overflow-y-auto animate-scale-up">
+            {/* Header with Step indicator */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-white/10">
+              <div className="flex items-center space-x-2">
+                <span className="p-2 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
+                  <Sparkles className="w-5 h-5" />
+                </span>
+                <div>
+                  <h3 className="font-bold text-slate-900 dark:text-white text-base">PharmaHub Feature Tour</h3>
+                  <p className="text-[11px] text-slate-400">Step {tourStep + 1} of 5 • Interactive Walkthrough</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowFeatureTour(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-white rounded-xl transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Tour Step Cards */}
+            <div className="min-h-[200px] flex flex-col justify-center text-center space-y-4 px-2">
+              {tourStep === 0 && (
+                <div className="space-y-3 animate-fade-in">
+                  <div className="w-16 h-16 rounded-3xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mx-auto text-3xl shadow-inner">
+                    💊
+                  </div>
+                  <h4 className="text-lg font-black text-slate-900 dark:text-white">Smart Pharmacy Operating System</h4>
+                  <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed max-w-md mx-auto">
+                    Welcome to PharmaHub! Built for high-volume pharmacies and community drugstores. Fast POS, multi-tenant stock isolation, dual pricing, and mobile-ready responsive controls.
+                  </p>
+                  <div className="flex items-center justify-center gap-2 pt-1 text-[11px] text-emerald-600 dark:text-emerald-400 font-bold">
+                    <span>✨ Fast Dispensing</span> • <span>📦 Batch Sensing</span> • <span>🤝 Trust Loans</span>
+                  </div>
+                </div>
+              )}
+
+              {tourStep === 1 && (
+                <div className="space-y-3 animate-fade-in">
+                  <div className="w-16 h-16 rounded-3xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center mx-auto text-3xl shadow-inner">
+                    🛒
+                  </div>
+                  <h4 className="text-lg font-black text-slate-900 dark:text-white">Unit-Selling Freedom (Box, Strip & Pill)</h4>
+                  <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed max-w-md mx-auto">
+                    Sell medications however your patients need them: dispense a full box, an individual blister strip, or loose single tablets with automatic unit conversion and profit tracking.
+                  </p>
+                  <div className="p-3 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-200/80 dark:border-white/5 flex items-center justify-around text-xs font-bold text-slate-700 dark:text-slate-200">
+                    <span className="text-emerald-600 dark:text-emerald-400">+ Box</span>
+                    <span className="text-slate-300 dark:text-slate-600">|</span>
+                    <span className="text-blue-600 dark:text-blue-400">+ Strip</span>
+                    <span className="text-slate-300 dark:text-slate-600">|</span>
+                    <span className="text-purple-600 dark:text-purple-400">+ 1 Unit</span>
+                  </div>
+                </div>
+              )}
+
+              {tourStep === 2 && (
+                <div className="space-y-3 animate-fade-in">
+                  <div className="w-16 h-16 rounded-3xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center mx-auto text-3xl shadow-inner">
+                    📦
+                  </div>
+                  <h4 className="text-lg font-black text-slate-900 dark:text-white">Smart Batch Sensing & Intake Pricing</h4>
+                  <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed max-w-md mx-auto">
+                    When receiving stock, enter your lot number. PharmaHub automatically senses if that batch already exists on shelf and tops it up. Set your wholesaler buying cost and retail price on the spot.
+                  </p>
+                  <div className="p-2.5 bg-blue-50/70 dark:bg-blue-950/40 border border-blue-200/60 dark:border-blue-800/40 rounded-xl text-xs text-blue-800 dark:text-blue-200 font-medium">
+                    ⚡ Zero duplicate lots • Dynamic profit margins calculated live
+                  </div>
+                </div>
+              )}
+
+              {tourStep === 3 && (
+                <div className="space-y-3 animate-fade-in">
+                  <div className="w-16 h-16 rounded-3xl bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-center justify-center mx-auto text-3xl shadow-inner">
+                    🤝
+                  </div>
+                  <h4 className="text-lg font-black text-slate-900 dark:text-white">Trust Loans & 1-Click WhatsApp Reminders</h4>
+                  <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed max-w-md mx-auto">
+                    Support trusted patients with partial credit dispensing. Track repayment dates, partial settlements, and dispatch courteous pre-formatted WhatsApp reminders directly from your ledger.
+                  </p>
+                  <div className="flex items-center justify-center gap-1.5 text-xs text-rose-700 dark:text-rose-400 font-bold">
+                    <MessageCircle className="w-4 h-4" />
+                    <span>Instant WhatsApp reminders with pre-filled balance and promise dates</span>
+                  </div>
+                </div>
+              )}
+
+              {tourStep === 4 && (
+                <div className="space-y-3 animate-fade-in">
+                  <div className="w-16 h-16 rounded-3xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mx-auto text-3xl shadow-inner">
+                    🌐
+                  </div>
+                  <h4 className="text-lg font-black text-slate-900 dark:text-white">24/7 Verified Supply Network & Market Intel</h4>
+                  <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed max-w-md mx-auto">
+                    Compare originator brands against pure generics and nationwide hospital formularies. Access exclusive 24/7 wholesaler bulk discounts from verified medical supply partners.
+                  </p>
+                  <div className="p-2.5 bg-emerald-50/70 dark:bg-emerald-950/40 border border-emerald-200/60 dark:border-emerald-800/40 rounded-xl text-xs text-emerald-800 dark:text-emerald-300 font-bold">
+                    🌍 Real-time market intelligence • 24/7 verified pharmacy supply network
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Stepper Dots */}
+            <div className="flex items-center justify-center space-x-2 pt-2">
+              {[0, 1, 2, 3, 4].map(idx => (
+                <button
+                  key={idx}
+                  onClick={() => setTourStep(idx)}
+                  className={`h-2 rounded-full transition-all ${
+                    tourStep === idx ? 'w-8 bg-emerald-600 dark:bg-emerald-400' : 'w-2 bg-slate-300 dark:bg-slate-700'
+                  }`}
+                  aria-label={`Go to step ${idx + 1}`}
+                />
+              ))}
+            </div>
+
+            {/* Modal Controls */}
+            <div className="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-white/10">
+              <button
+                type="button"
+                onClick={() => setShowFeatureTour(false)}
+                className="px-4 py-2 text-xs font-semibold text-slate-500 hover:text-slate-800 dark:hover:text-white transition"
+              >
+                Skip Tour
+              </button>
+
+              <div className="flex items-center gap-2">
+                {tourStep > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setTourStep(s => s - 1)}
+                    className="px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300 text-xs font-bold rounded-xl transition"
+                  >
+                    Previous
+                  </button>
+                )}
+
+                {tourStep < 4 ? (
+                  <button
+                    type="button"
+                    onClick={() => setTourStep(s => s + 1)}
+                    className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-md shadow-emerald-700/20 transition apple-spring flex items-center gap-1.5"
+                  >
+                    <span>Next Feature</span>
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowFeatureTour(false);
+                      showToast('Ready to go! Start dispensing or explore your inventory.', 'success');
+                    }}
+                    className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-md shadow-emerald-700/20 transition apple-spring flex items-center gap-1.5"
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Get Started</span>
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}
