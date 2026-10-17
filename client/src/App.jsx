@@ -1598,7 +1598,7 @@ export default function App() {
             <div className="flex items-center space-x-4 text-xs text-slate-400 pt-2">
               <div className="flex items-center space-x-1.5">
                 <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                <span>100% Free Forever</span>
+                <span>30-Day Free Trial (1 Full Month)</span>
               </div>
               <span>•</span>
               <div className="flex items-center space-x-1.5">
@@ -1643,13 +1643,18 @@ export default function App() {
               </div>
 
               <div className="mb-5">
+                <div className="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold mb-2.5 bg-black/[0.04] dark:bg-white/[0.06] text-slate-700 dark:text-slate-300">
+                  <span>{landingPortalCategory === 'solo' ? '💊 Solo Pharmacy Portal' : landingPortalCategory === 'organization' ? '🏥 Enterprise Hospital Portal' : '🏭 Wholesale Distribution Portal'}</span>
+                </div>
                 <h2 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight">
-                  {authMode === 'login' ? 'Welcome back, Pharmacist' : 'Set up your free pharmacy'}
+                  {authMode === 'login'
+                    ? (landingPortalCategory === 'wholesale' ? 'Sign in to Wholesale Hub' : landingPortalCategory === 'organization' ? 'Sign in to Enterprise Hub' : 'Sign in to Pharmacy Hub')
+                    : (landingPortalCategory === 'wholesale' ? 'Register Wholesale Depot' : landingPortalCategory === 'organization' ? 'Register Enterprise Account' : 'Set up your Solo Pharmacy')}
                 </h2>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                   {authMode === 'login'
-                    ? 'Sign in with Google, phone number, or email to access your dispensary'
-                    : 'Your clean template is pre-loaded with essential medicines'}
+                    ? 'Sign in with Google, phone number, or work email to access your workspace'
+                    : 'Includes full-featured 30-Day Free Trial (1 Month) with zero card required'}
                 </p>
               </div>
 
