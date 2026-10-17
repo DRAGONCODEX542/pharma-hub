@@ -237,6 +237,12 @@ export default function App() {
   const [wholesalerDrugMatches, setWholesalerDrugMatches] = useState([]);
   const [wholesalerLoading, setWholesalerLoading] = useState(false);
   const [landingPortalCategory, setLandingPortalCategory] = useState('solo'); // 'solo' | 'organization' | 'wholesale'
+
+  // M-Pesa Interactive Demo Checkout State
+  const [mpesaCheckoutPlan, setMpesaCheckoutPlan] = useState(null);
+  const [mpesaPhone, setMpesaPhone] = useState('');
+  const [mpesaCheckoutLoading, setMpesaCheckoutLoading] = useState(false);
+  const [mpesaSuccessReceipt, setMpesaSuccessReceipt] = useState(null);
   
   // Apple Dark Mode / Theme State
   const [isDarkMode, setIsDarkMode] = useState(() => {
@@ -582,12 +588,36 @@ export default function App() {
         setCurrentUser(updatedUser);
         localStorage.setItem('pharmahub_user', JSON.stringify(updatedUser));
         setShowSubscriptionModal(false);
+        setMpesaCheckoutPlan(null);
       } else {
         showToast(data.error || 'Upgrade failed', 'error');
       }
     } catch {
       showToast('Upgrade request failed', 'error');
     }
+  };
+
+  const handleSimulateMpesaPayment = async (plan) => {
+    if (!mpesaPhone || mpesaPhone.trim().length < 9) {
+      showToast('Please enter your valid Safaricom M-Pesa phone number (e.g. 0712345678)', 'error');
+      return;
+    }
+    setMpesaCheckoutLoading(true);
+    // Simulate Daraja STK Push prompt delay
+    await new Promise(r => setTimeout(r, 1600));
+
+    const receiptCode = 'QA' + Math.random().toString(36).substring(2, 9).toUpperCase();
+    setMpesaSuccessReceipt({
+      code: receiptCode,
+      amount: plan.price,
+      phone: mpesaPhone,
+      tier: plan.name,
+      date: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    });
+    setMpesaCheckoutLoading(false);
+
+    // Automatically apply plan upgrade on successful mock verification
+    await handleUpgradePlan(plan.id);
   };
 
   const fetchAccounting = async () => {
@@ -5349,12 +5379,12 @@ export default function App() {
               </button>
             </div>
 
-            {/* Account Type Sub-toggle */}
-            <div className="flex bg-slate-100 dark:bg-slate-800 p-1 m-6 rounded-2xl gap-1 max-w-xs">
+            {/* Account Type Sub-toggle (Solo vs Organization vs Wholesale) */}
+            <div className="flex bg-slate-100 dark:bg-slate-800 p-1 m-6 rounded-2xl gap-1 max-w-md">
               <button
                 onClick={() => setAuthForm(f => ({ ...f, account_type: 'solo' }))}
                 className={`flex-1 py-2 rounded-xl text-xs font-bold transition apple-spring ${
-                  authForm.account_type !== 'organization'
+                  authForm.account_type === 'solo'
                     ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm'
                     : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
                 }`}
@@ -5371,13 +5401,23 @@ export default function App() {
               >
                 🏥 Organization
               </button>
+              <button
+                onClick={() => setAuthForm(f => ({ ...f, account_type: 'wholesale' }))}
+                className={`flex-1 py-2 rounded-xl text-xs font-bold transition apple-spring ${
+                  authForm.account_type === 'wholesale'
+                    ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm'
+                    : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                🏭 Wholesale Hub
+              </button>
             </div>
 
             {/* Solo Plans */}
-            {authForm.account_type !== 'organization' && (
+            {authForm.account_type === 'solo' && (
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 px-6 pb-6">
                 {SUBSCRIPTION_PLANS.solo.map((plan) => (
-                  <div key={plan.id} className={`rounded-2xl border p-5 space-y-4 transition relative ${
+                  <div key={plan.id} className={`rounded-2xl border p-5 space-y-4 transition relative flex flex-col justify-between ${
                     plan.popular
                       ? 'border-emerald-500 bg-emerald-50/60 dark:bg-emerald-950/30 shadow-lg shadow-emerald-500/10'
                       : 'border-slate-200 dark:border-white/10 bg-white dark:bg-slate-800/50'
@@ -5396,7 +5436,7 @@ export default function App() {
                       </div>
                       <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">{plan.description}</p>
                     </div>
-                    <ul className="space-y-1.5">
+                    <ul className="space-y-1.5 flex-1">
                       {plan.features.map((f) => (
                         <li key={f} className="flex items-start space-x-2 text-xs text-slate-700 dark:text-slate-300">
                           <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
@@ -5405,7 +5445,7 @@ export default function App() {
                       ))}
                     </ul>
                     <button
-                      onClick={() => handleUpgradePlan(plan.id)}
+                      onClick={() => setMpesaCheckoutPlan(plan)}
                       className={`w-full py-2.5 rounded-xl font-bold text-xs transition apple-spring ${
                         currentUser?.subscription_tier === plan.id
                           ? 'bg-slate-100 dark:bg-slate-700 text-slate-500 cursor-default'
@@ -5415,7 +5455,7 @@ export default function App() {
                       }`}
                       disabled={currentUser?.subscription_tier === plan.id}
                     >
-                      {currentUser?.subscription_tier === plan.id ? '✓ Current Plan' : `Upgrade to ${plan.name}`}
+                      {currentUser?.subscription_tier === plan.id ? '✓ Current Plan' : `Select & Pay KSh ${plan.price.toLocaleString()}`}
                     </button>
                   </div>
                 ))}
@@ -5426,7 +5466,7 @@ export default function App() {
             {authForm.account_type === 'organization' && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 px-6 pb-6">
                 {SUBSCRIPTION_PLANS.organization.map((plan) => (
-                  <div key={plan.id} className={`rounded-2xl border p-5 space-y-4 transition relative ${
+                  <div key={plan.id} className={`rounded-2xl border p-5 space-y-4 transition relative flex flex-col justify-between ${
                     plan.popular
                       ? 'border-emerald-500 bg-emerald-50/60 dark:bg-emerald-950/30 shadow-lg shadow-emerald-500/10'
                       : 'border-slate-200 dark:border-white/10 bg-white dark:bg-slate-800/50'
@@ -5445,7 +5485,7 @@ export default function App() {
                       </div>
                       <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">{plan.description}</p>
                     </div>
-                    <ul className="space-y-1.5">
+                    <ul className="space-y-1.5 flex-1">
                       {plan.features.map((f) => (
                         <li key={f} className="flex items-start space-x-2 text-xs text-slate-700 dark:text-slate-300">
                           <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
@@ -5454,7 +5494,7 @@ export default function App() {
                       ))}
                     </ul>
                     <button
-                      onClick={() => handleUpgradePlan(plan.id)}
+                      onClick={() => setMpesaCheckoutPlan(plan)}
                       className={`w-full py-2.5 rounded-xl font-bold text-xs transition apple-spring ${
                         currentUser?.subscription_tier === plan.id
                           ? 'bg-slate-100 dark:bg-slate-700 text-slate-500 cursor-default'
@@ -5464,10 +5504,183 @@ export default function App() {
                       }`}
                       disabled={currentUser?.subscription_tier === plan.id}
                     >
-                      {currentUser?.subscription_tier === plan.id ? '✓ Current Plan' : `Upgrade to ${plan.name}`}
+                      {currentUser?.subscription_tier === plan.id ? '✓ Current Plan' : `Select & Pay KSh ${plan.price.toLocaleString()}`}
                     </button>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {/* Wholesale Plans */}
+            {authForm.account_type === 'wholesale' && (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 px-6 pb-6">
+                {SUBSCRIPTION_PLANS.wholesale.map((plan) => (
+                  <div key={plan.id} className={`rounded-2xl border p-5 space-y-4 transition relative flex flex-col justify-between ${
+                    plan.popular
+                      ? 'border-amber-500 bg-amber-50/60 dark:bg-amber-950/30 shadow-lg shadow-amber-500/10'
+                      : 'border-slate-200 dark:border-white/10 bg-white dark:bg-slate-800/50'
+                  }`}>
+                    {plan.popular && (
+                      <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 px-3 py-0.5 bg-amber-500 text-slate-950 text-[10px] font-black rounded-full">
+                        Distributor Standard
+                      </span>
+                    )}
+                    <div>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">{plan.tag}</span>
+                      <h3 className="font-bold text-slate-900 dark:text-white text-lg mt-0.5">{plan.name}</h3>
+                      <div className="flex items-baseline space-x-1 mt-2">
+                        <span className="text-2xl font-bold text-slate-900 dark:text-white">KSh {plan.price.toLocaleString()}</span>
+                        <span className="text-xs text-slate-500">/month</span>
+                      </div>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">{plan.description}</p>
+                    </div>
+                    <ul className="space-y-1.5 flex-1">
+                      {plan.features.map((f) => (
+                        <li key={f} className="flex items-start space-x-2 text-xs text-slate-700 dark:text-slate-300">
+                          <Check className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
+                          <span>{f}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    <button
+                      onClick={() => setMpesaCheckoutPlan(plan)}
+                      className={`w-full py-2.5 rounded-xl font-bold text-xs transition apple-spring ${
+                        currentUser?.subscription_tier === plan.id
+                          ? 'bg-slate-100 dark:bg-slate-700 text-slate-500 cursor-default'
+                          : 'bg-amber-500 hover:bg-amber-400 active:bg-amber-600 text-slate-950 shadow-sm font-black'
+                      }`}
+                      disabled={currentUser?.subscription_tier === plan.id}
+                    >
+                      {currentUser?.subscription_tier === plan.id ? '✓ Current Plan' : `Select & Pay KSh ${plan.price.toLocaleString()}`}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* M-Pesa Interactive STK Push Modal Overlay */}
+            {mpesaCheckoutPlan && (
+              <div className="fixed inset-0 z-60 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+                <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-white/10 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2.5">
+                      <div className="w-9 h-9 rounded-2xl bg-emerald-600 flex items-center justify-center text-white font-black text-sm shadow-md">
+                        M
+                      </div>
+                      <div>
+                        <h4 className="font-extrabold text-slate-900 dark:text-white text-base">Lipa Na M-Pesa Online</h4>
+                        <p className="text-[11px] text-slate-500">Instant STK Push Subscription</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setMpesaCheckoutPlan(null)}
+                      className="text-slate-400 hover:text-slate-700 dark:hover:text-white p-1"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+
+                  <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200/80 dark:border-white/10 space-y-2 text-xs">
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Selected Plan:</span>
+                      <span className="font-bold text-slate-900 dark:text-white">{mpesaCheckoutPlan.name}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Subscription Amount:</span>
+                      <span className="font-black text-emerald-600 dark:text-emerald-400 text-sm">KSh {mpesaCheckoutPlan.price.toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Account Reference:</span>
+                      <span className="font-mono text-slate-700 dark:text-slate-300">{currentUser?.pharmacy_name || 'PharmaHub'}</span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                      Enter Safaricom M-Pesa Phone Number
+                    </label>
+                    <input
+                      type="tel"
+                      placeholder="07XX XXX XXX or 2547XXXXXXXX"
+                      value={mpesaPhone}
+                      onChange={e => setMpesaPhone(e.target.value)}
+                      className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-2xl text-sm font-semibold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500 transition"
+                    />
+                    <p className="text-[10px] text-slate-400">
+                      An STK PIN prompt will be sent to this phone. Enter your M-Pesa PIN on your phone to complete payment.
+                    </p>
+                  </div>
+
+                  <div className="flex gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setMpesaCheckoutPlan(null)}
+                      className="flex-1 py-3 rounded-2xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 font-bold text-xs text-slate-700 dark:text-slate-200 transition"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      disabled={mpesaCheckoutLoading}
+                      onClick={() => handleSimulateMpesaPayment(mpesaCheckoutPlan)}
+                      className="flex-2 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 font-bold text-xs text-white shadow-lg shadow-emerald-600/30 flex items-center justify-center space-x-2 transition apple-spring"
+                    >
+                      {mpesaCheckoutLoading ? (
+                        <>
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                          <span>Sending STK Prompt...</span>
+                        </>
+                      ) : (
+                        <span>Send STK Push (KSh {mpesaCheckoutPlan.price.toLocaleString()})</span>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* M-Pesa Success Receipt Modal */}
+            {mpesaSuccessReceipt && (
+              <div className="fixed inset-0 z-70 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
+                <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-3xl p-6 shadow-2xl border border-emerald-500/40 text-center space-y-4">
+                  <div className="w-14 h-14 rounded-full bg-emerald-500/20 text-emerald-500 mx-auto flex items-center justify-center">
+                    <CheckCircle2 className="w-8 h-8" />
+                  </div>
+                  <div>
+                    <h4 className="text-lg font-black text-slate-900 dark:text-white">Payment Confirmed!</h4>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Your subscription is now active</p>
+                  </div>
+
+                  <div className="p-4 rounded-2xl bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-200/60 dark:border-emerald-800/30 text-xs text-left space-y-1.5 font-mono">
+                    <div className="flex justify-between">
+                      <span className="text-slate-500 font-sans">M-Pesa Receipt:</span>
+                      <span className="font-bold text-slate-900 dark:text-white">{mpesaSuccessReceipt.code}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500 font-sans">Amount Paid:</span>
+                      <span className="font-bold text-emerald-600 dark:text-emerald-400">KSh {mpesaSuccessReceipt.amount.toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500 font-sans">Plan Activated:</span>
+                      <span className="font-bold text-slate-900 dark:text-white">{mpesaSuccessReceipt.tier}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500 font-sans">Timestamp:</span>
+                      <span className="text-slate-600 dark:text-slate-400">{mpesaSuccessReceipt.date}</span>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMpesaSuccessReceipt(null);
+                      setShowSubscriptionModal(false);
+                    }}
+                    className="w-full py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition apple-spring"
+                  >
+                    Done & Return to Dashboard
+                  </button>
+                </div>
               </div>
             )}
 
