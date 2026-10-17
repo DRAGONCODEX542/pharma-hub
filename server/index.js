@@ -1,13 +1,16 @@
 import express from 'express';
 import cors from 'cors';
+import compression from 'compression';
 import crypto from 'node:crypto';
 import { db, initDatabase, hashPassword, verifyPassword } from './db.js';
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Enable HTTP payload compression (Gzip / Deflate / Brotli)
+app.use(compression());
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 
 // --- ENTERPRISE SECURITY HEADERS & HARDENING ---
 app.use((req, res, next) => {
@@ -583,6 +586,8 @@ app.get('/api/medicines', (req, res) => {
              COALESCE(pmp.unit_price, m.unit_price) as unit_price,
              COALESCE(pmp.wholesale_pack_price, m.wholesale_pack_price) as wholesale_pack_price,
              COALESCE(pmp.min_stock_alert, m.min_stock_alert) as min_stock_alert,
+             COALESCE(pmp.allow_strip_sales, 1) as allow_strip_sales,
+             COALESCE(pmp.allow_unit_sales, 1) as allow_unit_sales,
              m.reorder_quantity, m.notes,
              mol.name as molecule_name, mol.therapeutic_class,
              COALESCE(SUM(b.packs_available), 0) as total_packs,
@@ -840,7 +845,7 @@ app.patch('/api/medicines/:id/price', (req, res) => {
     const user = getAuthUser(req);
     const activeUserId = user ? user.id : -1;
     const medicineId = Number(req.params.id);
-    const { pack_price, strip_price, unit_price, wholesale_pack_price, min_stock_alert } = req.body;
+    const { pack_price, strip_price, unit_price, wholesale_pack_price, min_stock_alert, allow_strip_sales, allow_unit_sales } = req.body;
 
     if (pack_price == null || isNaN(Number(pack_price))) {
       return res.status(400).json({ error: 'Valid pack price is required' });
@@ -850,14 +855,16 @@ app.patch('/api/medicines/:id/price', (req, res) => {
 
     const upsertStmt = db.prepare(`
       INSERT INTO pharmacy_medicine_prices (
-        user_id, medicine_id, pack_price, strip_price, unit_price, wholesale_pack_price, min_stock_alert, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        user_id, medicine_id, pack_price, strip_price, unit_price, wholesale_pack_price, min_stock_alert, allow_strip_sales, allow_unit_sales, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(user_id, medicine_id) DO UPDATE SET
         pack_price = excluded.pack_price,
         strip_price = excluded.strip_price,
         unit_price = excluded.unit_price,
         wholesale_pack_price = excluded.wholesale_pack_price,
         min_stock_alert = excluded.min_stock_alert,
+        allow_strip_sales = excluded.allow_strip_sales,
+        allow_unit_sales = excluded.allow_unit_sales,
         updated_at = excluded.updated_at
     `);
 
@@ -869,6 +876,8 @@ app.patch('/api/medicines/:id/price', (req, res) => {
       unit_price != null ? Number(unit_price) : null,
       wholesale_pack_price != null ? Number(wholesale_pack_price) : null,
       min_stock_alert != null ? Number(min_stock_alert) : 10,
+      allow_strip_sales !== undefined ? (allow_strip_sales ? 1 : 0) : 1,
+      allow_unit_sales !== undefined ? (allow_unit_sales ? 1 : 0) : 1,
       now
     );
 
@@ -898,43 +907,107 @@ app.patch('/api/medicines/:id/price', (req, res) => {
   }
 });
 
-// ADD BATCH (STOCK INTAKE)
+// ADD BATCH (SMART STOCK INTAKE & SIMULTANEOUS PRICE SETTING)
 app.post('/api/batches', (req, res) => {
   try {
     const user = getAuthUser(req);
     const activeUserId = user ? user.id : -1;
     const {
       medicine_id, batch_number, supplier, cost_price_per_pack,
-      packs_received, manufacture_date, expiry_date
+      packs_received, manufacture_date, expiry_date,
+      pack_price, strip_price, unit_price, allow_strip_sales, allow_unit_sales
     } = req.body;
 
     if (!medicine_id || !batch_number || !expiry_date || packs_received == null) {
       return res.status(400).json({ error: 'Medicine, batch number, packs received, and expiry date are required' });
     }
 
-    const stmt = db.prepare(`
-      INSERT INTO batches (
-        medicine_id, batch_number, supplier, cost_price_per_pack,
-        packs_received, packs_available, loose_units_available,
-        manufacture_date, expiry_date, received_date, status, user_id
-      ) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, 'active', ?)
-    `);
+    const cleanBatch = String(batch_number).trim();
 
-    const result = stmt.run(
-      Number(medicine_id),
-      batch_number.trim(),
-      supplier || '',
-      Number(cost_price_per_pack || 0),
-      Number(packs_received),
-      Number(packs_received),
-      manufacture_date || null,
-      expiry_date,
-      new Date().toISOString().split('T')[0],
-      activeUserId
-    );
+    // Smart Batch Sensing: Check if an active batch with the same lot number already exists for this pharmacy
+    const existingBatch = db.prepare(`
+      SELECT id, packs_available, packs_received, expiry_date
+      FROM batches
+      WHERE medicine_id = ? AND batch_number = ? AND user_id = ? AND status = 'active'
+    `).get(Number(medicine_id), cleanBatch, activeUserId);
 
-    // If cost price per pack was recorded in this batch intake, update wholesaler cost for this pharmacy
-    if (cost_price_per_pack && Number(cost_price_per_pack) > 0) {
+    let batchId;
+    let isToppedUp = false;
+
+    if (existingBatch) {
+      // Top up existing lot
+      db.prepare(`
+        UPDATE batches SET
+          packs_received = packs_received + ?,
+          packs_available = packs_available + ?,
+          expiry_date = ?,
+          supplier = COALESCE(NULLIF(?, ''), supplier),
+          cost_price_per_pack = CASE WHEN ? > 0 THEN ? ELSE cost_price_per_pack END
+        WHERE id = ?
+      `).run(
+        Number(packs_received),
+        Number(packs_received),
+        expiry_date,
+        supplier || '',
+        Number(cost_price_per_pack || 0),
+        Number(cost_price_per_pack || 0),
+        existingBatch.id
+      );
+      batchId = existingBatch.id;
+      isToppedUp = true;
+    } else {
+      // Insert new batch
+      const stmt = db.prepare(`
+        INSERT INTO batches (
+          medicine_id, batch_number, supplier, cost_price_per_pack,
+          packs_received, packs_available, loose_units_available,
+          manufacture_date, expiry_date, received_date, status, user_id
+        ) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, 'active', ?)
+      `);
+
+      const result = stmt.run(
+        Number(medicine_id),
+        cleanBatch,
+        supplier || '',
+        Number(cost_price_per_pack || 0),
+        Number(packs_received),
+        Number(packs_received),
+        manufacture_date || null,
+        expiry_date,
+        new Date().toISOString().split('T')[0],
+        activeUserId
+      );
+      batchId = result.lastInsertRowid;
+    }
+
+    // Simultaneously update pharmacy's retail pricing & wholesale cost if provided during intake
+    if (pack_price != null && !isNaN(Number(pack_price)) && Number(pack_price) > 0) {
+      try {
+        db.prepare(`
+          INSERT INTO pharmacy_medicine_prices (
+            user_id, medicine_id, pack_price, strip_price, unit_price, wholesale_pack_price, allow_strip_sales, allow_unit_sales, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(user_id, medicine_id) DO UPDATE SET
+            pack_price = excluded.pack_price,
+            strip_price = COALESCE(excluded.strip_price, strip_price),
+            unit_price = COALESCE(excluded.unit_price, unit_price),
+            wholesale_pack_price = COALESCE(excluded.wholesale_pack_price, wholesale_pack_price),
+            allow_strip_sales = COALESCE(excluded.allow_strip_sales, allow_strip_sales),
+            allow_unit_sales = COALESCE(excluded.allow_unit_sales, allow_unit_sales),
+            updated_at = excluded.updated_at
+        `).run(
+          activeUserId,
+          Number(medicine_id),
+          Number(pack_price),
+          strip_price != null ? Number(strip_price) : null,
+          unit_price != null ? Number(unit_price) : null,
+          cost_price_per_pack ? Number(cost_price_per_pack) : null,
+          allow_strip_sales !== undefined ? (allow_strip_sales ? 1 : 0) : 1,
+          allow_unit_sales !== undefined ? (allow_unit_sales ? 1 : 0) : 1,
+          new Date().toISOString()
+        );
+      } catch (e) {}
+    } else if (cost_price_per_pack && Number(cost_price_per_pack) > 0) {
       try {
         db.prepare(`
           INSERT INTO pharmacy_medicine_prices (user_id, medicine_id, wholesale_pack_price, updated_at)
@@ -946,7 +1019,7 @@ app.post('/api/batches', (req, res) => {
       } catch (e) {}
     }
 
-    res.json({ id: result.lastInsertRowid, success: true });
+    res.json({ id: batchId, success: true, isToppedUp });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -232,8 +232,17 @@ export default function App() {
     cost_price_per_pack: '',
     packs_received: '',
     manufacture_date: '',
-    expiry_date: ''
+    expiry_date: '',
+    pack_price: '',
+    strip_price: '',
+    unit_price: '',
+    allow_strip_sales: true,
+    allow_unit_sales: true
   });
+
+  // Interactive Guided Feature Tour Modal State
+  const [showFeatureTour, setShowFeatureTour] = useState(false);
+  const [tourStep, setTourStep] = useState(0);
 
   const curr = settings.currency_symbol || 'KSh';
 
@@ -435,7 +444,9 @@ export default function App() {
       wholesale_pack_price: med.wholesale_pack_price != null ? String(med.wholesale_pack_price) : (med.avg_cost_price != null ? String(med.avg_cost_price) : ''),
       strip_price: med.strip_price != null ? String(med.strip_price) : '',
       unit_price: med.unit_price != null ? String(med.unit_price) : '',
-      min_stock_alert: med.min_stock_alert != null ? String(med.min_stock_alert) : '10'
+      min_stock_alert: med.min_stock_alert != null ? String(med.min_stock_alert) : '10',
+      allow_strip_sales: med.allow_strip_sales !== 0,
+      allow_unit_sales: med.allow_unit_sales !== 0
     });
     setShowPriceEditModal(true);
   };
@@ -458,7 +469,9 @@ export default function App() {
           wholesale_pack_price: priceEditForm.wholesale_pack_price ? Number(priceEditForm.wholesale_pack_price) : null,
           strip_price: priceEditForm.strip_price ? Number(priceEditForm.strip_price) : null,
           unit_price: priceEditForm.unit_price ? Number(priceEditForm.unit_price) : null,
-          min_stock_alert: priceEditForm.min_stock_alert ? Number(priceEditForm.min_stock_alert) : 10
+          min_stock_alert: priceEditForm.min_stock_alert ? Number(priceEditForm.min_stock_alert) : 10,
+          allow_strip_sales: priceEditForm.allow_strip_sales,
+          allow_unit_sales: priceEditForm.allow_unit_sales
         })
       });
 
@@ -488,6 +501,43 @@ export default function App() {
     const stripPrice = stripsPerPack > 0 ? (pack / stripsPerPack).toFixed(2) : null;
 
     setPriceEditForm(prev => ({
+      ...prev,
+      unit_price: unitPrice,
+      strip_price: stripPrice || prev.strip_price
+    }));
+    showToast('Auto-calculated strip & unit prices based on box price', 'info');
+  };
+
+  // Helper when selecting a medicine in Restock Modal: Pre-fill on-hand info & prices
+  const handleBatchMedicineSelect = (medicineId) => {
+    const med = medicines.find(m => String(m.id) === String(medicineId));
+    if (med) {
+      setNewBatchForm(prev => ({
+        ...prev,
+        medicine_id: medicineId,
+        pack_price: med.pack_price != null ? String(med.pack_price) : '',
+        strip_price: med.strip_price != null ? String(med.strip_price) : '',
+        unit_price: med.unit_price != null ? String(med.unit_price) : '',
+        cost_price_per_pack: med.wholesale_pack_price != null ? String(med.wholesale_pack_price) : (med.avg_cost_price != null ? String(med.avg_cost_price) : prev.cost_price_per_pack),
+        allow_strip_sales: med.allow_strip_sales !== 0,
+        allow_unit_sales: med.allow_unit_sales !== 0
+      }));
+    } else {
+      setNewBatchForm(prev => ({ ...prev, medicine_id: medicineId }));
+    }
+  };
+
+  const handleAutoCalcBatchPrices = () => {
+    const med = medicines.find(m => String(m.id) === String(newBatchForm.medicine_id));
+    if (!med || !newBatchForm.pack_price) return;
+    const pack = Number(newBatchForm.pack_price);
+    const unitsPerPack = Number(med.units_per_pack) || 1;
+    const unitsPerStrip = Number(med.units_per_strip) || 10;
+    const unitPrice = (pack / unitsPerPack).toFixed(2);
+    const stripsPerPack = unitsPerPack / unitsPerStrip;
+    const stripPrice = stripsPerPack > 0 ? (pack / stripsPerPack).toFixed(2) : null;
+
+    setNewBatchForm(prev => ({
       ...prev,
       unit_price: unitPrice,
       strip_price: stripPrice || prev.strip_price
@@ -920,7 +970,7 @@ export default function App() {
     }
   };
 
-  // Add Batch Submit
+  // Add Batch Submit (with dual pricing and smart lot detection)
   const handleCreateBatch = async (e) => {
     e.preventDefault();
     try {
@@ -931,7 +981,11 @@ export default function App() {
       });
       const data = await res.json();
       if (data.success) {
-        showToast('Stock batch added successfully', 'success');
+        if (data.isToppedUp) {
+          showToast(`Topped up batch ${newBatchForm.batch_number} (+${newBatchForm.packs_received} packs) and updated pricing!`, 'success');
+        } else {
+          showToast('New stock batch and custom pharmacy prices saved!', 'success');
+        }
         setShowAddBatchModal(false);
         fetchAllData();
       } else {
@@ -1468,6 +1522,14 @@ export default function App() {
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             </button>
             <button
+              onClick={() => { setTourStep(0); setShowFeatureTour(true); }}
+              className="flex items-center space-x-1.5 px-2.5 py-1.5 bg-indigo-50 dark:bg-indigo-950/40 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 border border-indigo-200/60 dark:border-indigo-700/40 text-indigo-700 dark:text-indigo-300 rounded-xl text-xs font-semibold transition apple-spring shadow-xs"
+              title="Interactive System & Feature Tour"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+              <span className="hidden md:inline">Feature Tour</span>
+            </button>
+            <button
               onClick={() => setShowAddMedicineModal(true)}
               className="hidden sm:flex items-center space-x-1.5 px-2.5 py-1.5 bg-slate-800 dark:bg-slate-700 hover:bg-slate-700 dark:hover:bg-slate-600 text-white text-xs font-semibold rounded-xl transition apple-spring shadow-sm"
             >
@@ -1719,34 +1781,36 @@ export default function App() {
                             </span>
                           </div>
 
-                          {/* Action Buttons */}
-                          <div className="grid grid-cols-3 gap-1.5 pt-1">
+                          {/* Action Buttons with Dynamic Unit Selling Freedom */}
+                          <div className="flex gap-1.5 pt-1">
                             <button
                               onClick={() => addToCart(med, 'pack')}
                               disabled={isOutOfStock}
-                              className="px-2 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 rounded-lg text-xs font-semibold transition disabled:opacity-40"
-                              title="Add 1 Box"
+                              className="flex-1 px-2 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 rounded-lg text-xs font-semibold transition disabled:opacity-40 shadow-xs"
+                              title="Add 1 Full Box"
                             >
                               + Box
                             </button>
-                            {med.units_per_strip > 0 && (
+                            {med.units_per_strip > 0 && med.allow_strip_sales !== 0 && (
                               <button
                                 onClick={() => addToCart(med, 'strip')}
                                 disabled={isOutOfStock}
-                                className="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-semibold transition disabled:opacity-40"
-                                title="Add 1 Strip"
+                                className="flex-1 px-2 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-semibold transition disabled:opacity-40 shadow-xs"
+                                title="Add 1 Blister Strip"
                               >
                                 + Strip
                               </button>
                             )}
-                            <button
-                              onClick={() => addToCart(med, 'unit')}
-                              disabled={isOutOfStock}
-                              className="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-semibold transition disabled:opacity-40"
-                              title={`Add 1 ${med.unit_name}`}
-                            >
-                              + 1 {med.unit_name}
-                            </button>
+                            {med.allow_unit_sales !== 0 && (
+                              <button
+                                onClick={() => addToCart(med, 'unit')}
+                                disabled={isOutOfStock}
+                                className="flex-1 px-2 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-semibold transition disabled:opacity-40 shadow-xs"
+                                title={`Add 1 Loose ${med.unit_name}`}
+                              >
+                                + 1 {med.unit_name}
+                              </button>
+                            )}
                           </div>
 
                           {/* Quick Adjust Price & Cost Button */}
@@ -3633,64 +3697,124 @@ export default function App() {
       )}
 
       {/* ============================================================ */}
-      {/* ADD BATCH / RECEIVE STOCK MODAL                             */}
+      {/* ============================================================ */}
+      {/* ADD BATCH / SMART RESTOCK MODAL                             */}
       {/* ============================================================ */}
       {showAddBatchModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col">
-            <div className="p-5 border-b border-slate-100 flex items-center justify-between">
-              <h3 className="font-bold text-slate-900 text-base">Receive New Inventory Batch (FEFO)</h3>
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto animate-fade-in">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-xl rounded-3xl shadow-2xl border border-slate-200 dark:border-white/10 overflow-hidden flex flex-col my-8">
+            
+            {/* Header */}
+            <div className="p-5 border-b border-slate-100 dark:border-white/10 flex items-center justify-between bg-gradient-to-r from-emerald-600/10 via-transparent to-transparent">
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">Inventory Intake & Dual Pricing</span>
+                <h3 className="font-bold text-slate-900 dark:text-white text-base">Receive Stock Batch (FEFO)</h3>
+              </div>
               <button
                 onClick={() => setShowAddBatchModal(false)}
-                className="text-slate-400 hover:text-slate-600"
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-white/10 dark:hover:bg-white/20 text-slate-400 hover:text-slate-600 dark:text-slate-300 flex items-center justify-center transition apple-press"
               >
-                <X className="w-5 h-5" />
+                <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleCreateBatch} className="p-5 space-y-4 text-xs">
+            <form onSubmit={handleCreateBatch} className="p-5 sm:p-6 space-y-4 text-xs overflow-y-auto max-h-[80vh]">
+              
+              {/* Medicine Selector */}
               <div>
-                <label className="block text-slate-700 font-semibold mb-1">Select Medicine *</label>
+                <label className="block text-slate-700 dark:text-slate-200 font-semibold mb-1">Select Medicine / Product *</label>
                 <select
                   required
                   value={newBatchForm.medicine_id}
-                  onChange={(e) => setNewBatchForm({ ...newBatchForm, medicine_id: e.target.value })}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500 text-sm"
+                  onChange={(e) => handleBatchMedicineSelect(e.target.value)}
+                  className="w-full px-3 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm dark:text-white font-medium"
                 >
-                  <option value="">-- Choose Medicine --</option>
+                  <option value="">-- Choose from Pharmacy Formulary (61 Templates) --</option>
                   {medicines.map(m => (
-                    <option key={m.id} value={m.id}>{m.brand_name} ({m.strength}) - {m.manufacturer}</option>
+                    <option key={m.id} value={m.id}>
+                      [{m.form_category || 'Formulary'}] {m.brand_name} ({m.strength}) - {m.manufacturer || m.molecule_name}
+                    </option>
                   ))}
                 </select>
               </div>
 
+              {/* Smart Medicine Detection Card */}
+              {(() => {
+                const selectedBatchMed = medicines.find(m => String(m.id) === String(newBatchForm.medicine_id));
+                if (!selectedBatchMed) return null;
+
+                const matchingBatch = batches.find(b => 
+                  String(b.medicine_id) === String(newBatchForm.medicine_id) && 
+                  newBatchForm.batch_number?.trim() && 
+                  b.batch_number?.trim().toLowerCase() === newBatchForm.batch_number.trim().toLowerCase()
+                );
+
+                return (
+                  <div className="space-y-2">
+                    <div className="p-3 bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-800/40 rounded-2xl flex items-center justify-between text-xs">
+                      <div>
+                        <div className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                          <span>📦 Current On-Hand Stock:</span>
+                          <span className="text-emerald-700 dark:text-emerald-300 font-extrabold">{selectedBatchMed.total_packs || 0} boxes</span>
+                          <span className="text-slate-500 text-[11px]">({selectedBatchMed.total_loose_units || 0} {selectedBatchMed.unit_name || 'units'})</span>
+                        </div>
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                          Category: <span className="font-semibold text-slate-700 dark:text-slate-300">{selectedBatchMed.form_category || 'Tablets & Capsules'}</span> • Form: {selectedBatchMed.dosage_form}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[10px] text-slate-400 block">Prev. Buying Cost:</span>
+                        <span className="font-bold text-slate-700 dark:text-slate-200">
+                          {selectedBatchMed.wholesale_pack_price || selectedBatchMed.avg_cost_price ? `${curr}${Number(selectedBatchMed.wholesale_pack_price || selectedBatchMed.avg_cost_price).toFixed(2)}` : 'First intake'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Duplicate Batch / Lot Alert */}
+                    {matchingBatch && (
+                      <div className="p-2.5 bg-amber-500/15 border border-amber-500/30 rounded-xl flex items-center gap-2 text-xs text-amber-800 dark:text-amber-200 animate-fade-in">
+                        <span className="text-base">⚡</span>
+                        <div>
+                          <p className="font-bold">Active Lot Detected: #{matchingBatch.batch_number}</p>
+                          <p className="text-[11px] opacity-90">
+                            Currently has {matchingBatch.packs_available} packs on shelf (Exp: {matchingBatch.expiry_date}). Intake will top up this existing lot!
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* Batch & Expiry Date */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-700 font-semibold mb-1">Batch / Lot Number *</label>
+                  <label className="block text-slate-700 dark:text-slate-200 font-semibold mb-1">Batch / Lot Number *</label>
                   <input
                     type="text"
                     required
                     placeholder="e.g. B-2026-X8"
                     value={newBatchForm.batch_number}
                     onChange={(e) => setNewBatchForm({ ...newBatchForm, batch_number: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm"
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-xs dark:text-white font-medium focus:ring-2 focus:ring-emerald-500 outline-none"
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-700 font-semibold mb-1">Expiry Date *</label>
+                  <label className="block text-slate-700 dark:text-slate-200 font-semibold mb-1">Expiry Date *</label>
                   <input
                     type="date"
                     required
                     value={newBatchForm.expiry_date}
                     onChange={(e) => setNewBatchForm({ ...newBatchForm, expiry_date: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm"
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-xs dark:text-white font-medium focus:ring-2 focus:ring-emerald-500 outline-none"
                   />
                 </div>
               </div>
 
+              {/* Quantity & Supplier */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-700 font-semibold mb-1">Packs Received *</label>
+                  <label className="block text-slate-700 dark:text-slate-200 font-semibold mb-1">Packs Received *</label>
                   <input
                     type="number"
                     required
@@ -3698,38 +3822,141 @@ export default function App() {
                     placeholder="e.g. 50"
                     value={newBatchForm.packs_received}
                     onChange={(e) => setNewBatchForm({ ...newBatchForm, packs_received: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm"
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-xs dark:text-white font-medium focus:ring-2 focus:ring-emerald-500 outline-none"
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-700 font-semibold mb-1">Supplier / Distributor</label>
+                  <label className="block text-slate-700 dark:text-slate-200 font-semibold mb-1">Supplier / Wholesaler</label>
                   <input
                     type="text"
-                    placeholder="e.g. Apex Health Logistics"
+                    placeholder="e.g. Meds Wholesalers Ltd"
                     value={newBatchForm.supplier}
                     onChange={(e) => setNewBatchForm({ ...newBatchForm, supplier: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm"
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-xs dark:text-white font-medium focus:ring-2 focus:ring-emerald-500 outline-none"
                   />
                 </div>
               </div>
 
-              <div>
-                <label className="block text-slate-700 font-semibold mb-1">Cost Price Per Pack ({curr})</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  placeholder="0.00"
-                  value={newBatchForm.cost_price_per_pack}
-                  onChange={(e) => setNewBatchForm({ ...newBatchForm, cost_price_per_pack: e.target.value })}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm"
-                />
+              {/* Dual Pricing: Cost Price & Retail Selling Price */}
+              <div className="p-3.5 bg-slate-50 dark:bg-white/[0.03] border border-slate-200/80 dark:border-white/5 rounded-2xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="font-bold text-slate-900 dark:text-white text-xs">Set Wholesaler Cost & Retail Selling Price</h4>
+                    <p className="text-[10px] text-slate-400">Lock in your profit margin for this batch</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleAutoCalcBatchPrices}
+                    className="px-2 py-1 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200/50 rounded-lg apple-press"
+                  >
+                    ⚡ Auto-Calculate
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">Wholesale Buying Cost ({curr})</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      placeholder="e.g. 500"
+                      value={newBatchForm.cost_price_per_pack}
+                      onChange={(e) => setNewBatchForm({ ...newBatchForm, cost_price_per_pack: e.target.value })}
+                      className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-xs dark:text-white font-semibold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">Retail Selling Pack Price ({curr}) *</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      required
+                      placeholder="e.g. 850"
+                      value={newBatchForm.pack_price}
+                      onChange={(e) => setNewBatchForm({ ...newBatchForm, pack_price: e.target.value })}
+                      className="w-full px-3 py-2 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-300 dark:border-emerald-500/30 rounded-xl text-xs font-bold text-emerald-700 dark:text-emerald-300"
+                    />
+                  </div>
+                </div>
+
+                {/* Live Profit Margin Pill */}
+                {(() => {
+                  const cost = Number(newBatchForm.cost_price_per_pack);
+                  const retail = Number(newBatchForm.pack_price);
+                  if (retail > 0 && cost > 0) {
+                    const profit = retail - cost;
+                    const marginPct = ((profit / retail) * 100).toFixed(1);
+                    const isPositive = profit >= 0;
+                    return (
+                      <div className={`p-2 rounded-xl border flex items-center justify-between text-xs font-semibold ${
+                        isPositive ? 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200 border-emerald-200' : 'bg-rose-50 text-rose-800 border-rose-200'
+                      }`}>
+                        <span>{isPositive ? '📈 Profit per Pack:' : '📉 Loss:'}</span>
+                        <span className="font-bold">{isPositive ? '+' : ''}{curr} {profit.toFixed(2)} ({marginPct}% Margin)</span>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
+
+                {/* Sub-Unit Retail Prices */}
+                <div className="grid grid-cols-2 gap-3 pt-1">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">Price per Strip ({curr})</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="e.g. 85"
+                      value={newBatchForm.strip_price}
+                      onChange={(e) => setNewBatchForm({ ...newBatchForm, strip_price: e.target.value })}
+                      className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-xs dark:text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">Single Pill / Unit ({curr})</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="e.g. 10"
+                      value={newBatchForm.unit_price}
+                      onChange={(e) => setNewBatchForm({ ...newBatchForm, unit_price: e.target.value })}
+                      className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-xs dark:text-white"
+                    />
+                  </div>
+                </div>
+
+                {/* Selling Unit Freedom Toggles */}
+                <div className="flex flex-col sm:flex-row gap-3 pt-1">
+                  <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-700 dark:text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={newBatchForm.allow_strip_sales !== false}
+                      onChange={e => setNewBatchForm(f => ({ ...f, allow_strip_sales: e.target.checked }))}
+                      className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500"
+                    />
+                    <span>Allow Blister Strip Dispensing (+ Strip)</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-700 dark:text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={newBatchForm.allow_unit_sales !== false}
+                      onChange={e => setNewBatchForm(f => ({ ...f, allow_unit_sales: e.target.checked }))}
+                      className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500"
+                    />
+                    <span>Allow Loose Pill Dispensing (+ 1)</span>
+                  </label>
+                </div>
+
               </div>
 
+              {/* Submit Button */}
               <button
                 type="submit"
-                className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-2xl transition shadow-lg shadow-emerald-700/20"
+                className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-bold rounded-2xl transition shadow-lg shadow-emerald-600/30 apple-spring text-xs flex items-center justify-center gap-2"
               >
-                Intake Inventory
+                <span>Complete Stock Intake & Save Prices</span>
               </button>
             </form>
           </div>

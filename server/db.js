@@ -9,8 +9,12 @@ const DB_PATH = path.join(__dirname, 'pharmacy.sqlite');
 
 export const db = new DatabaseSync(DB_PATH);
 
-// Enable foreign keys
-db.exec('PRAGMA foreign_keys = ON;');
+// Enable high-performance WAL mode and data integrity pragmas
+try {
+  db.exec('PRAGMA journal_mode = WAL;');
+  db.exec('PRAGMA synchronous = NORMAL;');
+  db.exec('PRAGMA foreign_keys = ON;');
+} catch (e) {}
 
 export function hashPassword(password) {
   const salt = crypto.randomBytes(16).toString('hex');
@@ -200,11 +204,15 @@ export function initDatabase() {
         unit_price REAL,
         wholesale_pack_price REAL,
         min_stock_alert INTEGER,
+        allow_strip_sales INTEGER DEFAULT 1,
+        allow_unit_sales INTEGER DEFAULT 1,
         updated_at TEXT,
         PRIMARY KEY (user_id, medicine_id)
       );
     `);
   } catch (e) {}
+  try { db.exec('ALTER TABLE pharmacy_medicine_prices ADD COLUMN allow_strip_sales INTEGER DEFAULT 1;'); } catch (e) {}
+  try { db.exec('ALTER TABLE pharmacy_medicine_prices ADD COLUMN allow_unit_sales INTEGER DEFAULT 1;'); } catch (e) {}
 
   // Isolate demo/sample loans and batches so newly registered real pharmacists always start with a clean 0-loan ledger and 0 false expiry alerts
   try {
