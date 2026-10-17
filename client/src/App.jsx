@@ -1565,12 +1565,12 @@ export default function App() {
       <main className="flex-1 flex flex-col h-screen overflow-hidden">
         {/* Top Header — Apple frosted glass */}
         <header className="h-14 apple-glass border-b border-black/[0.06] dark:border-white/[0.07] px-3 md:px-5 flex items-center justify-between shrink-0 sticky top-0 z-30">
-          <div className="flex items-center space-x-2 md:space-x-3 min-w-0">
+          <div className="flex items-center space-x-2 md:space-x-3 shrink-0">
             <div className="md:hidden w-8 h-8 rounded-xl bg-emerald-600 flex items-center justify-center text-white shrink-0 shadow-sm active:scale-95 transition">
               <Pill className="w-4.5 h-4.5 transform -rotate-45" />
             </div>
-            <div className="min-w-0">
-              <h2 className="text-sm md:text-base font-bold text-slate-900 dark:text-white capitalize flex items-center gap-1.5 leading-tight truncate max-w-[120px] xs:max-w-[170px] sm:max-w-none">
+            <div className="shrink-0">
+              <h2 className="text-sm md:text-base font-bold text-slate-900 dark:text-white capitalize flex items-center gap-1.5 leading-tight whitespace-nowrap">
                 {activeTab === 'pos' && 'Dispensing Counter'}
                 {activeTab === 'dashboard' && 'Pharmacy Dashboard'}
                 {activeTab === 'loans' && 'Trust Loans & Credits'}
@@ -1579,11 +1579,11 @@ export default function App() {
                 {activeTab === 'sales' && 'Sales History'}
                 {activeTab === 'settings' && 'Settings'}
               </h2>
-              <p className="text-[11px] text-slate-400 dark:text-slate-500 hidden sm:block">PharmaHub • Smart Pharmacy OS</p>
+              <p className="text-[11px] text-slate-400 dark:text-slate-500 hidden sm:block whitespace-nowrap">PharmaHub • Smart Pharmacy OS</p>
             </div>
           </div>
 
-          <div className="flex items-center space-x-1 sm:space-x-1.5 shrink-0">
+          <div className="flex items-center space-x-1 sm:space-x-1.5 shrink-0 overflow-x-hidden">
             {/* Auto-detected Currency & Country Tag */}
             <div
               onClick={() => {
@@ -1624,12 +1624,12 @@ export default function App() {
               title="Interactive System & Feature Tour"
             >
               <Sparkles className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
-              <span className="hidden md:inline">Feature Tour</span>
+              <span className="hidden lg:inline">Feature Tour</span>
             </button>
 
             <button
               onClick={() => setShowAddMedicineModal(true)}
-              className="hidden sm:flex items-center space-x-1.5 px-2.5 py-1.5 bg-slate-800 dark:bg-slate-700 hover:bg-slate-700 dark:hover:bg-slate-600 text-white text-xs font-semibold rounded-xl transition apple-spring shadow-sm min-h-[38px]"
+              className="hidden xl:flex items-center space-x-1.5 px-2.5 py-1.5 bg-slate-800 dark:bg-slate-700 hover:bg-slate-700 dark:hover:bg-slate-600 text-white text-xs font-semibold rounded-xl transition apple-spring shadow-sm min-h-[38px]"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Add Drug</span>
@@ -1637,7 +1637,7 @@ export default function App() {
 
             <button
               onClick={() => setShowAddBatchModal(true)}
-              className="hidden sm:flex items-center space-x-1.5 px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-xl transition apple-spring shadow-sm min-h-[38px]"
+              className="hidden xl:flex items-center space-x-1.5 px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-xl transition apple-spring shadow-sm min-h-[38px]"
             >
               <Boxes className="w-3.5 h-3.5" />
               <span>Restock</span>
@@ -1660,7 +1660,7 @@ export default function App() {
                   title="Sign Out"
                 >
                   <LogOut className="w-4 h-4" />
-                  <span className="hidden sm:inline">Sign Out</span>
+                  <span className="hidden lg:inline">Sign Out</span>
                 </button>
               </div>
             ) : isDemoGuest ? (
