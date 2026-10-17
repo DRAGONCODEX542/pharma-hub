@@ -31,7 +31,6 @@ import {
   HandCoins,
   MessageCircle,
   Globe,
-  ExternalLink,
   UserCheck,
   Send,
   LogIn,
@@ -41,7 +40,17 @@ import {
   Sun,
   Moon,
   Edit3,
-  MoreHorizontal
+  MoreHorizontal,
+  Users,
+  Shield,
+  CreditCard,
+  PieChart,
+  BarChart3,
+  FileText,
+  Download,
+  Building,
+  Check,
+  Briefcase
 } from 'lucide-react';
 
 const DEPARTMENTS = [
@@ -49,76 +58,125 @@ const DEPARTMENTS = [
   { id: 'Tablets & Capsules', label: 'Tablets & Capsules', icon: '💊' },
   { id: 'Syrups & Suspensions', label: 'Syrups & Liquids', icon: '🧪' },
   { id: 'Ointments, Creams & Gels', label: 'Ointments & Creams', icon: '🧴' },
+  { id: 'Veterinary & Animal Health', label: 'Veterinary & Animal Health', icon: '🐾' },
   { id: 'Eye & Ear Drops', label: 'Eye & Ear Drops', icon: '💧' },
   { id: 'Inhalers & Sprays', label: 'Inhalers & Sprays', icon: '💨' },
   { id: 'Injections & Infusions', label: 'Injections & IV', icon: '💉' },
   { id: 'Medical Supplies', label: 'Medical Supplies', icon: '🩹' }
 ];
 
-// 24/7 Continuous Non-Intrusive Healthcare & Pharma Partner Network Ads
-const SPONSORED_ADS = [
-  {
-    id: 1,
-    partner: 'MedSupply Direct Wholesalers',
-    tag: 'Verified Wholesaler',
-    title: 'Up to 18% Off Bulk Antibiotics & Analgesics',
-    desc: 'Direct factory pricing on bulk Amoxicillin, Paracetamol, and Azithromycin with verified batch certificates.',
-    cta: 'Wholesale Deals',
-    badge: 'Ad • Partner',
-    icon: '💊',
-    link: '#deals',
-    color: 'emerald'
-  },
-  {
-    id: 2,
-    partner: 'ColdChain Express Logistics',
-    tag: 'Cold Chain Delivery',
-    title: 'Certified 2°C–8°C Vaccine & Insulin Transport',
-    desc: 'Real-time temperature telemetry and verified GxP compliance across nationwide routes.',
-    cta: 'Cold Logistics',
-    badge: 'Ad • Logistics',
-    icon: '❄️',
-    link: '#logistics',
-    color: 'blue'
-  },
-  {
-    id: 3,
-    partner: 'OmniCare Diagnostic Systems',
-    tag: 'Medical Devices',
-    title: 'Digital BP Monitors, Glucometers & Rapid Test Strips',
-    desc: 'Equip your pharmacy counter with ISO-certified diagnostic kits at distributor bulk rates.',
-    cta: 'View Equipment',
-    badge: 'Ad • Devices',
-    icon: '🩺',
-    link: '#devices',
-    color: 'indigo'
-  },
-  {
-    id: 4,
-    partner: 'SafeDose Eco-Packaging',
-    tag: 'Pharma Packaging',
-    title: 'Tamper-Evident Amber Bottles & Child-Resistant Caps',
-    desc: 'Compliant dispensary containers, moisture-barrier blister rolls, and prescription labels in bulk.',
-    cta: 'Sample Kits',
-    badge: 'Ad • Packaging',
-    icon: '📦',
-    link: '#packaging',
-    color: 'amber'
-  }
-];
+// Tiered SaaS Subscriptions & 30-Day Free Trial Architecture
+const SUBSCRIPTION_PLANS = {
+  solo: [
+    {
+      id: 'basic',
+      name: 'Solo Basic',
+      price: 1000,
+      period: 'month',
+      staffLimit: 1,
+      tag: 'Community Chemist',
+      description: 'Essential dispensing and stock control for single-pharmacist shops.',
+      features: [
+        '1 Pharmacist Login',
+        'Unlimited POS Counter Prescriptions',
+        'Standard Drug Catalog & Barcodes',
+        'Basic Daily Sales & Receipt Printing',
+        'Standard Email Support'
+      ]
+    },
+    {
+      id: 'standard',
+      name: 'Solo Standard',
+      price: 3500,
+      period: 'month',
+      staffLimit: 3,
+      tag: 'Most Popular',
+      popular: true,
+      description: 'Dual wholesale intake pricing, batch sensing, and customer trust loans.',
+      features: [
+        'Up to 3 Staff Logins',
+        'Dual Wholesale & Retail Pricing at Intake',
+        'FEFO Expiry Warnings & Smart Lot Top-up',
+        'Customer Trust Loans & 1-Click WhatsApp Reminders',
+        'Multi-Unit Selling (Full Box, Blister Strip, Loose Pill)'
+      ]
+    },
+    {
+      id: 'premium',
+      name: 'Solo Premium',
+      price: 6000,
+      period: 'month',
+      staffLimit: 7,
+      tag: 'Full Intelligence',
+      description: 'Advanced profit analytics, market pricing intelligence, and priority support.',
+      features: [
+        'Up to 7 Staff Logins',
+        'All Standard Tier Features Included',
+        'Web Market Price Intelligence Engine',
+        'Gross Profit & COGS Margin Analytics',
+        'Exportable Tax & Accountant Ledger CSVs',
+        'Priority 24/7 Support Hotline'
+      ]
+    }
+  ],
+  organization: [
+    {
+      id: 'org_basic',
+      name: 'Organization Basic',
+      price: 5000,
+      period: 'month',
+      staffLimit: 5,
+      tag: 'Clinics & Health Centers',
+      description: 'Multi-user role access for small health facilities and clinics.',
+      features: [
+        'Up to 5 Organization Staff Logins',
+        'Professional Work Domain Email Accounts',
+        'Role-Based Access Control (Admin, Pharmacist, Cashier)',
+        'Basic Departmental Filtering',
+        'Central Organization Drug Catalog'
+      ]
+    },
+    {
+      id: 'org_enterprise',
+      name: 'Organization Enterprise',
+      price: 10000,
+      period: 'month',
+      staffLimit: 9999,
+      tag: 'Hospital / Chain',
+      popular: true,
+      description: 'Unlimited staff, granular department isolation (Vet, Ointments, IV), and executive accounting.',
+      features: [
+        'Unlimited Multi-Counter Staff Logins',
+        'Granular Department Isolation (e.g. Vet Specialist Only, Ointments Only)',
+        'Executive Financial Accounting (P&L Statements, COGS, Cash Flow)',
+        'Admin Role Assignment & Activity Audit Logs',
+        'Integrated Wholesaler Bulk Procurement Portal',
+        'Dedicated Enterprise Account Manager'
+      ]
+    }
+  ]
+};
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('pos'); // 'pos', 'dashboard', 'inventory', 'batches', 'loans', 'sales', 'settings'
+  const [activeTab, setActiveTab] = useState('pos'); // 'pos', 'dashboard', 'inventory', 'batches', 'loans', 'sales', 'settings', 'staff', 'accounting'
   const [showMobileMoreMenu, setShowMobileMoreMenu] = useState(false);
-  const [adIndex, setAdIndex] = useState(0);
+  const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
+  const [showStaffModal, setShowStaffModal] = useState(false);
+  const [salesSubView, setSalesSubView] = useState('receipts'); // 'receipts' or 'accounting'
+  const [staffList, setStaffList] = useState([]);
+  const [staffLoading, setStaffLoading] = useState(false);
+  const [accountingData, setAccountingData] = useState(null);
+  const [accountingLoading, setAccountingLoading] = useState(false);
 
-  // 24/7 Continuous Non-Intrusive Ad Rotation
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setAdIndex((prev) => (prev + 1) % SPONSORED_ADS.length);
-    }, 8500);
-    return () => clearInterval(timer);
-  }, []);
+  const [newStaffForm, setNewStaffForm] = useState({
+    name: '',
+    email: '',
+    password: '',
+    role: 'staff',
+    staff_title: 'Staff Pharmacist',
+    allowed_departments: ['All'],
+    permissions: ['pos', 'inventory_read']
+  });
   
   // Apple Dark Mode / Theme State
   const [isDarkMode, setIsDarkMode] = useState(() => {
@@ -174,7 +232,9 @@ export default function App() {
     password: '',
     pharmacy_name: '',
     phone: '',
-    currency_symbol: 'KSh'
+    currency_symbol: 'KSh',
+    account_type: 'solo', // 'solo' | 'organization'
+    work_domain: ''
   });
 
   const [dashboardData, setDashboardData] = useState(null);
@@ -380,6 +440,152 @@ export default function App() {
       setLoading(false);
     }
   };
+
+  const fetchStaffList = async () => {
+    if (!currentUser || currentUser.role !== 'admin') return;
+    setStaffLoading(true);
+    try {
+      const res = await authFetch('/api/organization/staff');
+      const data = await res.json();
+      if (res.ok) {
+        setStaffList(data.staff || []);
+      } else {
+        showToast(data.error || 'Failed to fetch staff', 'error');
+      }
+    } catch {
+      showToast('Failed to connect to staff endpoint', 'error');
+    } finally {
+      setStaffLoading(false);
+    }
+  };
+
+  const handleCreateStaff = async (e) => {
+    e.preventDefault();
+    try {
+      const res = await authFetch('/api/organization/staff', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newStaffForm)
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast('Staff member added successfully!', 'success');
+        setShowStaffModal(false);
+        setNewStaffForm({
+          name: '',
+          email: '',
+          password: '',
+          role: 'staff',
+          staff_title: 'Staff Pharmacist',
+          allowed_departments: ['All'],
+          permissions: ['pos', 'inventory_read']
+        });
+        fetchStaffList();
+      } else {
+        showToast(data.error || 'Failed to add staff', 'error');
+      }
+    } catch {
+      showToast('Failed to submit staff form', 'error');
+    }
+  };
+
+  const handleDeleteStaff = async (staffId) => {
+    if (!window.confirm('Are you sure you want to remove this staff member?')) return;
+    try {
+      const res = await authFetch(`/api/organization/staff/${staffId}`, {
+        method: 'DELETE'
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast('Staff member removed', 'success');
+        fetchStaffList();
+      } else {
+        showToast(data.error || 'Failed to delete staff', 'error');
+      }
+    } catch {
+      showToast('Failed to delete staff', 'error');
+    }
+  };
+
+  const handleUpgradePlan = async (tierId) => {
+    try {
+      const res = await authFetch('/api/subscription/upgrade', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tier: tierId })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast(`Upgraded to ${tierId.toUpperCase()}!`, 'success');
+        const updatedUser = { ...currentUser, subscription_tier: tierId };
+        setCurrentUser(updatedUser);
+        localStorage.setItem('pharmahub_user', JSON.stringify(updatedUser));
+        setShowSubscriptionModal(false);
+      } else {
+        showToast(data.error || 'Upgrade failed', 'error');
+      }
+    } catch {
+      showToast('Upgrade request failed', 'error');
+    }
+  };
+
+  const fetchAccounting = async () => {
+    setAccountingLoading(true);
+    try {
+      const res = await authFetch('/api/accounting/summary');
+      const data = await res.json();
+      if (res.ok) {
+        setAccountingData(data);
+      } else {
+        showToast(data.error || 'Failed to load accounting data', 'error');
+      }
+    } catch {
+      showToast('Accounting server error', 'error');
+    } finally {
+      setAccountingLoading(false);
+    }
+  };
+
+  const exportAccountingCSV = () => {
+    if (!accountingData) return;
+    const rows = [
+      ['PharmaHub Executive Accounting & P&L Report'],
+      ['Generated At', new Date().toLocaleString()],
+      ['Pharmacy / Hospital', settings.pharmacy_name],
+      [],
+      ['Financial Metric', 'Amount'],
+      ['Gross Sales Revenue', `${settings.currency_symbol} ${Number(accountingData.revenue || 0).toLocaleString()}`],
+      ['Cost of Goods Sold (COGS)', `${settings.currency_symbol} ${Number(accountingData.cogs || 0).toLocaleString()}`],
+      ['Gross Profit Margin Amount', `${settings.currency_symbol} ${Number(accountingData.grossProfit || 0).toLocaleString()}`],
+      ['Gross Margin Percentage', `${accountingData.margin || 0}%`],
+      ['Total Prescriptions Dispensed', accountingData.totalPrescriptions || 0],
+      ['Average Order Value (AOV)', `${settings.currency_symbol} ${Number(accountingData.aov || 0).toLocaleString()}`],
+      ['Outstanding Customer Trust Loans', `${settings.currency_symbol} ${Number(accountingData.loansOutstanding || 0).toLocaleString()}`],
+      [],
+      ['Payment Method Breakdown', 'Volume'],
+      ...Object.entries(accountingData.paymentMethods || {}).map(([k, v]) => [k, `${settings.currency_symbol} ${Number(v).toLocaleString()}`])
+    ];
+    const csvContent = 'data:text/csv;charset=utf-8,' + rows.map(e => e.map(cell => `"${cell}"`).join(',')).join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `PharmaHub_Accounting_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  useEffect(() => {
+    if (activeTab === 'staff' && currentUser?.role === 'admin') {
+      fetchStaffList();
+    }
+  }, [activeTab, currentUser]);
+
+  useEffect(() => {
+    if (activeTab === 'sales' && salesSubView === 'accounting') {
+      fetchAccounting();
+    }
+  }, [activeTab, salesSubView]);
 
   useEffect(() => {
     fetchAllData();
@@ -1341,6 +1547,40 @@ export default function App() {
                 <form onSubmit={authMode === 'login' ? handleLogin : handleRegister} className="space-y-3.5">
                   {authMode === 'register' && (
                     <>
+                      {/* Account Type Selector (Solo vs Organization) */}
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Account & Practice Type</label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setAuthForm(f => ({ ...f, account_type: 'solo' }))}
+                            className={`p-2.5 rounded-xl border text-left transition apple-spring ${
+                              authForm.account_type !== 'organization'
+                                ? 'border-emerald-500 bg-emerald-50/70 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-200 font-bold shadow-xs'
+                                : 'border-black/[0.08] dark:border-white/[0.1] bg-white/50 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                            }`}
+                          >
+                            <span className="text-base block mb-0.5">💊</span>
+                            <span className="text-xs block font-bold leading-tight">Solo Pharmacy</span>
+                            <span className="text-[10px] block opacity-75">Community Chemist</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setAuthForm(f => ({ ...f, account_type: 'organization' }))}
+                            className={`p-2.5 rounded-xl border text-left transition apple-spring ${
+                              authForm.account_type === 'organization'
+                                ? 'border-emerald-500 bg-emerald-50/70 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-200 font-bold shadow-xs'
+                                : 'border-black/[0.08] dark:border-white/[0.1] bg-white/50 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                            }`}
+                          >
+                            <span className="text-base block mb-0.5">🏥</span>
+                            <span className="text-xs block font-bold leading-tight">Organization</span>
+                            <span className="text-[10px] block opacity-75">Hospital & Multi-Staff</span>
+                          </button>
+                        </div>
+                      </div>
+
                       <div>
                         <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Your Full Name</label>
                         <input
@@ -1353,16 +1593,34 @@ export default function App() {
                         />
                       </div>
                       <div>
-                        <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Pharmacy / Chemist Name</label>
+                        <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                          {authForm.account_type === 'organization' ? 'Organization / Hospital Name' : 'Pharmacy / Chemist Name'}
+                        </label>
                         <input
                           type="text"
                           required
-                          placeholder="CarePoint Community Pharmacy"
+                          placeholder={authForm.account_type === 'organization' ? 'Metro Health Hospital Network' : 'CarePoint Community Pharmacy'}
                           value={authForm.pharmacy_name}
                           onChange={e => setAuthForm(f => ({ ...f, pharmacy_name: e.target.value }))}
                           className="w-full px-3.5 py-2.5 bg-white/70 dark:bg-slate-800 border border-black/[0.08] dark:border-white/[0.1] rounded-xl text-sm dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none transition"
                         />
                       </div>
+
+                      {authForm.account_type === 'organization' && (
+                        <div>
+                          <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                            Organization Professional Work Domain (Optional)
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="e.g. metrohealth.org or nairobihospital.com"
+                            value={authForm.work_domain}
+                            onChange={e => setAuthForm(f => ({ ...f, work_domain: e.target.value }))}
+                            className="w-full px-3.5 py-2.5 bg-white/70 dark:bg-slate-800 border border-black/[0.08] dark:border-white/[0.1] rounded-xl text-sm dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none transition"
+                          />
+                          <p className="text-[10px] text-slate-400 mt-1">Allows staff with professional emails to be auto-associated under your license.</p>
+                        </div>
+                      )}
                     </>
                   )}
 
@@ -1495,7 +1753,8 @@ export default function App() {
             { id: 'loans', icon: HandCoins, label: 'Trust Loans', badge: overdueLoansCount > 0 ? `${overdueLoansCount} due` : null, badgeColor: 'bg-rose-500 text-white animate-pulse' },
             { id: 'inventory', icon: Pill, label: 'Medicines & Pricing', badge: null },
             { id: 'batches', icon: Boxes, label: 'Batches & Expiry', badge: null },
-            { id: 'sales', icon: Receipt, label: 'Sales History', badge: null },
+            { id: 'sales', icon: Receipt, label: 'Sales & Accounting', badge: null },
+            ...(currentUser?.role === 'admin' ? [{ id: 'staff', icon: Users, label: 'Staff & Roles', badge: staffList?.length ? `${staffList.length}` : null, badgeColor: 'bg-blue-500 text-white' }] : []),
             { id: 'settings', icon: Settings, label: 'Settings', badge: null },
           ].map(({ id, icon: Icon, label, badge, badgeColor }) => (
             <button
@@ -1518,27 +1777,42 @@ export default function App() {
           ))}
         </nav>
 
-        {/* 24/7 Sponsored Partner Widget (Desktop Non-Intrusive) */}
+        {/* Subscription & Free Trial Status Pill in Desktop Sidebar */}
         <div className="p-3 mx-2.5 mb-2 bg-gradient-to-br from-slate-800/80 to-slate-800/40 dark:from-white/[0.04] dark:to-white/[0.02] border border-white/10 rounded-2xl text-xs space-y-2">
           <div className="flex items-center justify-between text-[10px]">
-            <span className="px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold uppercase tracking-wider text-[9px]">
-              {SPONSORED_ADS[adIndex].badge}
+            <span className={`px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wider text-[9px] ${
+              currentUser?.subscription_tier?.includes('enterprise') || currentUser?.subscription_tier?.includes('premium')
+                ? 'bg-amber-500/20 text-amber-300'
+                : 'bg-emerald-500/20 text-emerald-300'
+            }`}>
+              {currentUser?.subscription_tier ? currentUser.subscription_tier.replace('_', ' ').toUpperCase() : 'FREE TRIAL'}
             </span>
-            <span className="text-[10px] text-slate-400">24/7 Network</span>
+            {currentUser?.trial_days_remaining !== undefined && (
+              <span className="text-[10px] text-slate-400">
+                {currentUser.trial_days_remaining > 0 ? `${currentUser.trial_days_remaining}d trial left` : '30-Day Free Trial'}
+              </span>
+            )}
           </div>
-          <div className="flex items-start space-x-2">
-            <span className="text-xl p-1 bg-white/5 rounded-xl shrink-0">{SPONSORED_ADS[adIndex].icon}</span>
+          <div className="flex items-center space-x-2">
+            <div className="w-7 h-7 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 shrink-0">
+              <CreditCard className="w-3.5 h-3.5" />
+            </div>
             <div className="min-w-0">
-              <p className="font-bold text-white text-[11px] truncate">{SPONSORED_ADS[adIndex].partner}</p>
-              <p className="text-[10px] text-slate-300 leading-snug line-clamp-2 mt-0.5">{SPONSORED_ADS[adIndex].title}</p>
+              <p className="font-bold text-white text-[11px] truncate">
+                {currentUser?.account_type === 'organization' ? 'Organization Plan' : 'Community Chemist'}
+              </p>
+              <p className="text-[10px] text-slate-400 truncate">
+                {currentUser?.staff_title || (currentUser?.role === 'admin' ? 'Administrator' : 'Staff')}
+              </p>
             </div>
           </div>
           <button
             type="button"
-            onClick={() => showToast(`Connecting to ${SPONSORED_ADS[adIndex].partner}...`, 'info')}
-            className="w-full py-1.5 bg-emerald-600/90 hover:bg-emerald-500 text-white font-bold rounded-xl text-[11px] transition text-center block shadow-xs"
+            onClick={() => setShowSubscriptionModal(true)}
+            className="w-full py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold rounded-xl text-[11px] transition text-center flex items-center justify-center space-x-1 shadow-xs"
           >
-            {SPONSORED_ADS[adIndex].cta} ↗
+            <span>Upgrade Plan</span>
+            <span>↗</span>
           </button>
         </div>
 
@@ -1576,7 +1850,8 @@ export default function App() {
                 {activeTab === 'loans' && 'Trust Loans & Credits'}
                 {activeTab === 'inventory' && 'Medicines & Pricing'}
                 {activeTab === 'batches' && 'Batches & Expiry'}
-                {activeTab === 'sales' && 'Sales History'}
+                {activeTab === 'sales' && 'Sales & Accounting'}
+                {activeTab === 'staff' && 'Organization Staff & RBAC'}
                 {activeTab === 'settings' && 'Settings'}
               </h2>
               <p className="text-[11px] text-slate-400 dark:text-slate-500 hidden sm:block whitespace-nowrap">PharmaHub • Smart Pharmacy OS</p>
@@ -1584,6 +1859,18 @@ export default function App() {
           </div>
 
           <div className="flex items-center space-x-1 sm:space-x-1.5 shrink-0 overflow-x-hidden">
+            {/* Subscription & Trial Pill in Header */}
+            <button
+              onClick={() => setShowSubscriptionModal(true)}
+              className="hidden sm:flex items-center space-x-1 px-2.5 py-1.5 bg-gradient-to-r from-emerald-500/10 to-teal-500/10 dark:from-emerald-950/40 dark:to-teal-950/40 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 rounded-xl text-xs font-bold transition apple-spring min-h-[38px] active:scale-95"
+              title="View Subscription & Free Trial Status"
+            >
+              <CreditCard className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+              <span className="hidden md:inline">
+                {currentUser?.subscription_tier ? currentUser.subscription_tier.replace('_', ' ').toUpperCase() : 'FREE TRIAL'}
+              </span>
+            </button>
+
             {/* Auto-detected Currency & Country Tag */}
             <div
               onClick={() => {
@@ -1692,28 +1979,29 @@ export default function App() {
           </div>
         </header>
 
-        {/* 24/7 Global Non-Intrusive Sponsored Partner Strip */}
-        <div className="bg-emerald-950/15 dark:bg-emerald-950/30 border-b border-black/[0.04] dark:border-white/[0.06] px-3 md:px-5 py-1.5 flex items-center justify-between text-[11px] shrink-0 transition-all select-none">
-          <div className="flex items-center space-x-2 min-w-0">
-            <span className="px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase tracking-wider bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 shrink-0 border border-emerald-500/30">
-              {SPONSORED_ADS[adIndex].badge}
-            </span>
-            <span className="font-bold text-slate-900 dark:text-white shrink-0 hidden xs:inline">
-              {SPONSORED_ADS[adIndex].partner}:
-            </span>
-            <span className="text-slate-700 dark:text-slate-300 truncate font-medium">
-              {SPONSORED_ADS[adIndex].title}
-            </span>
+        {/* Trial & Subscription Status Bar */}
+        {currentUser?.trial_days_remaining !== undefined && (
+          <div className="bg-gradient-to-r from-emerald-950/20 via-teal-950/15 to-blue-950/20 dark:bg-emerald-950/30 border-b border-black/[0.04] dark:border-white/[0.06] px-3 md:px-5 py-1.5 flex items-center justify-between text-[11px] shrink-0 transition-all select-none">
+            <div className="flex items-center space-x-2 min-w-0">
+              <span className="px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase tracking-wider bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 shrink-0 border border-emerald-500/30">
+                {currentUser.subscription_tier ? currentUser.subscription_tier.replace('_', ' ').toUpperCase() : '30-DAY TRIAL'}
+              </span>
+              <span className="text-slate-700 dark:text-slate-300 truncate font-medium">
+                {currentUser.trial_days_remaining > 0
+                  ? `Active 30-Day Free Trial: ${currentUser.trial_days_remaining} days left. Full access enabled.`
+                  : 'Free Trial Expired: Upgrade to maintain multi-user and inventory dispensing access.'}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowSubscriptionModal(true)}
+              className="ml-2 font-bold text-emerald-700 dark:text-emerald-400 hover:underline shrink-0 flex items-center space-x-1 text-xs active:scale-95 transition"
+            >
+              <span>{currentUser.trial_days_remaining > 0 ? 'View Plans' : 'Upgrade Now'}</span>
+              <span>↗</span>
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={() => showToast(`Connecting to ${SPONSORED_ADS[adIndex].partner} partner portal...`, 'info')}
-            className="ml-2 font-bold text-emerald-700 dark:text-emerald-400 hover:underline shrink-0 flex items-center space-x-0.5 text-xs active:scale-95 transition"
-          >
-            <span>{SPONSORED_ADS[adIndex].cta}</span>
-            <ExternalLink className="w-3 h-3" />
-          </button>
-        </div>
+        )}
 
         {/* Demo Mode Banner — Apple-style floating pill */}
         {isDemoGuest && (
@@ -2853,39 +3141,53 @@ export default function App() {
                 )}
               </div>
 
-              {/* 24/7 Healthcare & Pharma Supply Partner Spotlight (Dashboard Native Ad Card) */}
+              {/* Wholesaler Procurement Portal & SaaS Enterprise Hub Card */}
               <div className="bg-gradient-to-r from-emerald-50 via-teal-50 to-blue-50 dark:from-emerald-950/30 dark:via-slate-900 dark:to-blue-950/30 border border-emerald-200/80 dark:border-emerald-800/40 rounded-3xl p-5 shadow-sm space-y-3">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <div className="flex items-center space-x-2.5">
-                    <span className="text-2xl p-1.5 bg-white dark:bg-slate-800 rounded-2xl shadow-xs shrink-0">
-                      {SPONSORED_ADS[adIndex].icon}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center space-x-3">
+                    <span className="text-2xl p-2.5 bg-white dark:bg-slate-800 rounded-2xl shadow-xs shrink-0 border border-emerald-200/50 dark:border-white/10">
+                      🏭
                     </span>
                     <div>
                       <div className="flex items-center gap-2">
                         <span className="px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase tracking-wider bg-emerald-600 text-white shadow-xs">
-                          {SPONSORED_ADS[adIndex].badge}
+                          {currentUser?.account_type === 'organization' ? 'ENTERPRISE B2B' : 'WHOLESALER NETWORK'}
                         </span>
                         <h4 className="font-bold text-slate-900 dark:text-white text-sm">
-                          {SPONSORED_ADS[adIndex].partner}
+                          Wholesaler Direct Procurement & Multi-User Cloud
                         </h4>
                       </div>
                       <p className="text-xs text-slate-600 dark:text-slate-300 font-semibold mt-0.5">
-                        {SPONSORED_ADS[adIndex].title}
+                        Bulk restock orders directly with verified pharma distributors, batch certificates & automated receiving.
                       </p>
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => showToast(`Connecting to ${SPONSORED_ADS[adIndex].partner}...`, 'info')}
-                    className="self-start sm:self-auto px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs transition shadow-sm apple-spring shrink-0 flex items-center space-x-1.5"
-                  >
-                    <span>{SPONSORED_ADS[adIndex].cta}</span>
-                    <ExternalLink className="w-3.5 h-3.5" />
-                  </button>
+                  <div className="flex items-center space-x-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setShowSubscriptionModal(true)}
+                      className="px-4 py-2 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-900 font-bold rounded-xl text-xs transition shadow-sm apple-spring shrink-0 flex items-center space-x-1.5"
+                    >
+                      <CreditCard className="w-3.5 h-3.5" />
+                      <span>Manage Plan</span>
+                    </button>
+                    {currentUser?.role === 'admin' && (
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('staff')}
+                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs transition shadow-sm apple-spring shrink-0 flex items-center space-x-1.5"
+                      >
+                        <Users className="w-3.5 h-3.5" />
+                        <span>Manage Staff</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                  {SPONSORED_ADS[adIndex].desc}
-                </p>
+                <div className="pt-2 border-t border-emerald-200/60 dark:border-white/[0.06] flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+                  <span>🏢 Connected Entity: <strong className="text-slate-800 dark:text-slate-200">{settings.pharmacy_name}</strong></span>
+                  <span>🔒 Multi-Tenant Data Isolation Enabled · PBKDF2 Encrypted</span>
+                  <span>📦 Next Bulk Delivery Window: Tomorrow 10:00 AM</span>
+                </div>
               </div>
             </div>
           )}
@@ -3189,71 +3491,349 @@ export default function App() {
           )}
 
           {/* ============================================================ */}
-          {/* 6. SALES HISTORY TAB                                         */}
+          {/* 6. SALES & ACCOUNTING TAB                                    */}
           {/* ============================================================ */}
           {activeTab === 'sales' && (
-            <div className="bg-white rounded-3xl border border-slate-200/80 shadow-sm p-5 space-y-4">
-              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-                <div>
-                  <h3 className="font-bold text-slate-900 text-base">Dispensing Sales Audit Trail</h3>
-                  <p className="text-xs text-slate-500">Full receipt logs and doctor prescription records</p>
+            <div className="space-y-4">
+              {/* Sub-view Toggle */}
+              <div className="flex items-center justify-between">
+                <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-2xl gap-1">
+                  <button
+                    onClick={() => setSalesSubView('receipts')}
+                    className={`flex items-center space-x-1.5 px-3 py-2 rounded-xl text-xs font-bold transition apple-spring ${
+                      salesSubView === 'receipts'
+                        ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm'
+                        : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    <FileText className="w-3.5 h-3.5" />
+                    <span>Dispensing Receipts</span>
+                  </button>
+                  <button
+                    onClick={() => setSalesSubView('accounting')}
+                    className={`flex items-center space-x-1.5 px-3 py-2 rounded-xl text-xs font-bold transition apple-spring ${
+                      salesSubView === 'accounting'
+                        ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm'
+                        : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    <BarChart3 className="w-3.5 h-3.5" />
+                    <span>Executive P&L</span>
+                  </button>
                 </div>
+                {salesSubView === 'accounting' && (
+                  <button
+                    onClick={exportAccountingCSV}
+                    disabled={!accountingData}
+                    className="flex items-center space-x-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition apple-spring"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Export CSV</span>
+                  </button>
+                )}
               </div>
 
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead>
-                    <tr className="border-b border-slate-200 text-slate-400 font-semibold uppercase tracking-wider">
-                      <th className="pb-3">Receipt #</th>
-                      <th className="pb-3">Date & Time</th>
-                      <th className="pb-3">Patient Name</th>
-                      <th className="pb-3">Prescription Details</th>
-                      <th className="pb-3">Payment</th>
-                      <th className="pb-3">Total Amount</th>
-                      <th className="pb-3 text-right">View / Print</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {salesHistory.map((s) => (
-                      <tr key={s.id} className="hover:bg-slate-50/80 transition">
-                        <td className="py-3 font-mono font-bold text-slate-900">{s.receipt_number}</td>
-                        <td className="py-3 text-slate-600">{s.created_at}</td>
-                        <td className="py-3 font-semibold text-slate-800">{s.customer_name}</td>
-                        <td className="py-3 text-slate-500">
-                          {s.prescribing_doctor ? `${s.prescribing_doctor} (Rx: ${s.prescription_number})` : 'Over the counter'}
-                        </td>
-                        <td className="py-3 capitalize">
-                          <span className={`px-2 py-0.5 rounded-md font-medium text-[11px] ${
-                            s.payment_method === 'loan' ? 'bg-amber-100 text-amber-800 font-bold' : 'bg-slate-100 text-slate-700'
-                          }`}>
-                            {s.payment_method === 'loan' ? 'Credit / Loan' : s.payment_method}
-                          </span>
-                        </td>
-                        <td className="py-3 font-bold text-emerald-600 text-sm">
-                          {curr}{Number(s.total).toFixed(2)}
-                        </td>
-                        <td className="py-3 text-right">
-                          <button
-                            onClick={async () => {
-                              const details = await fetch(`/api/sales/${s.id}`).then(r => r.json());
-                              setCurrentReceipt(details);
-                              setShowReceiptModal(true);
-                            }}
-                            className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition"
-                          >
-                            Receipt
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              {/* Receipts View */}
+              {salesSubView === 'receipts' && (
+                <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-white/10 shadow-sm p-5 space-y-4">
+                  <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-white/[0.07]">
+                    <div>
+                      <h3 className="font-bold text-slate-900 dark:text-white text-base">Dispensing Sales Audit Trail</h3>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">Full receipt logs and doctor prescription records</p>
+                    </div>
+                    <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">{salesHistory.length} receipts</span>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="border-b border-slate-200 dark:border-white/[0.07] text-slate-400 font-semibold uppercase tracking-wider">
+                          <th className="pb-3">Receipt #</th>
+                          <th className="pb-3">Date & Time</th>
+                          <th className="pb-3">Patient Name</th>
+                          <th className="pb-3 hidden md:table-cell">Prescription Details</th>
+                          <th className="pb-3">Payment</th>
+                          <th className="pb-3">Total Amount</th>
+                          <th className="pb-3 text-right">View / Print</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-white/[0.05]">
+                        {salesHistory.length === 0 && (
+                          <tr>
+                            <td colSpan={7} className="py-8 text-center text-slate-400 text-sm">No sales recorded yet.</td>
+                          </tr>
+                        )}
+                        {salesHistory.map((s) => (
+                          <tr key={s.id} className="hover:bg-slate-50/80 dark:hover:bg-white/[0.03] transition">
+                            <td className="py-3 font-mono font-bold text-slate-900 dark:text-white">{s.receipt_number}</td>
+                            <td className="py-3 text-slate-600 dark:text-slate-400">{s.created_at}</td>
+                            <td className="py-3 font-semibold text-slate-800 dark:text-slate-200">{s.customer_name}</td>
+                            <td className="py-3 text-slate-500 dark:text-slate-400 hidden md:table-cell">
+                              {s.prescribing_doctor ? `${s.prescribing_doctor} (Rx: ${s.prescription_number})` : 'Over the counter'}
+                            </td>
+                            <td className="py-3 capitalize">
+                              <span className={`px-2 py-0.5 rounded-md font-medium text-[11px] ${
+                                s.payment_method === 'loan' ? 'bg-amber-100 text-amber-800 font-bold' : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
+                              }`}>
+                                {s.payment_method === 'loan' ? 'Credit / Loan' : s.payment_method}
+                              </span>
+                            </td>
+                            <td className="py-3 font-bold text-emerald-600 text-sm">{curr}{Number(s.total).toFixed(2)}</td>
+                            <td className="py-3 text-right">
+                              <button
+                                onClick={async () => {
+                                  const details = await authFetch(`/api/sales/${s.id}`).then(r => r.json());
+                                  setCurrentReceipt(details);
+                                  setShowReceiptModal(true);
+                                }}
+                                className="px-2.5 py-1 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 rounded-lg text-xs font-semibold transition"
+                              >
+                                Receipt
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Executive Accounting P&L View */}
+              {salesSubView === 'accounting' && (
+                <div className="space-y-4">
+                  {accountingLoading && (
+                    <div className="flex items-center justify-center py-12">
+                      <div className="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+                      <span className="ml-3 text-sm text-slate-500">Loading financial data...</span>
+                    </div>
+                  )}
+
+                  {accountingData && !accountingLoading && (
+                    <>
+                      {/* P&L Summary Cards */}
+                      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                        {[
+                          { label: 'Gross Revenue', value: accountingData.revenue, icon: '📈', color: 'emerald', prefix: curr },
+                          { label: 'Cost of Goods (COGS)', value: accountingData.cogs, icon: '📦', color: 'orange', prefix: curr },
+                          { label: 'Gross Profit', value: accountingData.grossProfit, icon: '💰', color: 'blue', prefix: curr },
+                          { label: 'Gross Margin', value: accountingData.margin, icon: '📊', color: 'purple', prefix: '', suffix: '%' },
+                        ].map(({ label, value, icon, color, prefix, suffix }) => (
+                          <div key={label} className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-white/10 p-4">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-xl">{icon}</span>
+                              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-${color}-100 dark:bg-${color}-900/30 text-${color}-700 dark:text-${color}-300`}>
+                                {label}
+                              </span>
+                            </div>
+                            <p className="text-lg font-bold text-slate-900 dark:text-white">
+                              {prefix}{Number(value || 0).toLocaleString()}{suffix}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Secondary Metrics */}
+                      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+                        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-white/10 p-4">
+                          <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">Total Prescriptions</p>
+                          <p className="text-xl font-bold text-slate-900 dark:text-white">{accountingData.totalPrescriptions || 0}</p>
+                          <p className="text-[10px] text-slate-400 mt-1">Dispensed this period</p>
+                        </div>
+                        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-white/10 p-4">
+                          <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">Average Order Value</p>
+                          <p className="text-xl font-bold text-slate-900 dark:text-white">{curr}{Number(accountingData.aov || 0).toFixed(0)}</p>
+                          <p className="text-[10px] text-slate-400 mt-1">Per prescription</p>
+                        </div>
+                        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-white/10 p-4 col-span-2 lg:col-span-1">
+                          <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">Outstanding Trust Loans</p>
+                          <p className="text-xl font-bold text-amber-600">{curr}{Number(accountingData.loansOutstanding || 0).toLocaleString()}</p>
+                          <p className="text-[10px] text-slate-400 mt-1">Uncollected credit</p>
+                        </div>
+                      </div>
+
+                      {/* Payment Methods Breakdown */}
+                      {accountingData.paymentMethods && (
+                        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-white/10 p-5">
+                          <h4 className="font-bold text-slate-900 dark:text-white text-sm mb-4">Payment Method Breakdown</h4>
+                          <div className="space-y-2.5">
+                            {Object.entries(accountingData.paymentMethods).map(([method, amount]) => {
+                              const total = accountingData.revenue || 1;
+                              const pct = Math.round((Number(amount) / total) * 100);
+                              return (
+                                <div key={method} className="flex items-center space-x-3">
+                                  <span className="text-xs font-medium text-slate-600 dark:text-slate-400 capitalize w-20 shrink-0">{method}</span>
+                                  <div className="flex-1 h-1.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
+                                    <div
+                                      className="h-full bg-emerald-500 rounded-full transition-all"
+                                      style={{ width: `${pct}%` }}
+                                    />
+                                  </div>
+                                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200 shrink-0">{curr}{Number(amount).toLocaleString()}</span>
+                                  <span className="text-[10px] text-slate-400 w-8 shrink-0">{pct}%</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 7-Day Revenue Trend */}
+                      {accountingData.trend && accountingData.trend.length > 0 && (
+                        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-white/10 p-5">
+                          <h4 className="font-bold text-slate-900 dark:text-white text-sm mb-4">7-Day Revenue Trend</h4>
+                          <div className="flex items-end space-x-2 h-20">
+                            {accountingData.trend.map((day, i) => {
+                              const maxVal = Math.max(...accountingData.trend.map(d => d.total));
+                              const heightPct = maxVal > 0 ? (day.total / maxVal) * 100 : 0;
+                              return (
+                                <div key={i} className="flex-1 flex flex-col items-center space-y-1">
+                                  <div className="w-full flex items-end justify-center" style={{ height: '64px' }}>
+                                    <div
+                                      className="w-full bg-emerald-500/80 dark:bg-emerald-500 rounded-t-md transition-all"
+                                      style={{ height: `${heightPct}%` }}
+                                      title={`${curr}${Number(day.total).toLocaleString()}`}
+                                    />
+                                  </div>
+                                  <span className="text-[9px] text-slate-400 font-medium">{day.label || `D${i+1}`}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="flex justify-center">
+                        <button
+                          onClick={fetchAccounting}
+                          className="flex items-center space-x-2 px-4 py-2 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-semibold transition"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5" />
+                          <span>Refresh Financial Data</span>
+                        </button>
+                      </div>
+                    </>
+                  )}
+
+                  {!accountingData && !accountingLoading && (
+                    <div className="flex flex-col items-center justify-center py-16 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-white/10">
+                      <BarChart3 className="w-12 h-12 text-slate-300 dark:text-slate-600 mb-3" />
+                      <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">No accounting data yet</p>
+                      <p className="text-xs text-slate-400 mt-1">Make a few sales first, then return here.</p>
+                      <button onClick={fetchAccounting} className="mt-4 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition">
+                        Load Accounting Data
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
           {/* ============================================================ */}
-          {/* 7. SETTINGS & CUSTOMIZATION TAB                             */}
+          {/* 7. STAFF MANAGEMENT & RBAC TAB (Admin only)                  */}
+          {/* ============================================================ */}
+          {activeTab === 'staff' && (
+            <div className="space-y-4">
+              {!currentUser || currentUser.role !== 'admin' ? (
+                <div className="flex flex-col items-center justify-center py-16 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-white/10">
+                  <Shield className="w-12 h-12 text-slate-300 dark:text-slate-600 mb-3" />
+                  <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">Admin Access Required</p>
+                  <p className="text-xs text-slate-400 mt-1">Only organization administrators can manage staff.</p>
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="font-bold text-slate-900 dark:text-white text-base">Organization Staff & Role Management</h3>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">Invite staff, assign departments, and control access permissions</p>
+                    </div>
+                    <button
+                      onClick={() => setShowStaffModal(true)}
+                      className="flex items-center space-x-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition apple-spring"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Add Staff</span>
+                    </button>
+                  </div>
+
+                  {staffLoading && (
+                    <div className="flex items-center justify-center py-12">
+                      <div className="w-6 h-6 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+                      <span className="ml-2 text-sm text-slate-500">Loading staff...</span>
+                    </div>
+                  )}
+
+                  {!staffLoading && staffList.length === 0 && (
+                    <div className="flex flex-col items-center justify-center py-12 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-white/10">
+                      <Users className="w-10 h-10 text-slate-300 dark:text-slate-600 mb-3" />
+                      <p className="text-sm font-semibold text-slate-600 dark:text-slate-400">No staff members yet</p>
+                      <p className="text-xs text-slate-400 mt-1">Click "Add Staff" to invite your first team member.</p>
+                    </div>
+                  )}
+
+                  {staffList.length > 0 && (
+                    <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-white/10 overflow-hidden">
+                      <table className="w-full text-left text-xs">
+                        <thead>
+                          <tr className="border-b border-slate-200 dark:border-white/[0.07] text-slate-400 font-semibold uppercase tracking-wider">
+                            <th className="px-5 py-3">Name</th>
+                            <th className="px-5 py-3">Role / Title</th>
+                            <th className="px-5 py-3 hidden md:table-cell">Departments</th>
+                            <th className="px-5 py-3 hidden lg:table-cell">Email</th>
+                            <th className="px-5 py-3 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 dark:divide-white/[0.05]">
+                          {staffList.map((member) => (
+                            <tr key={member.id} className="hover:bg-slate-50/80 dark:hover:bg-white/[0.03] transition">
+                              <td className="px-5 py-3">
+                                <div className="flex items-center space-x-2">
+                                  <div className="w-7 h-7 rounded-full bg-emerald-500 flex items-center justify-center text-white text-xs font-bold shrink-0">
+                                    {member.name ? member.name[0].toUpperCase() : 'S'}
+                                  </div>
+                                  <span className="font-semibold text-slate-900 dark:text-white">{member.name}</span>
+                                </div>
+                              </td>
+                              <td className="px-5 py-3">
+                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                  member.role === 'admin' ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300' : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
+                                }`}>
+                                  {member.role?.toUpperCase()}
+                                </span>
+                                <span className="ml-2 text-slate-500 dark:text-slate-400">{member.staff_title}</span>
+                              </td>
+                              <td className="px-5 py-3 hidden md:table-cell">
+                                <div className="flex flex-wrap gap-1">
+                                  {(member.allowed_departments || ['All']).map(dept => (
+                                    <span key={dept} className="px-1.5 py-0.5 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 rounded text-[10px] font-medium">
+                                      {dept === 'All' ? '🌐 All Depts' : dept}
+                                    </span>
+                                  ))}
+                                </div>
+                              </td>
+                              <td className="px-5 py-3 text-slate-500 dark:text-slate-400 hidden lg:table-cell">{member.email}</td>
+                              <td className="px-5 py-3 text-right">
+                                <button
+                                  onClick={() => handleDeleteStaff(member.id)}
+                                  className="px-2.5 py-1 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/40 text-red-600 dark:text-red-400 rounded-lg text-xs font-semibold transition"
+                                >
+                                  Remove
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          {/* ============================================================ */}
+          {/* 8. SETTINGS & CUSTOMIZATION TAB                             */}
           {/* ============================================================ */}
           {activeTab === 'settings' && (
             <div className="max-w-2xl bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-white/10 shadow-sm p-6 space-y-6">
@@ -3497,10 +4077,30 @@ export default function App() {
                     <Receipt className="w-5 h-5" />
                   </div>
                   <div>
-                    <p className="text-xs font-bold leading-tight">Sales History</p>
-                    <p className="text-[10px] text-slate-400">Past Receipts</p>
+                    <p className="text-xs font-bold leading-tight">Sales & P&L</p>
+                    <p className="text-[10px] text-slate-400">Past Receipts & Accounting</p>
                   </div>
                 </button>
+
+                {currentUser?.role === 'admin' && (
+                  <button
+                    type="button"
+                    onClick={() => { setActiveTab('staff'); setShowMobileMoreMenu(false); }}
+                    className={`p-3 rounded-2xl border flex items-center space-x-3 text-left transition apple-spring ${
+                      activeTab === 'staff'
+                        ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-500/40 text-emerald-800 dark:text-emerald-300 font-bold'
+                        : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200/80 dark:border-white/5 text-slate-700 dark:text-slate-200'
+                    }`}
+                  >
+                    <div className="w-9 h-9 rounded-xl bg-teal-500/10 text-teal-600 dark:text-teal-400 flex items-center justify-center shrink-0">
+                      <Users className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold leading-tight">Staff & Roles</p>
+                      <p className="text-[10px] text-slate-400">Manage Team Access</p>
+                    </div>
+                  </button>
+                )}
 
                 <button
                   type="button"
@@ -3535,30 +4135,45 @@ export default function App() {
                 </button>
               </div>
 
-              {/* 24/7 Verified Partner Ad Spotlight inside Mobile Drawer */}
-              <div className="p-3 mb-4 rounded-2xl bg-gradient-to-r from-emerald-500/10 to-teal-500/10 dark:from-emerald-950/40 dark:to-teal-950/40 border border-emerald-500/20 text-xs space-y-2">
+              {/* Subscription & Free Trial Status Pill in Mobile Drawer */}
+              <div className="p-3.5 mb-4 rounded-2xl bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-blue-500/10 dark:from-emerald-950/40 dark:to-teal-950/40 border border-emerald-500/20 text-xs space-y-2">
                 <div className="flex items-center justify-between text-[10px]">
-                  <span className="px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 font-bold uppercase tracking-wider text-[9px]">
-                    {SPONSORED_ADS[adIndex].badge}
+                  <span className={`px-2 py-0.5 rounded-full font-bold uppercase tracking-wider text-[9px] ${
+                    currentUser?.subscription_tier?.includes('enterprise') || currentUser?.subscription_tier?.includes('premium')
+                      ? 'bg-amber-500/20 text-amber-800 dark:text-amber-300'
+                      : 'bg-emerald-500/20 text-emerald-800 dark:text-emerald-300'
+                  }`}>
+                    {currentUser?.subscription_tier ? currentUser.subscription_tier.replace('_', ' ').toUpperCase() : 'FREE TRIAL'}
                   </span>
-                  <span className="text-[10px] text-slate-500 dark:text-slate-400">24/7 Partner Spotlight</span>
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                    {currentUser?.trial_days_remaining !== undefined && currentUser.trial_days_remaining > 0
+                      ? `${currentUser.trial_days_remaining}d trial left`
+                      : '30-Day Free Trial'}
+                  </span>
                 </div>
                 <div className="flex items-start space-x-2.5">
-                  <span className="text-2xl p-1 bg-white dark:bg-slate-800 rounded-xl shrink-0 shadow-xs">{SPONSORED_ADS[adIndex].icon}</span>
+                  <div className="w-8 h-8 rounded-xl bg-emerald-500/20 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shrink-0">
+                    <CreditCard className="w-4 h-4" />
+                  </div>
                   <div className="min-w-0">
-                    <p className="font-bold text-slate-900 dark:text-white text-xs truncate">{SPONSORED_ADS[adIndex].partner}</p>
-                    <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-snug mt-0.5">{SPONSORED_ADS[adIndex].title}</p>
+                    <p className="font-bold text-slate-900 dark:text-white text-xs truncate">
+                      {currentUser?.account_type === 'organization' ? 'Organization Enterprise Plan' : 'Community Chemist Plan'}
+                    </p>
+                    <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-snug mt-0.5">
+                      Multi-user seats, department isolation & wholesale procurement.
+                    </p>
                   </div>
                 </div>
                 <button
                   type="button"
                   onClick={() => {
                     setShowMobileMoreMenu(false);
-                    showToast(`Opening ${SPONSORED_ADS[adIndex].partner} partner portal...`, 'info');
+                    setShowSubscriptionModal(true);
                   }}
-                  className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs transition text-center block shadow-xs"
+                  className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs transition text-center flex items-center justify-center space-x-1 shadow-xs"
                 >
-                  {SPONSORED_ADS[adIndex].cta} ↗
+                  <span>View Subscription Plans</span>
+                  <span>↗</span>
                 </button>
               </div>
 
@@ -4271,6 +4886,248 @@ export default function App() {
               >
                 <span>Complete Stock Intake & Save Prices</span>
               </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* SUBSCRIPTION PLANS MODAL                                    */}
+      {/* ============================================================ */}
+      {showSubscriptionModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-4xl rounded-3xl shadow-2xl border border-slate-200/80 dark:border-white/10 my-6">
+            <div className="flex items-center justify-between p-6 border-b border-slate-200 dark:border-white/10">
+              <div>
+                <h2 className="text-xl font-bold text-slate-900 dark:text-white">PharmaHub Subscription Plans</h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  {currentUser?.trial_days_remaining > 0
+                    ? `🟢 Free Trial: ${currentUser.trial_days_remaining} days remaining. Full access enabled.`
+                    : '⚠️ Trial expired — upgrade to restore full access.'}
+                </p>
+              </div>
+              <button onClick={() => setShowSubscriptionModal(false)} className="text-slate-400 hover:text-slate-900 dark:hover:text-white p-1">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Account Type Sub-toggle */}
+            <div className="flex bg-slate-100 dark:bg-slate-800 p-1 m-6 rounded-2xl gap-1 max-w-xs">
+              <button
+                onClick={() => setAuthForm(f => ({ ...f, account_type: 'solo' }))}
+                className={`flex-1 py-2 rounded-xl text-xs font-bold transition apple-spring ${
+                  authForm.account_type !== 'organization'
+                    ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm'
+                    : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                💊 Solo Pharmacy
+              </button>
+              <button
+                onClick={() => setAuthForm(f => ({ ...f, account_type: 'organization' }))}
+                className={`flex-1 py-2 rounded-xl text-xs font-bold transition apple-spring ${
+                  authForm.account_type === 'organization'
+                    ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm'
+                    : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                🏥 Organization
+              </button>
+            </div>
+
+            {/* Solo Plans */}
+            {authForm.account_type !== 'organization' && (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 px-6 pb-6">
+                {SUBSCRIPTION_PLANS.solo.map((plan) => (
+                  <div key={plan.id} className={`rounded-2xl border p-5 space-y-4 transition relative ${
+                    plan.popular
+                      ? 'border-emerald-500 bg-emerald-50/60 dark:bg-emerald-950/30 shadow-lg shadow-emerald-500/10'
+                      : 'border-slate-200 dark:border-white/10 bg-white dark:bg-slate-800/50'
+                  }`}>
+                    {plan.popular && (
+                      <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 px-3 py-0.5 bg-emerald-500 text-white text-[10px] font-bold rounded-full">
+                        Most Popular
+                      </span>
+                    )}
+                    <div>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">{plan.tag}</span>
+                      <h3 className="font-bold text-slate-900 dark:text-white text-lg mt-0.5">{plan.name}</h3>
+                      <div className="flex items-baseline space-x-1 mt-2">
+                        <span className="text-2xl font-bold text-slate-900 dark:text-white">KSh {plan.price.toLocaleString()}</span>
+                        <span className="text-xs text-slate-500">/month</span>
+                      </div>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">{plan.description}</p>
+                    </div>
+                    <ul className="space-y-1.5">
+                      {plan.features.map((f) => (
+                        <li key={f} className="flex items-start space-x-2 text-xs text-slate-700 dark:text-slate-300">
+                          <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
+                          <span>{f}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    <button
+                      onClick={() => handleUpgradePlan(plan.id)}
+                      className={`w-full py-2.5 rounded-xl font-bold text-xs transition apple-spring ${
+                        currentUser?.subscription_tier === plan.id
+                          ? 'bg-slate-100 dark:bg-slate-700 text-slate-500 cursor-default'
+                          : plan.popular
+                          ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm'
+                          : 'bg-slate-900 dark:bg-white hover:bg-slate-800 dark:hover:bg-slate-100 text-white dark:text-slate-900'
+                      }`}
+                      disabled={currentUser?.subscription_tier === plan.id}
+                    >
+                      {currentUser?.subscription_tier === plan.id ? '✓ Current Plan' : `Upgrade to ${plan.name}`}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Organization Plans */}
+            {authForm.account_type === 'organization' && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 px-6 pb-6">
+                {SUBSCRIPTION_PLANS.organization.map((plan) => (
+                  <div key={plan.id} className={`rounded-2xl border p-5 space-y-4 transition relative ${
+                    plan.popular
+                      ? 'border-emerald-500 bg-emerald-50/60 dark:bg-emerald-950/30 shadow-lg shadow-emerald-500/10'
+                      : 'border-slate-200 dark:border-white/10 bg-white dark:bg-slate-800/50'
+                  }`}>
+                    {plan.popular && (
+                      <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 px-3 py-0.5 bg-emerald-500 text-white text-[10px] font-bold rounded-full">
+                        Enterprise Choice
+                      </span>
+                    )}
+                    <div>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">{plan.tag}</span>
+                      <h3 className="font-bold text-slate-900 dark:text-white text-lg mt-0.5">{plan.name}</h3>
+                      <div className="flex items-baseline space-x-1 mt-2">
+                        <span className="text-2xl font-bold text-slate-900 dark:text-white">KSh {plan.price.toLocaleString()}</span>
+                        <span className="text-xs text-slate-500">/month</span>
+                      </div>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">{plan.description}</p>
+                    </div>
+                    <ul className="space-y-1.5">
+                      {plan.features.map((f) => (
+                        <li key={f} className="flex items-start space-x-2 text-xs text-slate-700 dark:text-slate-300">
+                          <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
+                          <span>{f}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    <button
+                      onClick={() => handleUpgradePlan(plan.id)}
+                      className={`w-full py-2.5 rounded-xl font-bold text-xs transition apple-spring ${
+                        currentUser?.subscription_tier === plan.id
+                          ? 'bg-slate-100 dark:bg-slate-700 text-slate-500 cursor-default'
+                          : plan.popular
+                          ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm'
+                          : 'bg-slate-900 dark:bg-white hover:bg-slate-800 dark:hover:bg-slate-100 text-white dark:text-slate-900'
+                      }`}
+                      disabled={currentUser?.subscription_tier === plan.id}
+                    >
+                      {currentUser?.subscription_tier === plan.id ? '✓ Current Plan' : `Upgrade to ${plan.name}`}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* M-Pesa Payment Note */}
+            <div className="mx-6 mb-6 p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-white/10 flex items-start space-x-3">
+              <span className="text-xl shrink-0">📱</span>
+              <div>
+                <p className="text-xs font-bold text-slate-800 dark:text-slate-200">Payment via M-Pesa</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  After selecting a plan, send payment to <strong className="text-slate-700 dark:text-slate-300">M-Pesa Paybill: 247 247</strong> with your email as the account reference, then WhatsApp <strong>+254 700 000 000</strong> with your receipt for instant activation.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* ADD STAFF MODAL                                              */}
+      {/* ============================================================ */}
+      {showStaffModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl shadow-2xl border border-slate-200/80 dark:border-white/10">
+            <div className="flex items-center justify-between p-5 border-b border-slate-200 dark:border-white/10">
+              <div>
+                <h2 className="font-bold text-slate-900 dark:text-white text-base">Add Staff Member</h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Invite a team member with specific department access</p>
+              </div>
+              <button onClick={() => setShowStaffModal(false)} className="text-slate-400 hover:text-slate-900 dark:hover:text-white p-1">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleCreateStaff} className="p-5 space-y-3.5">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Full Name</label>
+                  <input type="text" required placeholder="Dr. Jane Kamau" value={newStaffForm.name}
+                    onChange={e => setNewStaffForm(f => ({ ...f, name: e.target.value }))}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-xs dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none" />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Role</label>
+                  <select value={newStaffForm.role} onChange={e => setNewStaffForm(f => ({ ...f, role: e.target.value }))}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-xs dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none">
+                    <option value="staff">Staff</option>
+                    <option value="pharmacist">Pharmacist</option>
+                    <option value="cashier">Cashier</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Work Email</label>
+                <input type="email" required placeholder="jane@yourhospital.com" value={newStaffForm.email}
+                  onChange={e => setNewStaffForm(f => ({ ...f, email: e.target.value }))}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-xs dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none" />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Temporary Password</label>
+                <input type="password" required minLength={6} placeholder="Min 6 characters" value={newStaffForm.password}
+                  onChange={e => setNewStaffForm(f => ({ ...f, password: e.target.value }))}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-xs dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none" />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Job Title</label>
+                <input type="text" placeholder="Staff Pharmacist" value={newStaffForm.staff_title}
+                  onChange={e => setNewStaffForm(f => ({ ...f, staff_title: e.target.value }))}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-xs dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none" />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">Department Access</label>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {[{ id: 'All', label: '🌐 All Departments' }, ...DEPARTMENTS].map(dept => (
+                    <label key={dept.id} className="flex items-center space-x-2 p-2 rounded-xl cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition">
+                      <input type="checkbox"
+                        checked={newStaffForm.allowed_departments.includes(dept.id)}
+                        onChange={e => {
+                          const depts = e.target.checked
+                            ? [...newStaffForm.allowed_departments.filter(d => d !== 'All'), dept.id]
+                            : newStaffForm.allowed_departments.filter(d => d !== dept.id);
+                          setNewStaffForm(f => ({ ...f, allowed_departments: depts.length ? depts : ['All'] }));
+                        }}
+                        className="w-3.5 h-3.5 accent-emerald-500" />
+                      <span className="text-[11px] text-slate-700 dark:text-slate-300">{dept.label || dept.id}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div className="flex space-x-2 pt-1">
+                <button type="button" onClick={() => setShowStaffModal(false)}
+                  className="flex-1 py-2.5 border border-slate-200 dark:border-white/10 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-semibold transition hover:bg-slate-50 dark:hover:bg-slate-800">
+                  Cancel
+                </button>
+                <button type="submit"
+                  className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition apple-spring">
+                  Add Staff Member
+                </button>
+              </div>
             </form>
           </div>
         </div>

@@ -193,6 +193,42 @@ export function initDatabase() {
   try { db.exec("ALTER TABLE medicines ADD COLUMN form_category TEXT DEFAULT 'Tablets & Capsules';"); } catch (e) {}
   try { db.exec('ALTER TABLE batches ADD COLUMN user_id INTEGER DEFAULT -1;'); } catch (e) {}
 
+  // Multi-tier subscriptions & Organization RBAC migrations
+  try { db.exec("ALTER TABLE users ADD COLUMN account_type TEXT DEFAULT 'solo';"); } catch (e) {}
+  try { db.exec("ALTER TABLE users ADD COLUMN subscription_tier TEXT DEFAULT 'trial';"); } catch (e) {}
+  try { db.exec("ALTER TABLE users ADD COLUMN trial_ends_at TEXT;"); } catch (e) {}
+  try { db.exec("ALTER TABLE users ADD COLUMN organization_id INTEGER;"); } catch (e) {}
+  try { db.exec("ALTER TABLE users ADD COLUMN allowed_departments TEXT DEFAULT '[\"All\"]';"); } catch (e) {}
+  try { db.exec("ALTER TABLE users ADD COLUMN permissions TEXT DEFAULT '[\"pos\",\"inventory_read\",\"inventory_write\",\"accounting\",\"settings\",\"staff_management\"]';"); } catch (e) {}
+  try { db.exec("ALTER TABLE users ADD COLUMN staff_title TEXT DEFAULT 'Administrator';"); } catch (e) {}
+  try { db.exec("ALTER TABLE users ADD COLUMN is_active INTEGER DEFAULT 1;"); } catch (e) {}
+  try { db.exec("ALTER TABLE users ADD COLUMN work_domain TEXT;"); } catch (e) {}
+
+  // Backfill existing users with 30-day trial and self-organization id
+  try {
+    db.exec(`
+      UPDATE users
+      SET organization_id = id
+      WHERE organization_id IS NULL;
+
+      UPDATE users
+      SET account_type = 'solo'
+      WHERE account_type IS NULL;
+
+      UPDATE users
+      SET subscription_tier = 'trial'
+      WHERE subscription_tier IS NULL;
+
+      UPDATE users
+      SET trial_ends_at = datetime('now', '+30 days')
+      WHERE trial_ends_at IS NULL;
+
+      UPDATE users
+      SET allowed_departments = '["All"]'
+      WHERE allowed_departments IS NULL;
+    `);
+  } catch (e) {}
+
   // Ensure pharmacy_medicine_prices exists on existing databases
   try {
     db.exec(`
@@ -1057,5 +1093,39 @@ function seedComprehensiveTemplates() {
     unit_name: 'Tablet', units_per_pack: 24, units_per_strip: 6,
     pack_price: 380, strip_price: 100, unit_price: 16, wholesale_pack_price: 260, min_stock_alert: 12,
     notes: 'Affordable frontline ACT treatment.'
+  });
+
+  // Veterinary & Animal Health Templates
+  const vetAlbMol = 'Albendazole (Veterinary)';
+  addTemplateMed({
+    brand_name: 'Albendazole 2500mg Bolus (Vet)',
+    mol_name: vetAlbMol, mol_desc: 'Broad-spectrum veterinary anthelmintic for cattle, sheep, and goats.', mol_class: 'Veterinary Anthelmintic',
+    brand_tier: 'generic', manufacturer: 'Norbrook Laboratories', strength: '2500mg Bolus', dosage_form: 'Bolus / Tablet',
+    category: 'OTC', form_category: 'Veterinary & Animal Health', is_prescription_required: 0,
+    unit_name: 'Bolus', units_per_pack: 50, units_per_strip: 5,
+    pack_price: 1800, strip_price: 200, unit_price: 45, wholesale_pack_price: 1350, min_stock_alert: 5,
+    notes: 'For gastrointestinal roundworms, lungworms, and liver flukes in livestock.'
+  });
+
+  const vetOxyMol = 'Oxytetracycline 20% L.A.';
+  addTemplateMed({
+    brand_name: 'Oxytetracycline 20% L.A. 100ml (Vet)',
+    mol_name: vetOxyMol, mol_desc: 'Long-acting injectable broad-spectrum veterinary antibiotic.', mol_class: 'Veterinary Antibiotic',
+    brand_tier: 'branded_generic', manufacturer: 'Bimeda Animal Health', strength: '200mg/ml (100ml Vial)', dosage_form: 'Injection / Infusion',
+    category: 'Prescription', form_category: 'Veterinary & Animal Health', is_prescription_required: 1,
+    unit_name: 'Vial', units_per_pack: 1, units_per_strip: 1,
+    pack_price: 850, strip_price: 850, unit_price: 850, wholesale_pack_price: 620, min_stock_alert: 6,
+    notes: 'Single dose long-acting treatment for respiratory and systemic livestock infections.'
+  });
+
+  const vetIverMol = 'Ivermectin 1% Injectable';
+  addTemplateMed({
+    brand_name: 'Ivermectin 1% 50ml Injection (Vet)',
+    mol_name: vetIverMol, mol_desc: 'Injectable endectocide for internal and external livestock parasites.', mol_class: 'Veterinary Parasiticide',
+    brand_tier: 'generic', manufacturer: 'Twiga Chemicals', strength: '10mg/ml (50ml Vial)', dosage_form: 'Injection / Infusion',
+    category: 'Prescription', form_category: 'Veterinary & Animal Health', is_prescription_required: 1,
+    unit_name: 'Vial', units_per_pack: 1, units_per_strip: 1,
+    pack_price: 950, strip_price: 950, unit_price: 950, wholesale_pack_price: 700, min_stock_alert: 4,
+    notes: 'Subcutaneous injection for cattle, sheep, and camels.'
   });
 }

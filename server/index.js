@@ -109,7 +109,7 @@ function authRateLimiter(req, res, next) {
 // --- AUTHENTICATION ENDPOINTS ---
 app.post('/api/auth/register', authRateLimiter, (req, res) => {
   try {
-    const { name, email, password, pharmacy_name, phone = '', address = '', currency_symbol = 'KSh' } = req.body;
+    const { name, email, password, pharmacy_name, phone = '', address = '', currency_symbol = 'KSh', account_type = 'solo', work_domain = '' } = req.body;
 
     if (!name || !email || !password || !pharmacy_name) {
       return res.status(400).json({ error: 'Name, email, password, and pharmacy name are required' });
@@ -144,22 +144,55 @@ app.post('/api/auth/register', authRateLimiter, (req, res) => {
 
     const passHash = hashPassword(password);
     const nowStr = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    // 30-Day Free Trial period for all new pharmacy accounts
+    const trialEndsDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    const trialEndsAt = trialEndsDate.toISOString().replace('T', ' ').slice(0, 19);
+
+    const isOrg = account_type === 'organization';
+    const domain = work_domain || cleanEmail.split('@')[1] || '';
 
     const stmt = db.prepare(`
-      INSERT INTO users (name, email, password_hash, pharmacy_name, phone, address, currency_symbol, role, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'admin', ?)
+      INSERT INTO users (
+        name, email, password_hash, pharmacy_name, phone, address, currency_symbol,
+        role, account_type, subscription_tier, trial_ends_at, staff_title,
+        allowed_departments, permissions, is_active, work_domain, created_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'admin', ?, 'trial', ?, 'Administrator', '["All"]', '["pos","inventory_read","inventory_write","accounting","settings","staff_management"]', 1, ?, ?)
     `);
-    const result = stmt.run(name.trim(), cleanEmail, passHash, pharmacy_name.trim(), phone.trim(), address.trim(), currency_symbol, nowStr);
-    const userId = result.lastInsertRowid;
+    const result = stmt.run(
+      name.trim(),
+      cleanEmail,
+      passHash,
+      pharmacy_name.trim(),
+      phone.trim(),
+      address.trim(),
+      currency_symbol,
+      isOrg ? 'organization' : 'solo',
+      trialEndsAt,
+      domain,
+      nowStr
+    );
+    const userId = Number(result.lastInsertRowid);
+
+    // Set self-organization id so all future staff members can link to this organization
+    db.prepare('UPDATE users SET organization_id = ? WHERE id = ?').run(userId, userId);
 
     // Generate session token with TTL
     const token = crypto.randomBytes(32).toString('hex');
     const userObj = {
       id: userId,
+      organization_id: userId,
       name: name.trim(),
       email: cleanEmail,
       pharmacy_name: pharmacy_name.trim(),
       role: 'admin',
+      account_type: isOrg ? 'organization' : 'solo',
+      subscription_tier: 'trial',
+      trial_ends_at: trialEndsAt,
+      trial_days_remaining: 30,
+      staff_title: 'Administrator',
+      allowed_departments: ['All'],
+      permissions: ['pos', 'inventory_read', 'inventory_write', 'accounting', 'settings', 'staff_management'],
       currency_symbol,
       phone: phone.trim(),
       address: address.trim()
@@ -174,7 +207,7 @@ app.post('/api/auth/register', authRateLimiter, (req, res) => {
 
     res.json({
       success: true,
-      message: 'Account created successfully',
+      message: 'Account created successfully with 30-day Free Trial',
       token,
       user: userObj
     });
@@ -203,16 +236,7 @@ app.post('/api/auth/login', authRateLimiter, (req, res) => {
       ? 30 * 24 * 60 * 60 * 1000
       : SESSION_TTL_MS;
 
-    const userObj = {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      pharmacy_name: user.pharmacy_name,
-      role: user.role,
-      currency_symbol: user.currency_symbol || 'KSh',
-      phone: user.phone || '',
-      address: user.address || ''
-    };
+    const userObj = formatUserResponse(user);
     saveSession(token, userObj, sessionTTL);
 
     // Apply their pharmacy settings
@@ -258,16 +282,7 @@ app.post('/api/auth/phone-login', authRateLimiter, (req, res) => {
     const isSuperAdmin = user.role === 'superadmin' || (process.env.OWNER_EMAIL && user.email.toLowerCase() === process.env.OWNER_EMAIL.trim().toLowerCase());
     const sessionTTL = isSuperAdmin ? 30 * 24 * 60 * 60 * 1000 : SESSION_TTL_MS;
 
-    const userObj = {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      pharmacy_name: user.pharmacy_name,
-      role: user.role,
-      currency_symbol: user.currency_symbol || 'KSh',
-      phone: user.phone || '',
-      address: user.address || ''
-    };
+    const userObj = formatUserResponse(user);
     saveSession(token, userObj, sessionTTL);
 
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('pharmacy_name', ?)").run(user.pharmacy_name);
@@ -288,7 +303,10 @@ app.get('/api/auth/me', (req, res) => {
   if (!user) {
     return res.json({ authenticated: false });
   }
-  res.json({ authenticated: true, user });
+  // Fetch fresh row from database
+  const fresh = db.prepare('SELECT * FROM users WHERE id = ?').get(user.id);
+  const userObj = fresh ? formatUserResponse(fresh) : user;
+  res.json({ authenticated: true, user: userObj });
 });
 
 app.post('/api/auth/logout', (req, res) => {
@@ -388,6 +406,378 @@ app.post('/api/auth/google', authRateLimiter, async (req, res) => {
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('currency_symbol', ?)").run(user.currency_symbol || 'KSh');
 
     res.json({ success: true, token, user: userObj });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// User response formatter helper with trial calculation and parsed RBAC permissions
+function formatUserResponse(user) {
+  let allowedDeps = ['All'];
+  let perms = ['pos', 'inventory_read', 'inventory_write', 'accounting', 'settings', 'staff_management'];
+  try {
+    if (user.allowed_departments) allowedDeps = JSON.parse(user.allowed_departments);
+  } catch (e) {}
+  try {
+    if (user.permissions) perms = JSON.parse(user.permissions);
+  } catch (e) {}
+
+  let trialDays = 30;
+  if (user.trial_ends_at) {
+    const diff = new Date(user.trial_ends_at).getTime() - Date.now();
+    trialDays = Math.max(0, Math.ceil(diff / (24 * 60 * 60 * 1000)));
+  }
+
+  return {
+    id: user.id,
+    organization_id: user.organization_id || user.id,
+    name: user.name,
+    email: user.email,
+    pharmacy_name: user.pharmacy_name,
+    role: user.role || 'staff',
+    staff_title: user.staff_title || (user.role === 'admin' ? 'Administrator' : 'Staff Pharmacist'),
+    account_type: user.account_type || 'solo',
+    subscription_tier: user.subscription_tier || 'trial',
+    trial_ends_at: user.trial_ends_at,
+    trial_days_remaining: trialDays,
+    allowed_departments: allowedDeps,
+    permissions: perms,
+    is_active: user.is_active !== 0,
+    currency_symbol: user.currency_symbol || 'KSh',
+    phone: user.phone || '',
+    address: user.address || ''
+  };
+}
+
+// --- ORGANIZATION STAFF MANAGEMENT (RBAC) ---
+app.get('/api/organization/staff', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ error: 'Authentication required' });
+    const orgId = user.organization_id || user.id;
+
+    const staffRows = db.prepare(`
+      SELECT id, name, email, phone, role, staff_title, account_type, subscription_tier,
+             allowed_departments, permissions, is_active, created_at
+      FROM users
+      WHERE organization_id = ?
+      ORDER BY id ASC
+    `).all(orgId);
+
+    const staff = staffRows.map(s => {
+      let allowedDeps = ['All'];
+      let perms = ['pos'];
+      try { if (s.allowed_departments) allowedDeps = JSON.parse(s.allowed_departments); } catch (e) {}
+      try { if (s.permissions) perms = JSON.parse(s.permissions); } catch (e) {}
+      return {
+        ...s,
+        allowed_departments: allowedDeps,
+        permissions: perms,
+        is_active: s.is_active !== 0
+      };
+    });
+
+    res.json({ success: true, staff, total: staff.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/organization/staff', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ error: 'Authentication required' });
+    if (user.role !== 'admin' && user.role !== 'superadmin') {
+      return res.status(403).json({ error: 'Only Organization Admins can add or invite staff members' });
+    }
+
+    const {
+      name,
+      email,
+      password,
+      role = 'staff',
+      staff_title = 'Staff Pharmacist',
+      allowed_departments = ['All'],
+      permissions = ['pos', 'inventory_read']
+    } = req.body;
+
+    if (!name || !email || !password) {
+      return res.status(400).json({ error: 'Name, email, and temporary password are required' });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(cleanEmail);
+    if (existing) {
+      return res.status(400).json({ error: 'A staff user with this email already exists' });
+    }
+
+    const orgId = user.organization_id || user.id;
+
+    // Check plan limits
+    const currentStaffCount = db.prepare('SELECT count(*) as count FROM users WHERE organization_id = ?').get(orgId).count;
+    const tier = user.subscription_tier || 'trial';
+    const limits = {
+      trial: 5,
+      basic: 1,
+      standard: 3,
+      premium: 7,
+      org_basic: 5,
+      org_enterprise: 9999
+    };
+    const maxAllowed = limits[tier] || 3;
+    if (currentStaffCount >= maxAllowed) {
+      return res.status(403).json({
+        error: `Your current plan (${tier}) allows a maximum of ${maxAllowed} staff accounts. Please upgrade to Organization Enterprise for unlimited staff.`
+      });
+    }
+
+    const passHash = hashPassword(password);
+    const nowStr = new Date().toISOString().replace('T', ' ').slice(0, 19);
+
+    const stmt = db.prepare(`
+      INSERT INTO users (
+        name, email, password_hash, pharmacy_name, phone, address, currency_symbol,
+        role, account_type, subscription_tier, trial_ends_at, organization_id,
+        staff_title, allowed_departments, permissions, is_active, created_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+    `);
+
+    const result = stmt.run(
+      name.trim(),
+      cleanEmail,
+      passHash,
+      user.pharmacy_name,
+      user.phone || '',
+      user.address || '',
+      user.currency_symbol || 'KSh',
+      role,
+      user.account_type || 'organization',
+      user.subscription_tier || 'trial',
+      user.trial_ends_at || '',
+      orgId,
+      staff_title.trim(),
+      JSON.stringify(allowed_departments),
+      JSON.stringify(permissions),
+      nowStr
+    );
+
+    res.json({
+      success: true,
+      message: `Staff member ${name.trim()} added successfully`,
+      staff: {
+        id: Number(result.lastInsertRowid),
+        name: name.trim(),
+        email: cleanEmail,
+        role,
+        staff_title: staff_title.trim(),
+        allowed_departments,
+        permissions,
+        is_active: true
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/organization/staff/:id', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ error: 'Authentication required' });
+    if (user.role !== 'admin' && user.role !== 'superadmin') {
+      return res.status(403).json({ error: 'Only Organization Admins can modify staff permissions' });
+    }
+
+    const staffId = parseInt(req.params.id, 10);
+    const orgId = user.organization_id || user.id;
+    const target = db.prepare('SELECT * FROM users WHERE id = ? AND organization_id = ?').get(staffId, orgId);
+    if (!target) return res.status(404).json({ error: 'Staff member not found in your organization' });
+
+    const { name, staff_title, role, allowed_departments, permissions, is_active, password } = req.body;
+    const updates = [];
+    const params = [];
+
+    if (name) { updates.push('name = ?'); params.push(name.trim()); }
+    if (staff_title) { updates.push('staff_title = ?'); params.push(staff_title.trim()); }
+    if (role) { updates.push('role = ?'); params.push(role); }
+    if (allowed_departments) { updates.push('allowed_departments = ?'); params.push(JSON.stringify(allowed_departments)); }
+    if (permissions) { updates.push('permissions = ?'); params.push(JSON.stringify(permissions)); }
+    if (typeof is_active === 'boolean') { updates.push('is_active = ?'); params.push(is_active ? 1 : 0); }
+    if (password && password.length >= 6) { updates.push('password_hash = ?'); params.push(hashPassword(password)); }
+
+    if (updates.length > 0) {
+      params.push(staffId);
+      db.prepare(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+    }
+
+    res.json({ success: true, message: 'Staff member updated successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/organization/staff/:id', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ error: 'Authentication required' });
+    if (user.role !== 'admin' && user.role !== 'superadmin') {
+      return res.status(403).json({ error: 'Only Organization Admins can remove staff' });
+    }
+
+    const staffId = parseInt(req.params.id, 10);
+    if (staffId === user.id) {
+      return res.status(400).json({ error: 'Cannot delete the primary organization administrator account' });
+    }
+
+    const orgId = user.organization_id || user.id;
+    db.prepare('DELETE FROM users WHERE id = ? AND organization_id = ?').run(staffId, orgId);
+
+    res.json({ success: true, message: 'Staff member removed from organization' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- SUBSCRIPTION & PRICING PLANS ---
+app.get('/api/subscription/status', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ error: 'Authentication required' });
+    const freshUser = db.prepare('SELECT * FROM users WHERE id = ?').get(user.id);
+    if (!freshUser) return res.status(404).json({ error: 'User not found' });
+
+    let trialDays = 30;
+    if (freshUser.trial_ends_at) {
+      const diff = new Date(freshUser.trial_ends_at).getTime() - Date.now();
+      trialDays = Math.max(0, Math.ceil(diff / (24 * 60 * 60 * 1000)));
+    }
+
+    res.json({
+      success: true,
+      account_type: freshUser.account_type || 'solo',
+      subscription_tier: freshUser.subscription_tier || 'trial',
+      trial_ends_at: freshUser.trial_ends_at,
+      trial_days_remaining: trialDays,
+      is_trial_active: trialDays > 0,
+      currency: freshUser.currency_symbol || 'KSh'
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/subscription/upgrade', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ error: 'Authentication required' });
+    const { tier } = req.body;
+    const validTiers = ['basic', 'standard', 'premium', 'org_basic', 'org_enterprise'];
+    if (!validTiers.includes(tier)) {
+      return res.status(400).json({ error: 'Invalid subscription tier selected' });
+    }
+
+    const orgId = user.organization_id || user.id;
+    db.prepare('UPDATE users SET subscription_tier = ? WHERE id = ? OR organization_id = ?').run(tier, orgId, orgId);
+
+    res.json({
+      success: true,
+      message: `Subscription successfully updated to ${tier.toUpperCase()}`,
+      subscription_tier: tier
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- ADVANCED SALES & FINANCIAL ACCOUNTING ---
+app.get('/api/accounting/summary', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    const activeUserId = user ? (user.organization_id || user.id) : -1;
+
+    // Overall Revenue, Discounts, Tax
+    const salesAgg = db.prepare(`
+      SELECT 
+        COUNT(*) as total_sales_count,
+        COALESCE(SUM(subtotal), 0) as total_subtotal,
+        COALESCE(SUM(discount), 0) as total_discount,
+        COALESCE(SUM(tax), 0) as total_tax,
+        COALESCE(SUM(total), 0) as gross_revenue
+      FROM sales
+      WHERE user_id = ?
+    `).get(activeUserId);
+
+    // Cost of Goods Sold (COGS)
+    const cogsAgg = db.prepare(`
+      SELECT 
+        COALESCE(SUM(
+          si.quantity * CASE 
+            WHEN si.unit_type = 'pack' THEN COALESCE(b.cost_price_per_pack, pmp.wholesale_pack_price, m.wholesale_pack_price, 0)
+            WHEN si.unit_type = 'strip' THEN (COALESCE(b.cost_price_per_pack, pmp.wholesale_pack_price, m.wholesale_pack_price, 0) / MAX(m.units_per_strip, 1))
+            ELSE (COALESCE(b.cost_price_per_pack, pmp.wholesale_pack_price, m.wholesale_pack_price, 0) / MAX(m.units_per_pack, 1))
+          END
+        ), 0) as total_cogs
+      FROM sale_items si
+      JOIN sales s ON si.sale_id = s.id AND s.user_id = ?
+      JOIN medicines m ON si.medicine_id = m.id
+      LEFT JOIN batches b ON si.batch_id = b.id
+      LEFT JOIN pharmacy_medicine_prices pmp ON pmp.medicine_id = m.id AND pmp.user_id = ?
+    `).get(activeUserId, activeUserId);
+
+    const grossRevenue = Number(salesAgg.gross_revenue || 0);
+    const totalCogs = Number(cogsAgg.total_cogs || 0);
+    const grossProfit = Math.max(0, grossRevenue - totalCogs);
+    const grossMarginPct = grossRevenue > 0 ? ((grossProfit / grossRevenue) * 100).toFixed(1) : '0.0';
+
+    // Payment methods breakdown
+    const paymentMethods = db.prepare(`
+      SELECT payment_method, COUNT(*) as count, COALESCE(SUM(total), 0) as amount
+      FROM sales
+      WHERE user_id = ?
+      GROUP BY payment_method
+    `).all(activeUserId);
+
+    // Outstanding customer credit loans
+    const loansAgg = db.prepare(`
+      SELECT 
+        COUNT(*) as active_loans_count,
+        COALESCE(SUM(total_amount), 0) as total_credit_issued,
+        COALESCE(SUM(amount_paid), 0) as total_credit_repaid,
+        COALESCE(SUM(balance_due), 0) as total_outstanding_balance
+      FROM customer_loans
+      WHERE user_id = ? AND status != 'paid'
+    `).get(activeUserId);
+
+    // Recent 7 days trend
+    const recentTrend = db.prepare(`
+      SELECT date(created_at) as sale_date, COUNT(*) as sales_count, COALESCE(SUM(total), 0) as revenue
+      FROM sales
+      WHERE user_id = ?
+      GROUP BY date(created_at)
+      ORDER BY sale_date DESC
+      LIMIT 7
+    `).all(activeUserId);
+
+    res.json({
+      success: true,
+      currency: user?.currency_symbol || 'KSh',
+      gross_revenue: grossRevenue,
+      total_cogs: totalCogs,
+      gross_profit: grossProfit,
+      gross_margin_pct: grossMarginPct,
+      total_discount: Number(salesAgg.total_discount || 0),
+      total_tax: Number(salesAgg.total_tax || 0),
+      total_sales_count: salesAgg.total_sales_count || 0,
+      payment_methods: paymentMethods,
+      loans: {
+        active_count: loansAgg.active_loans_count || 0,
+        credit_issued: Number(loansAgg.total_credit_issued || 0),
+        credit_repaid: Number(loansAgg.total_credit_repaid || 0),
+        outstanding_balance: Number(loansAgg.total_outstanding_balance || 0)
+      },
+      recent_trend: recentTrend
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -574,7 +964,7 @@ app.post('/api/molecules', (req, res) => {
 app.get('/api/medicines', (req, res) => {
   try {
     const user = getAuthUser(req);
-    const activeUserId = user ? user.id : -1;
+    const activeUserId = user ? (user.organization_id || user.id) : -1;
     const { q, category, form_category, tier } = req.query;
 
     let sql = `
@@ -602,6 +992,13 @@ app.get('/api/medicines', (req, res) => {
 
     const whereClauses = [];
     const params = [activeUserId, activeUserId];
+
+    // Staff Department Restrictions (e.g. Veterinary staff only see Veterinary & Animal Health)
+    if (user && user.allowed_departments && Array.isArray(user.allowed_departments) && !user.allowed_departments.includes('All')) {
+      const depPlaceholders = user.allowed_departments.map(() => '?').join(', ');
+      whereClauses.push(`m.form_category IN (${depPlaceholders})`);
+      params.push(...user.allowed_departments);
+    }
 
     if (q) {
       whereClauses.push(`(m.brand_name LIKE ? OR mol.name LIKE ? OR m.barcode LIKE ? OR m.manufacturer LIKE ?)`);
