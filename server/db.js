@@ -159,11 +159,33 @@ export function initDatabase() {
       notes TEXT,
       created_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS sessions (
+      token TEXT PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      user_json TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      created_at TEXT NOT NULL
+    );
   `);
 
   // Safe schema migrations for existing databases
   try { db.exec('ALTER TABLE sales ADD COLUMN user_id INTEGER;'); } catch (e) {}
   try { db.exec('ALTER TABLE customer_loans ADD COLUMN user_id INTEGER;'); } catch (e) {}
+
+  // Isolate demo/sample loans so newly registered real pharmacists always start with a clean 0-loan ledger
+  try {
+    db.exec(`
+      UPDATE customer_loans
+      SET user_id = -1
+      WHERE customer_name IN ('John Kamau', 'Grace Muthoni') OR user_id IS NULL;
+    `);
+    db.exec(`
+      UPDATE sales
+      SET user_id = -1
+      WHERE user_id IS NULL;
+    `);
+  } catch (e) {}
 
   // Default settings if empty
   const getSetting = db.prepare('SELECT value FROM settings WHERE key = ?');
@@ -184,27 +206,27 @@ export function initDatabase() {
     seedInitialData();
   }
 
-  // Seed sample customer loans if empty
+  // Seed sample customer loans for demo mode only (user_id = -1)
   const countLoans = db.prepare('SELECT count(*) as count FROM customer_loans').get();
   if (countLoans.count === 0) {
     const insertLoan = db.prepare(`
       INSERT INTO customer_loans (
         customer_name, customer_phone, national_id_or_notes,
         total_amount, amount_paid, balance_due, promise_date,
-        status, items_summary, sale_id, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        status, items_summary, sale_id, created_at, user_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     insertLoan.run(
       'John Kamau', '+254 712 345678', 'Trusted neighbor - regular chronic patient',
       26.50, 0, 26.50, '2026-10-17',
-      'pending', 'Augmentin 625mg (1 Box)', 1, '2026-10-10 10:00:00'
+      'pending', 'Augmentin 625mg (1 Box)', 1, '2026-10-10 10:00:00', -1
     );
 
     insertLoan.run(
       'Grace Muthoni', '+254 722 987654', 'Works nearby, promised to clear after payday',
       18.50, 5.00, 13.50, '2026-10-11',
-      'overdue', 'Panadol Extra (1 Box), Losec 20mg (1 Strip)', null, '2026-10-05 14:20:00'
+      'overdue', 'Panadol Extra (1 Box), Losec 20mg (1 Strip)', null, '2026-10-05 14:20:00', -1
     );
   }
 

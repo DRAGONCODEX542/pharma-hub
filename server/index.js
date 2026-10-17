@@ -23,25 +23,61 @@ app.use((req, res, next) => {
 // Initialize DB schema & seed data
 initDatabase();
 
-// In-memory token store for sessions with expiration
-// Maps token -> { user, expiresAt }
+// Persistent token store for sessions (SQLite + memory cache)
 const activeSessions = new Map();
 const SESSION_TTL_MS = 14 * 24 * 60 * 60 * 1000; // 14 days
+
+function saveSession(token, user, ttlMs = SESSION_TTL_MS) {
+  const expiresAt = Date.now() + ttlMs;
+  activeSessions.set(token, { user, expiresAt });
+  try {
+    db.prepare(`
+      INSERT OR REPLACE INTO sessions (token, user_id, user_json, expires_at, created_at)
+      VALUES (?, ?, ?, ?, datetime('now'))
+    `).run(token, user.id, JSON.stringify(user), expiresAt);
+  } catch (e) {
+    console.error('Session persistence error:', e);
+  }
+}
+
+function deleteSession(token) {
+  activeSessions.delete(token);
+  try {
+    db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
+  } catch (e) {}
+}
 
 // Auth helper to retrieve user from Bearer token
 function getAuthUser(req) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
   const token = authHeader.split(' ')[1];
-  const session = activeSessions.get(token);
-  if (!session) return null;
+  if (!token) return null;
 
-  // Handle session expiration
-  if (session.expiresAt && Date.now() > session.expiresAt) {
-    activeSessions.delete(token);
+  // 1. Check in-memory cache first
+  const cached = activeSessions.get(token);
+  if (cached) {
+    if (cached.expiresAt && Date.now() > cached.expiresAt) {
+      deleteSession(token);
+      return null;
+    }
+    return cached.user || cached;
+  }
+
+  // 2. Check persistent SQLite sessions table (survives Render restarts)
+  try {
+    const row = db.prepare('SELECT user_json, expires_at FROM sessions WHERE token = ?').get(token);
+    if (!row) return null;
+    if (Date.now() > row.expires_at) {
+      deleteSession(token);
+      return null;
+    }
+    const user = JSON.parse(row.user_json);
+    activeSessions.set(token, { user, expiresAt: row.expires_at });
+    return user;
+  } catch (e) {
     return null;
   }
-  return session.user || session;
 }
 
 // In-memory IP rate limiter for authentication endpoints
@@ -125,7 +161,7 @@ app.post('/api/auth/register', authRateLimiter, (req, res) => {
       phone: phone.trim(),
       address: address.trim()
     };
-    activeSessions.set(token, { user: userObj, expiresAt: Date.now() + SESSION_TTL_MS });
+    saveSession(token, userObj, SESSION_TTL_MS);
 
     // Also update current active pharmacy settings to match the user's pharmacy
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('pharmacy_name', ?)").run(pharmacy_name.trim());
@@ -174,7 +210,7 @@ app.post('/api/auth/login', authRateLimiter, (req, res) => {
       phone: user.phone || '',
       address: user.address || ''
     };
-    activeSessions.set(token, { user: userObj, expiresAt: Date.now() + sessionTTL });
+    saveSession(token, userObj, sessionTTL);
 
     // Apply their pharmacy settings
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('pharmacy_name', ?)").run(user.pharmacy_name);
@@ -229,7 +265,7 @@ app.post('/api/auth/phone-login', authRateLimiter, (req, res) => {
       phone: user.phone || '',
       address: user.address || ''
     };
-    activeSessions.set(token, { user: userObj, expiresAt: Date.now() + sessionTTL });
+    saveSession(token, userObj, sessionTTL);
 
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('pharmacy_name', ?)").run(user.pharmacy_name);
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('currency_symbol', ?)").run(user.currency_symbol || 'KSh');
@@ -250,6 +286,15 @@ app.get('/api/auth/me', (req, res) => {
     return res.json({ authenticated: false });
   }
   res.json({ authenticated: true, user });
+});
+
+app.post('/api/auth/logout', (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.split(' ')[1];
+    deleteSession(token);
+  }
+  res.json({ success: true });
 });
 
 app.get('/api/auth/config', (req, res) => {
@@ -333,7 +378,7 @@ app.post('/api/auth/google', authRateLimiter, async (req, res) => {
       picture: user.google_picture || ''
     };
     const sessionTTL = isSuperAdmin ? 30 * 24 * 60 * 60 * 1000 : SESSION_TTL_MS;
-    activeSessions.set(token, { user: userObj, expiresAt: Date.now() + sessionTTL });
+    saveSession(token, userObj, sessionTTL);
 
     // Apply their settings
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('pharmacy_name', ?)").run(user.pharmacy_name);
@@ -447,17 +492,17 @@ app.get('/api/dashboard', (req, res) => {
       todaySales = db.prepare(`
         SELECT count(*) as count, COALESCE(SUM(total), 0) as revenue
         FROM sales
-        WHERE (user_id IS NULL OR user_id = 1) AND date(created_at) = date('now')
+        WHERE user_id = -1 AND date(created_at) = date('now')
       `).get();
 
       recentSales = db.prepare(`
-        SELECT * FROM sales WHERE (user_id IS NULL OR user_id = 1) ORDER BY id DESC LIMIT 10
+        SELECT * FROM sales WHERE user_id = -1 ORDER BY id DESC LIMIT 10
       `).all();
 
       loans = db.prepare(`
         SELECT *, julianday(promise_date) - julianday('now') as days_left
         FROM customer_loans
-        WHERE (user_id IS NULL OR user_id = 1) AND status != 'paid' AND balance_due > 0
+        WHERE user_id = -1 AND status != 'paid' AND balance_due > 0
         ORDER BY promise_date ASC
       `).all();
     }
@@ -809,7 +854,7 @@ app.post('/api/sales', (req, res) => {
     const nowStr = new Date().toISOString().replace('T', ' ').slice(0, 19);
 
     const user = getAuthUser(req);
-    const userId = user ? user.id : 1;
+    const userId = user ? user.id : -1;
 
     const saleStmt = db.prepare(`
       INSERT INTO sales (
@@ -942,7 +987,7 @@ app.get('/api/sales', (req, res) => {
       sql += 'user_id = ?';
       params.push(user.id);
     } else {
-      sql += '(user_id IS NULL OR user_id = 1)';
+      sql += 'user_id = -1';
     }
 
     if (q) {
@@ -1000,7 +1045,7 @@ app.get('/api/loans', (req, res) => {
       where.push('l.user_id = ?');
       params.push(user.id);
     } else {
-      where.push('(l.user_id IS NULL OR l.user_id = 1)');
+      where.push('l.user_id = -1');
     }
 
     if (status === 'overdue') {

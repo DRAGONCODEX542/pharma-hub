@@ -92,6 +92,7 @@ export default function App() {
   const [phoneLoginForm, setPhoneLoginForm] = useState({ phone: '', password: '' });
   const [selectedMedId, setSelectedMedId] = useState(null); // tracks active selection with liquid highlight
   const [googleClientId, setGoogleClientId] = useState('');
+  const [googleButtonReady, setGoogleButtonReady] = useState(false);
   const [authForm, setAuthForm] = useState({
     name: '',
     email: '',
@@ -132,6 +133,7 @@ export default function App() {
   const [loanNotes, setLoanNotes] = useState('');
 
   // Modals
+  const [showMobileCart, setShowMobileCart] = useState(false);
   const [showAlternativeModal, setShowAlternativeModal] = useState(false);
   const [selectedForAlternative, setSelectedForAlternative] = useState(null);
   const [alternativesData, setAlternativesData] = useState(null);
@@ -282,6 +284,25 @@ export default function App() {
     fetchAllData();
   }, [isDemoGuest]);
 
+  // Verify persistent authentication session on mount
+  useEffect(() => {
+    const token = localStorage.getItem('pharmahub_token');
+    if (!token) return;
+    authFetch('/api/auth/me')
+      .then(r => r.json())
+      .then(data => {
+        if (data.authenticated && data.user) {
+          setCurrentUser(data.user);
+          localStorage.setItem('pharmahub_user', JSON.stringify(data.user));
+        } else {
+          localStorage.removeItem('pharmahub_user');
+          localStorage.removeItem('pharmahub_token');
+          setCurrentUser(null);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   // Fetch Google Client ID and other runtime auth configs dynamically from backend
   useEffect(() => {
     fetch('/api/auth/config')
@@ -325,6 +346,7 @@ export default function App() {
               width: 320,
               text: 'continue_with'
             });
+            setGoogleButtonReady(true);
           }
 
           const modalEl = document.getElementById('google-btn-modal-official');
@@ -337,6 +359,7 @@ export default function App() {
               width: 280,
               text: 'continue_with'
             });
+            setGoogleButtonReady(true);
           }
         } catch (err) {
           console.warn('Google One Tap auto prompt:', err);
@@ -518,6 +541,7 @@ export default function App() {
         const receiptDetails = await authFetch(`/api/sales/${data.sale_id}`).then(r => r.json());
         setCurrentReceipt(receiptDetails);
         setShowReceiptModal(true);
+        setShowMobileCart(false);
 
         // Reset cart & reload data
         setCart([]);
@@ -630,12 +654,16 @@ export default function App() {
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await authFetch('/api/auth/logout', { method: 'POST' });
+    } catch (e) {}
     localStorage.removeItem('pharmahub_user');
     localStorage.removeItem('pharmahub_token');
     setCurrentUser(null);
     setIsDemoGuest(false);
     showToast('Signed out. See you next time!', 'success');
+    fetchAllData();
   };
 
   const handleGoogleLogin = async (credentialResponse) => {
@@ -989,20 +1017,22 @@ export default function App() {
 
               {/* 1. Primary One-Click Google Sign In */}
               <div className="mb-4">
-                <div id="google-btn-landing-official" className="flex justify-center empty:hidden mb-2"></div>
-                <button
-                  type="button"
-                  onClick={triggerGoogleSignIn}
-                  className="w-full py-3 px-4 bg-white/90 dark:bg-slate-800/80 hover:bg-white dark:hover:bg-slate-800 border border-black/[0.08] dark:border-white/[0.1] font-semibold text-sm text-slate-700 dark:text-slate-200 rounded-2xl flex items-center justify-center space-x-3 transition shadow-sm apple-press"
-                >
-                  <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
-                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
-                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
-                  </svg>
-                  <span>Continue with Google</span>
-                </button>
+                <div id="google-btn-landing-official" className="flex justify-center empty:hidden min-h-[44px]"></div>
+                {!googleButtonReady && (
+                  <button
+                    type="button"
+                    onClick={triggerGoogleSignIn}
+                    className="w-full py-3 px-4 bg-white/90 dark:bg-slate-800/80 hover:bg-white dark:hover:bg-slate-800 border border-black/[0.08] dark:border-white/[0.1] font-semibold text-sm text-slate-700 dark:text-slate-200 rounded-2xl flex items-center justify-center space-x-3 transition shadow-sm apple-press"
+                  >
+                    <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
+                      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+                      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+                    </svg>
+                    <span>Continue with Google</span>
+                  </button>
+                )}
               </div>
 
               {/* In Login mode: show sub-switcher for Email vs Phone login */}
@@ -1421,7 +1451,8 @@ export default function App() {
           {/* 1. POS & DISPENSING TAB                                      */}
           {/* ============================================================ */}
           {activeTab === 'pos' && (
-            <div className="flex flex-col lg:flex-row gap-4 h-full">
+            <>
+              <div className="flex flex-col lg:flex-row gap-4 h-full">
               {/* Product Catalog & Search Column */}
               <div className="flex-1 flex flex-col min-w-0">
                 {/* Search Bar & Category Filters */}
@@ -1445,24 +1476,39 @@ export default function App() {
                     )}
                   </div>
 
-                  <div className="flex items-center space-x-2 overflow-x-auto pb-1 text-xs">
-                    {['All', 'OTC', 'Prescription'].map((cat) => (
-                      <button
-                        key={cat}
-                        onClick={() => setPosCategory(cat)}
-                        className={`px-3 py-1.5 rounded-lg font-semibold transition apple-press shrink-0 text-[11px] ${
-                          posCategory === cat
-                            ? 'bg-slate-900 dark:bg-emerald-600 text-white shadow-sm'
-                            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
-                        }`}
-                      >
-                        {cat}
-                      </button>
-                    ))}
-                    <span className="text-slate-200 dark:text-slate-700">|</span>
-                    <span className="text-slate-400 dark:text-slate-600 text-[11px] self-center">
-                      {filteredMeds.length} products
-                    </span>
+                  <div className="flex items-center justify-between gap-2 overflow-x-auto pb-1 text-xs">
+                    <div className="flex items-center space-x-2 shrink-0">
+                      {['All', 'OTC', 'Prescription'].map((cat) => (
+                        <button
+                          key={cat}
+                          onClick={() => setPosCategory(cat)}
+                          className={`px-3 py-1.5 rounded-lg font-semibold transition apple-press shrink-0 text-[11px] ${
+                            posCategory === cat
+                              ? 'bg-slate-900 dark:bg-emerald-600 text-white shadow-sm'
+                              : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+                          }`}
+                        >
+                          {cat}
+                        </button>
+                      ))}
+                      <span className="text-slate-200 dark:text-slate-700">|</span>
+                      <span className="text-slate-400 dark:text-slate-600 text-[11px] self-center">
+                        {filteredMeds.length} products
+                      </span>
+                    </div>
+
+                    {/* Mobile Quick Cart Button */}
+                    <button
+                      onClick={() => setShowMobileCart(true)}
+                      className={`lg:hidden px-3 py-1.5 rounded-xl font-bold transition apple-press shrink-0 text-xs flex items-center space-x-1.5 ${
+                        cart.length > 0
+                          ? 'bg-emerald-600 text-white shadow-sm ring-2 ring-emerald-400/40'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                      }`}
+                    >
+                      <ShoppingCart className="w-3.5 h-3.5" />
+                      <span>Cart ({cart.reduce((s, i) => s + i.quantity, 0)})</span>
+                    </button>
                   </div>
                 </div>
 
@@ -1588,8 +1634,8 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Cart & Dispensing Column */}
-              <div className="w-full lg:w-96 bg-white rounded-3xl p-5 shadow-sm border border-slate-200 flex flex-col justify-between shrink-0">
+              {/* Cart & Dispensing Column (Persistent on Desktop) */}
+              <div className="hidden lg:flex w-full lg:w-96 bg-white dark:bg-slate-900 rounded-3xl p-5 shadow-sm border border-slate-200 dark:border-white/10 flex-col justify-between shrink-0">
                 <div>
                   <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-3">
                     <div className="flex items-center space-x-2">
@@ -1847,7 +1893,310 @@ export default function App() {
                 </div>
               </div>
             </div>
-          )}
+
+            {/* Floating Mobile Cart Access Pill (Shows above bottom nav bar when cart has items) */}
+            {cart.length > 0 && !showMobileCart && (
+              <div className="fixed bottom-[74px] left-3 right-3 z-40 lg:hidden">
+                <button
+                  type="button"
+                  onClick={() => setShowMobileCart(true)}
+                  className="w-full py-3.5 px-4 bg-emerald-600 hover:bg-emerald-500 active:scale-[0.98] text-white rounded-2xl shadow-2xl shadow-emerald-950/40 flex items-center justify-between border border-emerald-400/40 backdrop-blur-md transition apple-press"
+                >
+                  <div className="flex items-center space-x-3">
+                    <div className="w-8 h-8 rounded-xl bg-white/20 flex items-center justify-center font-black text-sm shadow-inner">
+                      {cart.reduce((sum, item) => sum + item.quantity, 0)}
+                    </div>
+                    <div className="text-left">
+                      <p className="text-[11px] font-semibold text-emerald-100 uppercase tracking-wider">
+                        {cart.reduce((sum, item) => sum + item.quantity, 0)} Item{cart.length > 1 ? 's' : ''} in Cart
+                      </p>
+                      <p className="text-base font-extrabold leading-tight">{curr}{cartTotal.toFixed(2)}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center space-x-1.5 text-xs font-bold bg-white/20 hover:bg-white/30 px-3.5 py-2 rounded-xl transition">
+                    <span>View Cart & Checkout</span>
+                    <ChevronRight className="w-4 h-4" />
+                  </div>
+                </button>
+              </div>
+            )}
+
+            {/* Mobile Sliding Bottom Sheet Cart Drawer */}
+            {showMobileCart && (
+              <div className="fixed inset-0 z-50 lg:hidden flex flex-col justify-end">
+                {/* Backdrop */}
+                <div
+                  className="fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity"
+                  onClick={() => setShowMobileCart(false)}
+                />
+
+                {/* Slide-Up Bottom Sheet */}
+                <div className="relative w-full bg-white dark:bg-slate-900 rounded-t-[32px] shadow-2xl border-t border-black/[0.08] dark:border-white/10 p-5 z-10 max-h-[88vh] flex flex-col">
+                  {/* Pull Handle */}
+                  <div className="w-12 h-1.5 bg-slate-300 dark:bg-slate-700 rounded-full mx-auto mb-3 shrink-0" />
+
+                  {/* Header */}
+                  <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-white/10 mb-3 shrink-0">
+                    <div className="flex items-center space-x-2">
+                      <ShoppingCart className="w-5 h-5 text-emerald-600" />
+                      <h3 className="font-bold text-slate-900 dark:text-white text-base">Dispensing Cart</h3>
+                      {cart.length > 0 && (
+                        <span className="bg-emerald-600 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+                          {cart.reduce((s, i) => s + i.quantity, 0)}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      {cart.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setCart([])}
+                          className="text-xs text-rose-500 hover:text-rose-700 font-semibold"
+                        >
+                          Clear All
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setShowMobileCart(false)}
+                        className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500 dark:text-slate-300"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Scrollable body */}
+                  <div className="flex-1 overflow-y-auto pr-1 space-y-3">
+                    {/* Patient & Prescription Details */}
+                    <div className="space-y-2 bg-slate-50 dark:bg-slate-800/60 p-3 rounded-2xl border border-slate-100 dark:border-white/10 text-xs">
+                      <input
+                        type="text"
+                        placeholder="Patient Name (Required for Loan/Credit)"
+                        value={customerName}
+                        onChange={(e) => setCustomerName(e.target.value)}
+                        className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 font-medium text-slate-800 dark:text-slate-200"
+                      />
+                      <div className="grid grid-cols-2 gap-2">
+                        <input
+                          type="text"
+                          placeholder="Phone No (e.g. 0712...)"
+                          value={customerPhone}
+                          onChange={(e) => setCustomerPhone(e.target.value)}
+                          className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 text-slate-800 dark:text-slate-200"
+                        />
+                        <input
+                          type="text"
+                          placeholder="Rx Number"
+                          value={prescriptionNumber}
+                          onChange={(e) => setPrescriptionNumber(e.target.value)}
+                          className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 text-slate-800 dark:text-slate-200"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Cart items */}
+                    {cart.length === 0 ? (
+                      <div className="py-12 text-center text-slate-400">
+                        <ShoppingCart className="w-12 h-12 mx-auto mb-2 opacity-30 stroke-1" />
+                        <p className="text-sm font-medium">Cart is empty</p>
+                        <p className="text-xs">Add medicines to dispense</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2.5 max-h-56 overflow-y-auto pr-1">
+                        {cart.map((item, index) => (
+                          <div
+                            key={`sheet-${item.medicine_id}-${item.unit_type}-${index}`}
+                            className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200/80 dark:border-white/10 space-y-1.5"
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div>
+                                <p className="font-bold text-slate-900 dark:text-white text-xs">{item.brand_name}</p>
+                                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                                  {item.unit_type === 'pack' ? 'Box' : item.unit_type === 'strip' ? 'Strip' : item.unit_name} @ {curr}{item.unit_price}
+                                </p>
+                              </div>
+                              <span className="font-bold text-slate-900 dark:text-white text-xs">
+                                {curr}{item.total_price}
+                              </span>
+                            </div>
+
+                            <input
+                              type="text"
+                              placeholder="Dosage instruction (e.g., 1 tablet TDS)"
+                              value={item.dosage_instruction}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setCart(prev =>
+                                  prev.map((it, i) => (i === index ? { ...it, dosage_instruction: val } : it))
+                                );
+                              }}
+                              className="w-full px-2 py-1 text-[11px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 text-slate-600 dark:text-slate-300"
+                            />
+
+                            <div className="flex items-center justify-between pt-1">
+                              <div className="flex items-center space-x-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (item.quantity > 1) {
+                                      setCart(prev =>
+                                        prev.map((it, i) =>
+                                          i === index
+                                            ? {
+                                                ...it,
+                                                quantity: it.quantity - 1,
+                                                total_price: ((it.quantity - 1) * it.unit_price).toFixed(2)
+                                              }
+                                            : it
+                                        )
+                                      );
+                                    } else {
+                                      setCart(prev => prev.filter((_, i) => i !== index));
+                                    }
+                                  }}
+                                  className="w-7 h-7 rounded-lg bg-white dark:bg-slate-700 border border-slate-300 dark:border-white/10 flex items-center justify-center text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-600 dark:text-white"
+                                >
+                                  -
+                                </button>
+                                <span className="text-xs font-bold text-slate-800 dark:text-white">{item.quantity}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setCart(prev =>
+                                      prev.map((it, i) =>
+                                        i === index
+                                          ? {
+                                              ...it,
+                                              quantity: it.quantity + 1,
+                                              total_price: ((it.quantity + 1) * it.unit_price).toFixed(2)
+                                            }
+                                          : it
+                                      )
+                                    );
+                                  }}
+                                  className="w-7 h-7 rounded-lg bg-white dark:bg-slate-700 border border-slate-300 dark:border-white/10 flex items-center justify-center text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-600 dark:text-white"
+                                >
+                                  +
+                                </button>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => setCart(prev => prev.filter((_, i) => i !== index))}
+                                className="text-slate-400 hover:text-rose-500 transition"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Payment & Totals */}
+                  <div className="pt-3 border-t border-slate-100 dark:border-white/10 space-y-2 mt-2 shrink-0">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                        Payment Mode
+                      </label>
+                      <div className="grid grid-cols-5 gap-1 text-[11px] font-semibold">
+                        {[
+                          { id: 'cash', label: 'Cash' },
+                          { id: 'mobile_money', label: 'M-Pesa' },
+                          { id: 'card', label: 'Card' },
+                          { id: 'insurance', label: 'HMO' },
+                          { id: 'loan', label: 'Credit' }
+                        ].map((pm) => (
+                          <button
+                            type="button"
+                            key={pm.id}
+                            onClick={() => setPaymentMethod(pm.id)}
+                            className={`py-1.5 px-1 rounded-lg border text-center transition truncate text-[10px] ${
+                              paymentMethod === pm.id
+                                ? pm.id === 'loan'
+                                  ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
+                                  : 'bg-slate-900 dark:bg-emerald-600 text-white border-slate-900 dark:border-emerald-600 shadow-sm'
+                                : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-white/10 hover:bg-slate-100'
+                            }`}
+                          >
+                            {pm.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {paymentMethod === 'loan' && (
+                      <div className="p-2.5 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/40 rounded-xl space-y-1.5 text-xs">
+                        <div className="flex items-center space-x-1.5 text-amber-900 dark:text-amber-300 font-bold text-[11px]">
+                          <HandCoins className="w-3.5 h-3.5 text-amber-600" />
+                          <span>Pharmacy Credit Details</span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <input
+                            type="date"
+                            value={loanPromiseDate}
+                            onChange={(e) => setLoanPromiseDate(e.target.value)}
+                            className="w-full px-2 py-1 bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700 rounded-lg text-xs font-medium dark:text-white"
+                          />
+                          <input
+                            type="text"
+                            placeholder="Optional ID / note"
+                            value={loanNotes}
+                            onChange={(e) => setLoanNotes(e.target.value)}
+                            className="w-full px-2 py-1 bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700 rounded-lg text-xs dark:text-white"
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex items-baseline justify-between text-xs text-slate-600 dark:text-slate-400">
+                      <span>Discount ({curr})</span>
+                      <input
+                        type="number"
+                        min="0"
+                        value={discountAmount}
+                        onChange={(e) => setDiscountAmount(Math.max(0, Number(e.target.value)))}
+                        className="w-16 px-1.5 py-0.5 text-right bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-md focus:outline-none focus:ring-1 focus:ring-emerald-500 dark:text-white"
+                      />
+                    </div>
+
+                    <div className="flex items-baseline justify-between text-base font-bold text-slate-900 dark:text-white pt-1 border-t border-slate-100 dark:border-white/10">
+                      <span>{paymentMethod === 'loan' ? 'Total Loan Due:' : 'Total Due:'}</span>
+                      <span className={`${paymentMethod === 'loan' ? 'text-amber-600' : 'text-emerald-600'} text-lg font-extrabold`}>
+                        {curr}{cartTotal.toFixed(2)}
+                      </span>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleCheckout}
+                      disabled={cart.length === 0}
+                      className={`w-full py-3 text-white font-bold rounded-2xl transition shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed apple-press ${
+                        paymentMethod === 'loan'
+                          ? 'bg-amber-600 hover:bg-amber-700 shadow-amber-700/25'
+                          : 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-700/25'
+                      }`}
+                    >
+                      {paymentMethod === 'loan' ? (
+                        <>
+                          <HandCoins className="w-4 h-4" />
+                          <span>Issue on Credit / Loan</span>
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle2 className="w-4 h-4" />
+                          <span>Complete Sale & Print Receipt</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
+        )}
 
           {/* ============================================================ */}
           {/* 2. CUSTOMER TRUST LOANS & REMINDERS TAB                      */}
@@ -3304,20 +3653,22 @@ export default function App() {
             <div className="px-6 py-5 space-y-3.5">
               {/* Google Sign In option */}
               <div>
-                <div id="google-btn-modal-official" className="flex justify-center empty:hidden mb-2"></div>
-                <button
-                  type="button"
-                  onClick={triggerGoogleSignIn}
-                  className="w-full py-2.5 px-3 bg-slate-50 dark:bg-slate-800/60 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-white/10 font-semibold text-xs text-slate-700 dark:text-slate-200 rounded-xl flex items-center justify-center space-x-2.5 transition apple-press"
-                >
-                  <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
-                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
-                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
-                  </svg>
-                  <span>Continue with Google</span>
-                </button>
+                <div id="google-btn-modal-official" className="flex justify-center empty:hidden min-h-[40px]"></div>
+                {!googleButtonReady && (
+                  <button
+                    type="button"
+                    onClick={triggerGoogleSignIn}
+                    className="w-full py-2.5 px-3 bg-slate-50 dark:bg-slate-800/60 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-white/10 font-semibold text-xs text-slate-700 dark:text-slate-200 rounded-xl flex items-center justify-center space-x-2.5 transition apple-press"
+                  >
+                    <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
+                      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+                      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+                    </svg>
+                    <span>Continue with Google</span>
+                  </button>
+                )}
               </div>
 
               {/* In Login mode: show sub-switcher for Email vs Phone login */}
