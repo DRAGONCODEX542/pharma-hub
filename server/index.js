@@ -439,12 +439,13 @@ app.put('/api/settings', (req, res) => {
 app.get('/api/dashboard', (req, res) => {
   try {
     const user = getAuthUser(req);
+    const activeUserId = user ? user.id : -1;
     const settingDays = db.prepare("SELECT value FROM settings WHERE key = 'expiry_warning_days'").get();
     const warningDays = parseInt(settingDays?.value || '90', 10);
 
     const totalMedicines = db.prepare('SELECT count(*) as count FROM medicines').get().count;
 
-    // Expiring soon: batches with expiry_date <= date('now', '+X days') and packs_available > 0 and status = 'active'
+    // Expiring soon: only batches belonging to the active pharmacy user
     const expiringBatches = db.prepare(`
       SELECT b.*, m.brand_name, m.strength, m.dosage_form,
              julianday(b.expiry_date) - julianday('now') as days_left
@@ -452,19 +453,23 @@ app.get('/api/dashboard', (req, res) => {
       JOIN medicines m ON b.medicine_id = m.id
       WHERE b.status = 'active' AND (b.packs_available > 0 OR b.loose_units_available > 0)
         AND date(b.expiry_date) <= date('now', '+' || ? || ' days')
+        AND b.user_id = ?
       ORDER BY b.expiry_date ASC
-    `).all(warningDays);
+    `).all(warningDays, activeUserId);
 
-    // Medicines with low stock
+    // Medicines with low stock: only check items that this pharmacy has received stock for
     const medicinesWithStock = db.prepare(`
-      SELECT m.id, m.brand_name, m.strength, m.dosage_form, m.min_stock_alert, m.reorder_quantity,
+      SELECT m.id, m.brand_name, m.strength, m.dosage_form,
+             COALESCE(pmp.min_stock_alert, m.min_stock_alert) as min_stock_alert,
+             m.reorder_quantity,
              COALESCE(SUM(b.packs_available), 0) as total_packs
       FROM medicines m
-      LEFT JOIN batches b ON m.id = b.medicine_id AND b.status = 'active'
+      JOIN batches b ON m.id = b.medicine_id AND b.user_id = ?
+      LEFT JOIN pharmacy_medicine_prices pmp ON pmp.medicine_id = m.id AND pmp.user_id = ?
       GROUP BY m.id
-      HAVING total_packs <= m.min_stock_alert
+      HAVING total_packs <= COALESCE(pmp.min_stock_alert, m.min_stock_alert)
       ORDER BY total_packs ASC
-    `).all();
+    `).all(activeUserId, activeUserId);
 
     // Sales and loans scoped by user (or demo for non-logged in)
     let todaySales;
@@ -565,20 +570,33 @@ app.post('/api/molecules', (req, res) => {
 // --- MEDICINES & PRICING ---
 app.get('/api/medicines', (req, res) => {
   try {
-    const { q, category, tier } = req.query;
+    const user = getAuthUser(req);
+    const activeUserId = user ? user.id : -1;
+    const { q, category, form_category, tier } = req.query;
+
     let sql = `
-      SELECT m.*, mol.name as molecule_name, mol.therapeutic_class,
+      SELECT m.id, m.brand_name, m.molecule_id, m.brand_tier, m.manufacturer, m.strength, m.dosage_form,
+             m.barcode, m.category, COALESCE(m.form_category, 'Tablets & Capsules') as form_category,
+             m.is_prescription_required, m.unit_name, m.units_per_pack, m.units_per_strip,
+             COALESCE(pmp.pack_price, m.pack_price) as pack_price,
+             COALESCE(pmp.strip_price, m.strip_price) as strip_price,
+             COALESCE(pmp.unit_price, m.unit_price) as unit_price,
+             COALESCE(pmp.wholesale_pack_price, m.wholesale_pack_price) as wholesale_pack_price,
+             COALESCE(pmp.min_stock_alert, m.min_stock_alert) as min_stock_alert,
+             m.reorder_quantity, m.notes,
+             mol.name as molecule_name, mol.therapeutic_class,
              COALESCE(SUM(b.packs_available), 0) as total_packs,
              COALESCE(SUM(b.loose_units_available), 0) as total_loose_units,
              MIN(CASE WHEN b.status = 'active' AND b.packs_available > 0 THEN b.expiry_date END) as nearest_expiry,
-             AVG(CASE WHEN b.status = 'active' THEN b.cost_price_per_pack END) as avg_cost_price
+             COALESCE(AVG(CASE WHEN b.status = 'active' THEN b.cost_price_per_pack END), COALESCE(pmp.wholesale_pack_price, m.wholesale_pack_price, 0)) as avg_cost_price
       FROM medicines m
       JOIN molecules mol ON m.molecule_id = mol.id
-      LEFT JOIN batches b ON m.id = b.medicine_id AND b.status = 'active'
+      LEFT JOIN pharmacy_medicine_prices pmp ON pmp.medicine_id = m.id AND pmp.user_id = ?
+      LEFT JOIN batches b ON m.id = b.medicine_id AND b.status = 'active' AND b.user_id = ?
     `;
 
     const whereClauses = [];
-    const params = [];
+    const params = [activeUserId, activeUserId];
 
     if (q) {
       whereClauses.push(`(m.brand_name LIKE ? OR mol.name LIKE ? OR m.barcode LIKE ? OR m.manufacturer LIKE ?)`);
@@ -588,6 +606,10 @@ app.get('/api/medicines', (req, res) => {
     if (category) {
       whereClauses.push(`m.category = ?`);
       params.push(category);
+    }
+    if (form_category && form_category !== 'All') {
+      whereClauses.push(`(m.form_category = ? OR m.dosage_form LIKE ?)`);
+      params.push(form_category, `%${form_category}%`);
     }
     if (tier) {
       whereClauses.push(`m.brand_tier = ?`);
@@ -602,10 +624,10 @@ app.get('/api/medicines', (req, res) => {
 
     const medicines = db.prepare(sql).all(...params);
 
-    // Calculate profit margins for each
+    // Calculate profit margins for each medicine based on user/wholesaler pricing
     const enriched = medicines.map(med => {
-      const cost = med.avg_cost_price || 0;
-      const margin = cost > 0 ? (((med.pack_price - cost) / med.pack_price) * 100).toFixed(1) : null;
+      const cost = med.wholesale_pack_price || med.avg_cost_price || 0;
+      const margin = cost > 0 && med.pack_price > 0 ? (((med.pack_price - cost) / med.pack_price) * 100).toFixed(1) : null;
       return {
         ...med,
         profit_margin_pct: margin
@@ -620,21 +642,29 @@ app.get('/api/medicines', (req, res) => {
 
 app.get('/api/medicines/:id', (req, res) => {
   try {
+    const user = getAuthUser(req);
+    const activeUserId = user ? user.id : -1;
     const med = db.prepare(`
-      SELECT m.*, mol.name as molecule_name, mol.therapeutic_class, mol.description as molecule_description
+      SELECT m.*, mol.name as molecule_name, mol.therapeutic_class, mol.description as molecule_description,
+             COALESCE(pmp.pack_price, m.pack_price) as pack_price,
+             COALESCE(pmp.strip_price, m.strip_price) as strip_price,
+             COALESCE(pmp.unit_price, m.unit_price) as unit_price,
+             COALESCE(pmp.wholesale_pack_price, m.wholesale_pack_price) as wholesale_pack_price,
+             COALESCE(pmp.min_stock_alert, m.min_stock_alert) as min_stock_alert
       FROM medicines m
       JOIN molecules mol ON m.molecule_id = mol.id
+      LEFT JOIN pharmacy_medicine_prices pmp ON pmp.medicine_id = m.id AND pmp.user_id = ?
       WHERE m.id = ?
-    `).get(req.params.id);
+    `).get(activeUserId, req.params.id);
 
     if (!med) return res.status(404).json({ error: 'Medicine not found' });
 
     const batches = db.prepare(`
       SELECT *, julianday(expiry_date) - julianday('now') as days_left
       FROM batches
-      WHERE medicine_id = ?
+      WHERE medicine_id = ? AND user_id = ?
       ORDER BY expiry_date ASC
-    `).all(req.params.id);
+    `).all(req.params.id, activeUserId);
 
     res.json({ ...med, batches });
   } catch (err) {
@@ -645,20 +675,35 @@ app.get('/api/medicines/:id', (req, res) => {
 // CORE BRAND VS GENERIC ALTERNATIVES API
 app.get('/api/medicines/:id/alternatives', (req, res) => {
   try {
-    const target = db.prepare('SELECT id, molecule_id, brand_name, brand_tier, pack_price, unit_price, strength FROM medicines WHERE id = ?').get(req.params.id);
+    const user = getAuthUser(req);
+    const activeUserId = user ? user.id : -1;
+    const target = db.prepare(`
+      SELECT m.id, m.molecule_id, m.brand_name, m.brand_tier,
+             COALESCE(pmp.pack_price, m.pack_price) as pack_price,
+             COALESCE(pmp.unit_price, m.unit_price) as unit_price,
+             m.strength
+      FROM medicines m
+      LEFT JOIN pharmacy_medicine_prices pmp ON pmp.medicine_id = m.id AND pmp.user_id = ?
+      WHERE m.id = ?
+    `).get(activeUserId, req.params.id);
+
     if (!target) return res.status(404).json({ error: 'Medicine not found' });
 
     const alternatives = db.prepare(`
       SELECT m.*, mol.name as molecule_name,
+             COALESCE(pmp.pack_price, m.pack_price) as pack_price,
+             COALESCE(pmp.strip_price, m.strip_price) as strip_price,
+             COALESCE(pmp.unit_price, m.unit_price) as unit_price,
              COALESCE(SUM(b.packs_available), 0) as total_packs,
              COALESCE(SUM(b.loose_units_available), 0) as total_loose_units
       FROM medicines m
       JOIN molecules mol ON m.molecule_id = mol.id
-      LEFT JOIN batches b ON m.id = b.medicine_id AND b.status = 'active'
+      LEFT JOIN pharmacy_medicine_prices pmp ON pmp.medicine_id = m.id AND pmp.user_id = ?
+      LEFT JOIN batches b ON m.id = b.medicine_id AND b.status = 'active' AND b.user_id = ?
       WHERE m.molecule_id = ? AND m.id != ?
       GROUP BY m.id
-      ORDER BY m.pack_price ASC
-    `).all(target.molecule_id, target.id);
+      ORDER BY pack_price ASC
+    `).all(activeUserId, activeUserId, target.molecule_id, target.id);
 
     const mapped = alternatives.map(alt => {
       const priceDiff = target.pack_price - alt.pack_price;
@@ -789,9 +834,75 @@ app.put('/api/medicines/:id', (req, res) => {
   }
 });
 
+// EASILY CHANGE MEDICINE PRICE AND WHOLESALE COST
+app.patch('/api/medicines/:id/price', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    const activeUserId = user ? user.id : -1;
+    const medicineId = Number(req.params.id);
+    const { pack_price, strip_price, unit_price, wholesale_pack_price, min_stock_alert } = req.body;
+
+    if (pack_price == null || isNaN(Number(pack_price))) {
+      return res.status(400).json({ error: 'Valid pack price is required' });
+    }
+
+    const now = new Date().toISOString();
+
+    const upsertStmt = db.prepare(`
+      INSERT INTO pharmacy_medicine_prices (
+        user_id, medicine_id, pack_price, strip_price, unit_price, wholesale_pack_price, min_stock_alert, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(user_id, medicine_id) DO UPDATE SET
+        pack_price = excluded.pack_price,
+        strip_price = excluded.strip_price,
+        unit_price = excluded.unit_price,
+        wholesale_pack_price = excluded.wholesale_pack_price,
+        min_stock_alert = excluded.min_stock_alert,
+        updated_at = excluded.updated_at
+    `);
+
+    upsertStmt.run(
+      activeUserId,
+      medicineId,
+      Number(pack_price),
+      strip_price != null ? Number(strip_price) : null,
+      unit_price != null ? Number(unit_price) : null,
+      wholesale_pack_price != null ? Number(wholesale_pack_price) : null,
+      min_stock_alert != null ? Number(min_stock_alert) : 10,
+      now
+    );
+
+    // If superadmin or guest demo, also update base table
+    if (!user || user.role === 'superadmin') {
+      try {
+        db.prepare(`
+          UPDATE medicines SET
+            pack_price = ?,
+            strip_price = COALESCE(?, strip_price),
+            unit_price = COALESCE(?, unit_price),
+            wholesale_pack_price = COALESCE(?, wholesale_pack_price)
+          WHERE id = ?
+        `).run(
+          Number(pack_price),
+          strip_price != null ? Number(strip_price) : null,
+          unit_price != null ? Number(unit_price) : null,
+          wholesale_pack_price != null ? Number(wholesale_pack_price) : null,
+          medicineId
+        );
+      } catch (e) {}
+    }
+
+    res.json({ success: true, message: 'Price updated successfully', medicineId });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ADD BATCH (STOCK INTAKE)
 app.post('/api/batches', (req, res) => {
   try {
+    const user = getAuthUser(req);
+    const activeUserId = user ? user.id : -1;
     const {
       medicine_id, batch_number, supplier, cost_price_per_pack,
       packs_received, manufacture_date, expiry_date
@@ -805,8 +916,8 @@ app.post('/api/batches', (req, res) => {
       INSERT INTO batches (
         medicine_id, batch_number, supplier, cost_price_per_pack,
         packs_received, packs_available, loose_units_available,
-        manufacture_date, expiry_date, received_date, status
-      ) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, 'active')
+        manufacture_date, expiry_date, received_date, status, user_id
+      ) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, 'active', ?)
     `);
 
     const result = stmt.run(
@@ -818,8 +929,22 @@ app.post('/api/batches', (req, res) => {
       Number(packs_received),
       manufacture_date || null,
       expiry_date,
-      new Date().toISOString().split('T')[0]
+      new Date().toISOString().split('T')[0],
+      activeUserId
     );
+
+    // If cost price per pack was recorded in this batch intake, update wholesaler cost for this pharmacy
+    if (cost_price_per_pack && Number(cost_price_per_pack) > 0) {
+      try {
+        db.prepare(`
+          INSERT INTO pharmacy_medicine_prices (user_id, medicine_id, wholesale_pack_price, updated_at)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT(user_id, medicine_id) DO UPDATE SET
+            wholesale_pack_price = excluded.wholesale_pack_price,
+            updated_at = excluded.updated_at
+        `).run(activeUserId, Number(medicine_id), Number(cost_price_per_pack), new Date().toISOString());
+      } catch (e) {}
+    }
 
     res.json({ id: result.lastInsertRowid, success: true });
   } catch (err) {
@@ -884,12 +1009,12 @@ app.post('/api/sales', (req, res) => {
     `);
 
     for (const item of items) {
-      // Find active batches for this medicine ordered by expiry date (FEFO)
+      // Find active batches for this medicine ordered by expiry date (FEFO) scoped to active user
       const batches = db.prepare(`
         SELECT * FROM batches
-        WHERE medicine_id = ? AND status = 'active' AND (packs_available > 0 OR loose_units_available > 0)
+        WHERE medicine_id = ? AND status = 'active' AND (packs_available > 0 OR loose_units_available > 0) AND user_id = ?
         ORDER BY expiry_date ASC
-      `).all(item.medicine_id);
+      `).all(item.medicine_id, userId);
 
       const med = db.prepare('SELECT units_per_pack, units_per_strip FROM medicines WHERE id = ?').get(item.medicine_id);
       const unitsPerPack = med.units_per_pack || 100;

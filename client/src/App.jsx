@@ -39,8 +39,20 @@ import {
   User,
   KeyRound,
   Sun,
-  Moon
+  Moon,
+  Edit3
 } from 'lucide-react';
+
+const DEPARTMENTS = [
+  { id: 'All', label: 'All Products', icon: '✨' },
+  { id: 'Tablets & Capsules', label: 'Tablets & Capsules', icon: '💊' },
+  { id: 'Syrups & Suspensions', label: 'Syrups & Liquids', icon: '🧪' },
+  { id: 'Ointments, Creams & Gels', label: 'Ointments & Creams', icon: '🧴' },
+  { id: 'Eye & Ear Drops', label: 'Eye & Ear Drops', icon: '💧' },
+  { id: 'Inhalers & Sprays', label: 'Inhalers & Sprays', icon: '💨' },
+  { id: 'Injections & Infusions', label: 'Injections & IV', icon: '💉' },
+  { id: 'Medical Supplies', label: 'Medical Supplies', icon: '🩹' }
+];
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('pos'); // 'pos', 'dashboard', 'inventory', 'batches', 'loans', 'sales', 'settings'
@@ -167,6 +179,23 @@ export default function App() {
   // Standalone Market Price Checker Search
   const [marketSearchQuery, setMarketSearchQuery] = useState('');
   const [standaloneMarketData, setStandaloneMarketData] = useState(null);
+
+  // Department Category Filter (for both POS and Medicines views)
+  const [selectedFormCategory, setSelectedFormCategory] = useState('All');
+  const [medCatalogSearch, setMedCatalogSearch] = useState('');
+  const [medCatalogFormCategory, setMedCatalogFormCategory] = useState('All');
+
+  // Quick Price & Wholesaler Cost Edit Modal
+  const [showPriceEditModal, setShowPriceEditModal] = useState(false);
+  const [editingPriceMed, setEditingPriceMed] = useState(null);
+  const [priceEditForm, setPriceEditForm] = useState({
+    pack_price: '',
+    wholesale_pack_price: '',
+    strip_price: '',
+    unit_price: '',
+    min_stock_alert: 10
+  });
+  const [priceSaving, setPriceSaving] = useState(false);
 
   // Form states
   const [newMedForm, setNewMedForm] = useState({
@@ -375,14 +404,96 @@ export default function App() {
     return medicines.filter(m => {
       const matchSearch =
         m.brand_name.toLowerCase().includes(posSearch.toLowerCase()) ||
-        m.molecule_name.toLowerCase().includes(posSearch.toLowerCase()) ||
+        (m.molecule_name && m.molecule_name.toLowerCase().includes(posSearch.toLowerCase())) ||
         (m.barcode && m.barcode.includes(posSearch)) ||
         (m.manufacturer && m.manufacturer.toLowerCase().includes(posSearch.toLowerCase()));
 
       const matchCat = posCategory === 'All' || m.category === posCategory;
-      return matchSearch && matchCat;
+      const matchDept = selectedFormCategory === 'All' || m.form_category === selectedFormCategory;
+      return matchSearch && matchCat && matchDept;
     });
-  }, [medicines, posSearch, posCategory]);
+  }, [medicines, posSearch, posCategory, selectedFormCategory]);
+
+  // Filtered medicines for Drug Catalog / Medicines tab
+  const filteredCatalogMeds = useMemo(() => {
+    return medicines.filter(m => {
+      const matchSearch = !medCatalogSearch.trim() ||
+        m.brand_name.toLowerCase().includes(medCatalogSearch.toLowerCase()) ||
+        (m.molecule_name && m.molecule_name.toLowerCase().includes(medCatalogSearch.toLowerCase())) ||
+        (m.manufacturer && m.manufacturer.toLowerCase().includes(medCatalogSearch.toLowerCase()));
+
+      const matchDept = medCatalogFormCategory === 'All' || m.form_category === medCatalogFormCategory;
+      return matchSearch && matchDept;
+    });
+  }, [medicines, medCatalogSearch, medCatalogFormCategory]);
+
+  // Handle Quick Price & Wholesale Cost Edit
+  const handleOpenPriceEdit = (med) => {
+    setEditingPriceMed(med);
+    setPriceEditForm({
+      pack_price: med.pack_price != null ? String(med.pack_price) : '',
+      wholesale_pack_price: med.wholesale_pack_price != null ? String(med.wholesale_pack_price) : (med.avg_cost_price != null ? String(med.avg_cost_price) : ''),
+      strip_price: med.strip_price != null ? String(med.strip_price) : '',
+      unit_price: med.unit_price != null ? String(med.unit_price) : '',
+      min_stock_alert: med.min_stock_alert != null ? String(med.min_stock_alert) : '10'
+    });
+    setShowPriceEditModal(true);
+  };
+
+  const handleSavePriceEdit = async (e) => {
+    e?.preventDefault();
+    if (!editingPriceMed) return;
+    if (!priceEditForm.pack_price || isNaN(Number(priceEditForm.pack_price))) {
+      showToast('Please enter a valid retail pack price', 'error');
+      return;
+    }
+
+    try {
+      setPriceSaving(true);
+      const res = await authFetch(`/api/medicines/${editingPriceMed.id}/price`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pack_price: Number(priceEditForm.pack_price),
+          wholesale_pack_price: priceEditForm.wholesale_pack_price ? Number(priceEditForm.wholesale_pack_price) : null,
+          strip_price: priceEditForm.strip_price ? Number(priceEditForm.strip_price) : null,
+          unit_price: priceEditForm.unit_price ? Number(priceEditForm.unit_price) : null,
+          min_stock_alert: priceEditForm.min_stock_alert ? Number(priceEditForm.min_stock_alert) : 10
+        })
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        showToast(`Prices updated for ${editingPriceMed.brand_name}!`, 'success');
+        setShowPriceEditModal(false);
+        fetchAllData();
+      } else {
+        showToast(data.error || 'Failed to update price', 'error');
+      }
+    } catch (err) {
+      showToast('Error saving price', 'error');
+    } finally {
+      setPriceSaving(false);
+    }
+  };
+
+  const handleAutoCalculatePrices = () => {
+    if (!editingPriceMed || !priceEditForm.pack_price) return;
+    const pack = Number(priceEditForm.pack_price);
+    const unitsPerPack = Number(editingPriceMed.units_per_pack) || 1;
+    const unitsPerStrip = Number(editingPriceMed.units_per_strip) || 10;
+    
+    const unitPrice = (pack / unitsPerPack).toFixed(2);
+    const stripsPerPack = unitsPerPack / unitsPerStrip;
+    const stripPrice = stripsPerPack > 0 ? (pack / stripsPerPack).toFixed(2) : null;
+
+    setPriceEditForm(prev => ({
+      ...prev,
+      unit_price: unitPrice,
+      strip_price: stripPrice || prev.strip_price
+    }));
+    showToast('Auto-calculated strip & unit prices based on box price', 'info');
+  };
 
   // Handle Brand vs Generic Alternatives Lookup + Web Market Benchmark
   const handleOpenAlternatives = async (medicine) => {
@@ -1476,7 +1587,26 @@ export default function App() {
                     )}
                   </div>
 
-                  <div className="flex items-center justify-between gap-2 overflow-x-auto pb-1 text-xs">
+                  {/* Department Category Filter Chips (Tablets, Syrups, Ointments, Drops, etc.) */}
+                  <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs scrollbar-none">
+                    {DEPARTMENTS.map((dept) => (
+                      <button
+                        key={dept.id}
+                        type="button"
+                        onClick={() => setSelectedFormCategory(dept.id)}
+                        className={`px-2.5 py-1.5 rounded-xl font-bold transition apple-press shrink-0 text-[11px] flex items-center space-x-1.5 ${
+                          selectedFormCategory === dept.id
+                            ? 'bg-emerald-600 text-white shadow-sm ring-1 ring-emerald-500'
+                            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+                        }`}
+                      >
+                        <span>{dept.icon}</span>
+                        <span>{dept.label}</span>
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="flex items-center justify-between gap-2 overflow-x-auto pb-1 text-xs pt-1 border-t border-slate-100 dark:border-white/[0.06]">
                     <div className="flex items-center space-x-2 shrink-0">
                       {['All', 'OTC', 'Prescription'].map((cat) => (
                         <button
@@ -1618,6 +1748,20 @@ export default function App() {
                               + 1 {med.unit_name}
                             </button>
                           </div>
+
+                          {/* Quick Adjust Price & Cost Button */}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenPriceEdit(med);
+                            }}
+                            className="w-full mt-1 py-1 px-2 text-[11px] font-semibold text-slate-600 dark:text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 bg-slate-50 hover:bg-slate-100 dark:bg-white/[0.04] dark:hover:bg-white/[0.08] rounded-lg transition flex items-center justify-center gap-1.5 border border-slate-200/70 dark:border-white/[0.06]"
+                            title="Edit Wholesale Cost & Retail Prices"
+                          >
+                            <Edit3 className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                            <span>Adjust Price & Cost</span>
+                          </button>
 
                           {/* Find Generic Alternative & Web Market Price Button */}
                           <button
@@ -2604,81 +2748,170 @@ export default function App() {
               </div>
 
               {/* Drug Catalog Table */}
-              <div className="bg-white rounded-3xl border border-slate-200/80 shadow-sm p-5 space-y-4">
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+              <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-white/10 shadow-sm p-5 space-y-4">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-white/10">
                   <div>
-                    <h3 className="font-bold text-slate-900 text-base">Store Drug Catalog & Pricing</h3>
-                    <p className="text-xs text-slate-500">
-                      Compare Originator Brands, Branded Generics, and Pure Generics side-by-side.
+                    <h3 className="font-bold text-slate-900 dark:text-white text-base">Store Drug Catalog & Wholesaler Pricing Guide</h3>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      Formulary guide across all departments. Easily adjust wholesaler purchase cost and selling prices per pharmacy.
                     </p>
                   </div>
-                  <button
-                    onClick={() => setShowAddMedicineModal(true)}
-                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition flex items-center space-x-1.5 shadow-sm"
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span>New Medicine</span>
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setShowAddBatchModal(true)}
+                      className="px-3 py-2 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 border border-emerald-300 dark:border-emerald-700/50 text-emerald-800 dark:text-emerald-300 text-xs font-bold rounded-xl transition flex items-center space-x-1.5 shadow-sm"
+                    >
+                      <Boxes className="w-3.5 h-3.5" />
+                      <span>Receive Stock</span>
+                    </button>
+                    <button
+                      onClick={() => setShowAddMedicineModal(true)}
+                      className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition flex items-center space-x-1.5 shadow-sm apple-press"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>New Medicine</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Search & Department Filters */}
+                <div className="space-y-2.5">
+                  <div className="relative">
+                    <Search className="w-4.5 h-4.5 absolute left-3 top-2.5 text-slate-400 dark:text-slate-500" />
+                    <input
+                      type="text"
+                      placeholder="Filter catalog by brand, generic molecule, or manufacturer..."
+                      value={medCatalogSearch}
+                      onChange={(e) => setMedCatalogSearch(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2 bg-[#F5F5F7] dark:bg-slate-800 border border-black/[0.06] dark:border-white/[0.08] rounded-xl text-xs dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 transition"
+                    />
+                    {medCatalogSearch && (
+                      <button
+                        onClick={() => setMedCatalogSearch('')}
+                        className="absolute right-3 top-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Department Chips */}
+                  <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs scrollbar-none">
+                    {DEPARTMENTS.map((dept) => (
+                      <button
+                        key={dept.id}
+                        type="button"
+                        onClick={() => setMedCatalogFormCategory(dept.id)}
+                        className={`px-2.5 py-1.5 rounded-xl font-bold transition apple-press shrink-0 text-[11px] flex items-center space-x-1.5 ${
+                          medCatalogFormCategory === dept.id
+                            ? 'bg-slate-900 dark:bg-emerald-600 text-white shadow-sm'
+                            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+                        }`}
+                      >
+                        <span>{dept.icon}</span>
+                        <span>{dept.label}</span>
+                      </button>
+                    ))}
+                    <span className="text-slate-300 dark:text-slate-700">|</span>
+                    <span className="text-[11px] text-slate-400 shrink-0 self-center">
+                      {filteredCatalogMeds.length} items
+                    </span>
+                  </div>
                 </div>
 
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-xs">
                     <thead>
-                      <tr className="border-b border-slate-200 text-slate-400 font-semibold uppercase tracking-wider">
-                        <th className="pb-3">Brand & Manufacturer</th>
-                        <th className="pb-3">Generic Molecule</th>
-                        <th className="pb-3">Brand Tier</th>
-                        <th className="pb-3">Box Price</th>
-                        <th className="pb-3">Strip Price</th>
-                        <th className="pb-3">Unit Pill Price</th>
-                        <th className="pb-3">Insurance Copay</th>
-                        <th className="pb-3">Stock (Packs)</th>
-                        <th className="pb-3 text-right">Action</th>
+                      <tr className="border-b border-slate-200 dark:border-white/10 text-slate-400 font-semibold uppercase tracking-wider">
+                        <th className="pb-3">Brand & Strength</th>
+                        <th className="pb-3">Department & Molecule</th>
+                        <th className="pb-3">Wholesale Cost</th>
+                        <th className="pb-3">Retail Box Price</th>
+                        <th className="pb-3">Profit Margin</th>
+                        <th className="pb-3">Sub-units</th>
+                        <th className="pb-3">Stock (Boxes)</th>
+                        <th className="pb-3 text-right">Actions</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {medicines.map((med) => (
-                        <tr key={med.id} className="hover:bg-slate-50/80 transition">
-                          <td className="py-3 pr-2">
-                            <p className="font-bold text-slate-900">{med.brand_name}</p>
-                            <p className="text-[11px] text-slate-500">{med.strength} • {med.manufacturer}</p>
-                          </td>
-                          <td className="py-3 text-slate-700 font-medium">
-                            {med.molecule_name}
-                          </td>
-                          <td className="py-3">
-                            <span
-                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                                med.brand_tier === 'originator'
-                                  ? 'bg-purple-100 text-purple-700'
-                                  : med.brand_tier === 'branded_generic'
-                                  ? 'bg-blue-100 text-blue-700'
-                                  : 'bg-emerald-100 text-emerald-700'
-                              }`}
-                            >
-                              {med.brand_tier}
-                            </span>
-                          </td>
-                          <td className="py-3 font-bold text-slate-900">{curr}{Number(med.pack_price).toFixed(2)}</td>
-                          <td className="py-3 text-slate-600">{med.strip_price ? `${curr}${Number(med.strip_price).toFixed(2)}` : '—'}</td>
-                          <td className="py-3 text-slate-600">{curr}{Number(med.unit_price).toFixed(2)}</td>
-                          <td className="py-3 text-slate-600">{med.insurance_pack_price ? `${curr}${Number(med.insurance_pack_price).toFixed(2)}` : '—'}</td>
-                          <td className="py-3">
-                            <span className={`font-bold ${med.total_packs <= med.min_stock_alert ? 'text-rose-600' : 'text-slate-800'}`}>
-                              {med.total_packs}
-                            </span>
-                          </td>
-                          <td className="py-3 text-right space-x-1">
-                            <button
-                              onClick={() => handleOpenAlternatives(med)}
-                              className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-lg text-xs font-semibold"
-                              title="Compare alternatives"
-                            >
-                              Compare & Web Market
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
+                    <tbody className="divide-y divide-slate-100 dark:divide-white/[0.06]">
+                      {filteredCatalogMeds.map((med) => {
+                        const cost = med.wholesale_pack_price || med.avg_cost_price || 0;
+                        const hasMargin = cost > 0 && med.pack_price > 0;
+                        const marginPct = hasMargin ? (((med.pack_price - cost) / med.pack_price) * 100).toFixed(1) : null;
+                        const profit = hasMargin ? (med.pack_price - cost).toFixed(2) : null;
+
+                        return (
+                          <tr key={med.id} className="hover:bg-slate-50/80 dark:hover:bg-white/[0.02] transition">
+                            <td className="py-3 pr-2">
+                              <p className="font-bold text-slate-900 dark:text-white">{med.brand_name}</p>
+                              <p className="text-[11px] text-slate-500 dark:text-slate-400">{med.strength} • {med.manufacturer}</p>
+                            </td>
+                            <td className="py-3 pr-2">
+                              <span className="inline-block text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-slate-100 dark:bg-white/10 text-slate-700 dark:text-slate-300 mb-0.5">
+                                {med.form_category || med.dosage_form}
+                              </span>
+                              <p className="text-slate-600 dark:text-slate-400 text-[11px] truncate max-w-[180px]">{med.molecule_name}</p>
+                            </td>
+                            <td className="py-3 text-slate-700 dark:text-slate-300 font-semibold">
+                              {cost > 0 ? (
+                                <span>{curr}{Number(cost).toFixed(2)}</span>
+                              ) : (
+                                <span className="text-slate-400 italic">Not set</span>
+                              )}
+                            </td>
+                            <td className="py-3 font-bold text-slate-900 dark:text-white text-sm">
+                              {curr}{Number(med.pack_price).toFixed(2)}
+                            </td>
+                            <td className="py-3">
+                              {hasMargin ? (
+                                <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                                  Number(marginPct) >= 25
+                                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300'
+                                    : Number(marginPct) > 0
+                                    ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300'
+                                    : 'bg-rose-100 text-rose-800 dark:bg-rose-950/50 dark:text-rose-300'
+                                }`}>
+                                  +{marginPct}% (+{curr}{profit})
+                                </span>
+                              ) : (
+                                <span className="text-slate-400 text-[11px]">Set wholesale cost</span>
+                              )}
+                            </td>
+                            <td className="py-3 text-slate-500 dark:text-slate-400 text-[11px]">
+                              {med.strip_price ? `Strip: ${curr}${Number(med.strip_price).toFixed(2)}` : ''}
+                              <div>Unit: {curr}{Number(med.unit_price).toFixed(2)}</div>
+                            </td>
+                            <td className="py-3">
+                              <span className={`font-bold px-2 py-0.5 rounded-full text-xs ${
+                                med.total_packs > 0
+                                  ? med.total_packs <= med.min_stock_alert
+                                    ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/40'
+                                    : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40'
+                                  : 'bg-slate-100 text-slate-500 dark:bg-slate-800'
+                              }`}>
+                                {med.total_packs} packs
+                              </span>
+                            </td>
+                            <td className="py-3 text-right space-x-1.5 whitespace-nowrap">
+                              <button
+                                onClick={() => handleOpenPriceEdit(med)}
+                                className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold shadow-sm transition apple-press inline-flex items-center gap-1"
+                                title="Edit Wholesale Cost & Retail Selling Price"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                                <span>Edit Price</span>
+                              </button>
+                              <button
+                                onClick={() => handleOpenAlternatives(med)}
+                                className="px-2.5 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-semibold transition inline-flex items-center gap-1"
+                                title="Compare originator vs generic alternatives"
+                              >
+                                <span>Compare</span>
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -3847,6 +4080,209 @@ export default function App() {
                 </p>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Quick Price & Wholesale Cost Edit Modal */}
+      {showPriceEditModal && editingPriceMed && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto animate-fade-in">
+          <div className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-2xl border border-slate-200/80 dark:border-white/10 rounded-3xl p-6 max-w-lg w-full shadow-2xl space-y-5 animate-scale-up">
+            
+            {/* Modal Header */}
+            <div className="flex items-start justify-between">
+              <div>
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200/50 mb-1.5">
+                  <span>🏷️ {editingPriceMed.form_category || 'Formulary Item'}</span>
+                  <span>•</span>
+                  <span>{editingPriceMed.dosage_form || 'Medicine'}</span>
+                </div>
+                <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <span>{editingPriceMed.brand_name}</span>
+                  <span className="text-xs font-normal text-slate-500">{editingPriceMed.strength}</span>
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Generic: <span className="italic">{editingPriceMed.molecule_name}</span> • Tier: <span className="capitalize font-medium">{editingPriceMed.brand_tier}</span>
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowPriceEditModal(false)}
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-white/10 dark:hover:bg-white/20 text-slate-500 dark:text-slate-300 flex items-center justify-center transition apple-press"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Note banner on Multi-Wholesale Price Flexibility */}
+            <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-2xl flex items-start gap-2.5 text-xs text-amber-800 dark:text-amber-200">
+              <span className="text-base">💡</span>
+              <p className="leading-relaxed">
+                Wholesaler prices vary between distributors. Set your actual purchase cost and custom retail prices below. These prices will automatically apply to your POS and register.
+              </p>
+            </div>
+
+            {/* Form */}
+            <form onSubmit={handleSavePriceEdit} className="space-y-4">
+              
+              {/* Cost & Selling Pack Price */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
+                    Wholesale Cost ({curr})
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="e.g. 500"
+                    value={priceEditForm.wholesale_pack_price}
+                    onChange={e => setPriceEditForm(f => ({ ...f, wholesale_pack_price: e.target.value }))}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-sm font-semibold dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none transition"
+                  />
+                  <span className="text-[10px] text-slate-400">Buying price from wholesaler</span>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
+                    Retail Pack Price ({curr}) <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    required
+                    placeholder="e.g. 850"
+                    value={priceEditForm.pack_price}
+                    onChange={e => setPriceEditForm(f => ({ ...f, pack_price: e.target.value }))}
+                    className="w-full px-3 py-2 bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-300 dark:border-emerald-500/30 rounded-xl text-sm font-bold text-emerald-700 dark:text-emerald-300 focus:ring-2 focus:ring-emerald-500 outline-none transition"
+                  />
+                  <span className="text-[10px] text-slate-400">Customer counter price</span>
+                </div>
+              </div>
+
+              {/* Profit & Margin Calculator Pill */}
+              {(() => {
+                const wholesale = Number(priceEditForm.wholesale_pack_price);
+                const retail = Number(priceEditForm.pack_price);
+                if (retail > 0 && wholesale > 0) {
+                  const profit = retail - wholesale;
+                  const marginPct = ((profit / retail) * 100).toFixed(1);
+                  const isPositive = profit >= 0;
+                  return (
+                    <div className={`p-2.5 rounded-xl border flex items-center justify-between text-xs font-semibold ${
+                      isPositive
+                        ? 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200 border-emerald-200 dark:border-emerald-800/40'
+                        : 'bg-rose-50 text-rose-800 dark:bg-rose-950/40 dark:text-rose-200 border-rose-200 dark:border-rose-800/40'
+                    }`}>
+                      <span className="flex items-center gap-1.5">
+                        <span>{isPositive ? '📈' : '📉'}</span>
+                        <span>{isPositive ? 'Gross Profit per Pack:' : 'Loss per Pack:'}</span>
+                      </span>
+                      <span className="font-bold">
+                        {isPositive ? '+' : ''}{curr} {profit.toFixed(2)} ({marginPct}% Margin)
+                      </span>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
+
+              {/* Sub-Unit Auto Calculation Header */}
+              <div className="pt-2 border-t border-slate-100 dark:border-white/5 flex items-center justify-between">
+                <div>
+                  <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">Sub-Unit Selling Prices</h4>
+                  <p className="text-[10px] text-slate-400">
+                    Pack contains {editingPriceMed.units_per_pack || 100} {editingPriceMed.unit_name || 'units'} ({editingPriceMed.units_per_strip || 10}/strip)
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleAutoCalculatePrices}
+                  className="px-2.5 py-1 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/50 border border-emerald-200/50 rounded-lg transition apple-press"
+                  title="Auto-calculate strip and unit price based on pack price"
+                >
+                  ⚡ Auto-Calculate
+                </button>
+              </div>
+
+              {/* Strip Price & Unit Price */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
+                    Price per Strip ({curr})
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="e.g. 85"
+                    value={priceEditForm.strip_price}
+                    onChange={e => setPriceEditForm(f => ({ ...f, strip_price: e.target.value }))}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-xs dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none transition"
+                  />
+                  <span className="text-[10px] text-slate-400">e.g. 1 Blister / Strip</span>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
+                    Single Unit / Pill ({curr})
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="e.g. 10"
+                    value={priceEditForm.unit_price}
+                    onChange={e => setPriceEditForm(f => ({ ...f, unit_price: e.target.value }))}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-xs dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none transition"
+                  />
+                  <span className="text-[10px] text-slate-400">1 loose tablet or vial</span>
+                </div>
+              </div>
+
+              {/* Low Stock Alert Threshold */}
+              <div className="space-y-1 pt-1">
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
+                  Minimum Stock Alert Level (Packs)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  placeholder="10"
+                  value={priceEditForm.min_stock_alert}
+                  onChange={e => setPriceEditForm(f => ({ ...f, min_stock_alert: e.target.value }))}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-xs dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none transition"
+                />
+                <span className="text-[10px] text-slate-400">Dashboard alerts when available packs fall below this number</span>
+              </div>
+
+              {/* Modal Actions */}
+              <div className="pt-3 flex items-center justify-end gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setShowPriceEditModal(false)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={priceSaving}
+                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-md shadow-emerald-600/30 transition apple-spring flex items-center gap-1.5"
+                >
+                  {priceSaving ? (
+                    <>
+                      <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                      <span>Saving Prices...</span>
+                    </>
+                  ) : (
+                    <span>Save & Apply Custom Prices</span>
+                  )}
+                </button>
+              </div>
+
+            </form>
           </div>
         </div>
       )}
