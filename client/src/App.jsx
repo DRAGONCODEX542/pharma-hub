@@ -154,6 +154,57 @@ const SUBSCRIPTION_PLANS = {
         'Dedicated Enterprise Account Manager'
       ]
     }
+  ],
+  wholesale: [
+    {
+      id: 'wholesale_basic',
+      name: 'Wholesale Distributor Basic',
+      price: 2000,
+      period: 'month',
+      staffLimit: 3,
+      tag: 'Local Distributor',
+      description: 'Connect your warehouse stock with neighborhood chemists & clinics.',
+      features: [
+        'Directory Listing for All Pharmacies',
+        'Direct Phone Call & WhatsApp Ordering',
+        'Upload up to 100 Products to Catalog',
+        'Real-time Stock Availability Displays',
+        'Standard Distributor Support'
+      ]
+    },
+    {
+      id: 'wholesale_growth',
+      name: 'Wholesale Growth Hub',
+      price: 5000,
+      period: 'month',
+      staffLimit: 8,
+      tag: 'Regional Wholesaler',
+      popular: true,
+      description: 'Full catalog visibility, automated stock depletion sync, and bulk promotions.',
+      features: [
+        'Up to 8 Logistics & Dispatch Staff Accounts',
+        'Unlimited Warehouse Product Listings',
+        'Real-time Auto Stock Restock Alerts to Pharmacies',
+        'Automatic In-App Purchase Order Intake',
+        'Priority Listing in Chemist Low-Stock Search'
+      ]
+    },
+    {
+      id: 'wholesale_enterprise',
+      name: 'Wholesale Enterprise FMCG',
+      price: 10000,
+      period: 'month',
+      staffLimit: 9999,
+      tag: 'National Importer',
+      description: 'Nationwide distribution, multi-depot sync, and bulk hospital supply contracts.',
+      features: [
+        'Unlimited Warehouse & Depot Staff Logins',
+        'Multi-County Warehouse Stock Isolation',
+        'Direct API Link for ERPs (SAP, Oracle, Tally)',
+        'Exclusive Direct Chemist Contract Portals',
+        'Dedicated 24/7 Supply Chain Account Manager'
+      ]
+    }
   ]
 };
 
@@ -177,6 +228,15 @@ export default function App() {
     allowed_departments: ['All'],
     permissions: ['pos', 'inventory_read']
   });
+
+  // Wholesalers & Live Restock Directory State
+  const [wholesalersList, setWholesalersList] = useState([]);
+  const [selectedWholesaler, setSelectedWholesaler] = useState(null);
+  const [wholesalerCatalog, setWholesalerCatalog] = useState([]);
+  const [wholesalerSearchQuery, setWholesalerSearchQuery] = useState('');
+  const [wholesalerDrugMatches, setWholesalerDrugMatches] = useState([]);
+  const [wholesalerLoading, setWholesalerLoading] = useState(false);
+  const [landingPortalCategory, setLandingPortalCategory] = useState('solo'); // 'solo' | 'organization' | 'wholesale'
   
   // Apple Dark Mode / Theme State
   const [isDarkMode, setIsDarkMode] = useState(() => {
@@ -433,6 +493,7 @@ export default function App() {
       setMolecules(resMols);
       setSalesHistory(resSales);
       setLoans(resLoans);
+      fetchWholesalers();
     } catch (err) {
       console.error(err);
       showToast('Error connecting to pharmacy server', 'error');
@@ -1282,6 +1343,49 @@ export default function App() {
 
   const overdueLoansCount = loans.filter(l => l.is_overdue).length;
 
+  // Wholesalers & Live Restock Directory Helpers
+  const fetchWholesalers = async () => {
+    try {
+      setWholesalerLoading(true);
+      const res = await fetch('/api/wholesalers');
+      const data = await res.json();
+      setWholesalersList(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error('Error fetching wholesalers:', err);
+    } finally {
+      setWholesalerLoading(false);
+    }
+  };
+
+  const fetchWholesalerCatalog = async (wholesaler) => {
+    try {
+      setSelectedWholesaler(wholesaler);
+      setWholesalerLoading(true);
+      const res = await fetch(`/api/wholesalers/${wholesaler.id}/catalog`);
+      const data = await res.json();
+      setWholesalerCatalog(Array.isArray(data) ? data : []);
+    } catch (err) {
+      showToast('Error loading wholesaler catalog', 'error');
+    } finally {
+      setWholesalerLoading(false);
+    }
+  };
+
+  const searchWholesaleDrug = async (drugName) => {
+    if (!drugName || drugName.trim().length < 2) return;
+    try {
+      setWholesalerLoading(true);
+      const res = await fetch(`/api/wholesalers/search-drug?q=${encodeURIComponent(drugName.trim())}`);
+      const data = await res.json();
+      setWholesalerDrugMatches(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error('Error searching drug in wholesalers:', err);
+    } finally {
+      setWholesalerLoading(false);
+    }
+  };
+
+
   // GUEST WELCOME & SIGN-IN PAGE
   if (!currentUser && !isDemoGuest) {
     return (
@@ -1335,18 +1439,88 @@ export default function App() {
           <div className="lg:col-span-7 space-y-6">
             <div className="inline-flex items-center space-x-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 text-xs font-semibold">
               <Sparkles className="w-4 h-4" />
-              <span>Smart Pharmacy POS & Inventory Platform</span>
+              <span>Multi-Portal Healthcare & Distribution Network</span>
+            </div>
+
+            {/* 3-Portal Category Switcher */}
+            <div className="flex bg-slate-900/90 border border-slate-800 p-1.5 rounded-2xl max-w-xl">
+              <button
+                type="button"
+                onClick={() => { setLandingPortalCategory('solo'); setAuthForm(f => ({ ...f, account_type: 'solo' })); }}
+                className={`flex-1 py-2.5 px-3 rounded-xl font-bold text-xs transition apple-spring flex items-center justify-center gap-2 ${
+                  landingPortalCategory === 'solo'
+                    ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-lg shadow-emerald-600/30'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+                }`}
+              >
+                <span>💊</span>
+                <span>Basic Pharmacy</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { setLandingPortalCategory('organization'); setAuthForm(f => ({ ...f, account_type: 'organization' })); }}
+                className={`flex-1 py-2.5 px-3 rounded-xl font-bold text-xs transition apple-spring flex items-center justify-center gap-2 ${
+                  landingPortalCategory === 'organization'
+                    ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg shadow-cyan-600/30'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+                }`}
+              >
+                <span>🏥</span>
+                <span>Enterprise Hospital</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { setLandingPortalCategory('wholesale'); setAuthForm(f => ({ ...f, account_type: 'wholesale' })); }}
+                className={`flex-1 py-2.5 px-3 rounded-xl font-bold text-xs transition apple-spring flex items-center justify-center gap-2 ${
+                  landingPortalCategory === 'wholesale'
+                    ? 'bg-gradient-to-r from-amber-600 to-orange-600 text-white shadow-lg shadow-amber-600/30'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+                }`}
+              >
+                <span>🏭</span>
+                <span>Wholesale Hub</span>
+              </button>
             </div>
 
             <h1 className="text-3xl sm:text-5xl font-extrabold text-white tracking-tight leading-[1.15]">
-              Dispense smarter. <br />
-              <span className="bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 bg-clip-text text-transparent">
-                Compare generics. Save customers money.
-              </span>
+              {landingPortalCategory === 'solo' && (
+                <>
+                  Dispense smarter. <br />
+                  <span className="bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 bg-clip-text text-transparent">
+                    Compare generics. Save customers money.
+                  </span>
+                </>
+              )}
+              {landingPortalCategory === 'organization' && (
+                <>
+                  Enterprise Pharmacy. <br />
+                  <span className="bg-gradient-to-r from-cyan-400 via-blue-300 to-indigo-400 bg-clip-text text-transparent">
+                    Multi-staff roles, Vet medicines & P&L accounting.
+                  </span>
+                </>
+              )}
+              {landingPortalCategory === 'wholesale' && (
+                <>
+                  Wholesale Distribution. <br />
+                  <span className="bg-gradient-to-r from-amber-400 via-orange-300 to-yellow-400 bg-clip-text text-transparent">
+                    Live warehouse stock connected directly to chemists.
+                  </span>
+                </>
+              )}
             </h1>
 
             <p className="text-slate-300 text-base sm:text-lg leading-relaxed max-w-2xl">
-              PharmaHub equips community pharmacies with 3-tier brand vs generic price intelligence, FEFO expiry safety, and patient trust loans with 1-click WhatsApp reminders.
+              {landingPortalCategory === 'solo' &&
+                'PharmaHub equips community pharmacies with 3-tier brand vs generic price intelligence, FEFO expiry safety, and patient trust loans with 1-click WhatsApp reminders.'
+              }
+              {landingPortalCategory === 'organization' &&
+                'Designed for hospitals, clinics, and multi-branch pharmacy chains. Full role-based staff isolation (Veterinary, Ointments, Dispensing), professional domain emails, and complete financial accounting.'
+              }
+              {landingPortalCategory === 'wholesale' &&
+                'Connect your bulk pharmaceutical warehouse directly to hundreds of ordering chemists and hospitals. Real-time stock visibility, phone call orders, and automated low-stock restock alerts.'
+              }
             </p>
 
             <div className="grid sm:grid-cols-2 gap-4 pt-2">
@@ -1547,36 +1721,50 @@ export default function App() {
                 <form onSubmit={authMode === 'login' ? handleLogin : handleRegister} className="space-y-3.5">
                   {authMode === 'register' && (
                     <>
-                      {/* Account Type Selector (Solo vs Organization) */}
+                      {/* Account Type Selector (Solo vs Organization vs Wholesale) */}
                       <div>
-                        <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Account & Practice Type</label>
-                        <div className="grid grid-cols-2 gap-2">
+                        <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Portal & Account Category</label>
+                        <div className="grid grid-cols-3 gap-2">
                           <button
                             type="button"
-                            onClick={() => setAuthForm(f => ({ ...f, account_type: 'solo' }))}
-                            className={`p-2.5 rounded-xl border text-left transition apple-spring ${
-                              authForm.account_type !== 'organization'
+                            onClick={() => { setAuthForm(f => ({ ...f, account_type: 'solo' })); setLandingPortalCategory('solo'); }}
+                            className={`p-2 rounded-xl border text-left transition apple-spring ${
+                              authForm.account_type === 'solo'
                                 ? 'border-emerald-500 bg-emerald-50/70 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-200 font-bold shadow-xs'
                                 : 'border-black/[0.08] dark:border-white/[0.1] bg-white/50 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
                             }`}
                           >
                             <span className="text-base block mb-0.5">💊</span>
-                            <span className="text-xs block font-bold leading-tight">Solo Pharmacy</span>
-                            <span className="text-[10px] block opacity-75">Community Chemist</span>
+                            <span className="text-xs block font-bold leading-tight">Pharmacy</span>
+                            <span className="text-[9px] block opacity-75">Community Chemist</span>
                           </button>
 
                           <button
                             type="button"
-                            onClick={() => setAuthForm(f => ({ ...f, account_type: 'organization' }))}
-                            className={`p-2.5 rounded-xl border text-left transition apple-spring ${
+                            onClick={() => { setAuthForm(f => ({ ...f, account_type: 'organization' })); setLandingPortalCategory('organization'); }}
+                            className={`p-2 rounded-xl border text-left transition apple-spring ${
                               authForm.account_type === 'organization'
                                 ? 'border-emerald-500 bg-emerald-50/70 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-200 font-bold shadow-xs'
                                 : 'border-black/[0.08] dark:border-white/[0.1] bg-white/50 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
                             }`}
                           >
                             <span className="text-base block mb-0.5">🏥</span>
-                            <span className="text-xs block font-bold leading-tight">Organization</span>
-                            <span className="text-[10px] block opacity-75">Hospital & Multi-Staff</span>
+                            <span className="text-xs block font-bold leading-tight">Enterprise</span>
+                            <span className="text-[9px] block opacity-75">Hospitals & Chains</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => { setAuthForm(f => ({ ...f, account_type: 'wholesale' })); setLandingPortalCategory('wholesale'); }}
+                            className={`p-2 rounded-xl border text-left transition apple-spring ${
+                              authForm.account_type === 'wholesale'
+                                ? 'border-amber-500 bg-amber-50/70 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 font-bold shadow-xs'
+                                : 'border-black/[0.08] dark:border-white/[0.1] bg-white/50 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                            }`}
+                          >
+                            <span className="text-base block mb-0.5">🏭</span>
+                            <span className="text-xs block font-bold leading-tight">Wholesale</span>
+                            <span className="text-[9px] block opacity-75">Bulk Distributor</span>
                           </button>
                         </div>
                       </div>
@@ -1755,6 +1943,7 @@ export default function App() {
             { id: 'batches', icon: Boxes, label: 'Batches & Expiry', badge: null },
             { id: 'sales', icon: Receipt, label: 'Sales & Accounting', badge: null },
             ...(currentUser?.role === 'admin' ? [{ id: 'staff', icon: Users, label: 'Staff & Roles', badge: staffList?.length ? `${staffList.length}` : null, badgeColor: 'bg-blue-500 text-white' }] : []),
+            { id: 'wholesalers', icon: Building2, label: 'Wholesale Hub', badge: 'Live', badgeColor: 'bg-amber-500 text-slate-950 font-bold' },
             { id: 'settings', icon: Settings, label: 'Settings', badge: null },
           ].map(({ id, icon: Icon, label, badge, badgeColor }) => (
             <button
@@ -1852,6 +2041,7 @@ export default function App() {
                 {activeTab === 'batches' && 'Batches & Expiry'}
                 {activeTab === 'sales' && 'Sales & Accounting'}
                 {activeTab === 'staff' && 'Organization Staff & RBAC'}
+                {activeTab === 'wholesalers' && 'Wholesale Catalog & Live Restock Hub'}
                 {activeTab === 'settings' && 'Settings'}
               </h2>
               <p className="text-[11px] text-slate-400 dark:text-slate-500 hidden sm:block whitespace-nowrap">PharmaHub • Smart Pharmacy OS</p>
@@ -3833,6 +4023,236 @@ export default function App() {
           )}
 
           {/* ============================================================ */}
+          {/* WHOLESALE HUB & LIVE DISTRIBUTOR RESTOCK DIRECTORY           */}
+          {/* ============================================================ */}
+          {activeTab === 'wholesalers' && (
+            <div className="space-y-6">
+              {/* Header card with Apple Liquid Glass */}
+              <div className="liquid-glass p-5 md:p-6 rounded-3xl border border-black/[0.06] dark:border-white/[0.08] shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                <div>
+                  <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 text-xs font-bold mb-2">
+                    <Building2 className="w-3.5 h-3.5" />
+                    <span>Live Wholesaler Restock Network</span>
+                  </div>
+                  <h3 className="text-xl font-black text-slate-900 dark:text-white tracking-tight">Wholesale & Warehouse Directory</h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    Live stock inventories from verified pharmaceutical distributors. Compare prices, check availability, and place orders directly via phone.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={fetchWholesalers}
+                  className="px-4 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-400 active:bg-amber-600 text-slate-950 font-bold text-xs flex items-center space-x-2 transition shadow-md shadow-amber-500/20 apple-spring shrink-0"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${wholesalerLoading ? 'animate-spin' : ''}`} />
+                  <span>Refresh Wholesalers</span>
+                </button>
+              </div>
+
+              {/* Fast Drug Stock Lookup Across ALL Wholesalers */}
+              <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-black/[0.06] dark:border-white/[0.08] shadow-xs space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                      <Search className="w-4 h-4 text-emerald-500" />
+                      <span>Instant Stock Lookup Across All Distributors</span>
+                    </h4>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Search any drug to see which warehouse has available stock and compare pack prices</p>
+                  </div>
+                </div>
+
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="e.g. Augmentin, Panadol, Coartem, Amoxicillin..."
+                      value={wholesalerSearchQuery}
+                      onChange={e => {
+                        setWholesalerSearchQuery(e.target.value);
+                        searchWholesaleDrug(e.target.value);
+                      }}
+                      className="w-full pl-10 pr-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-black/[0.08] dark:border-white/[0.1] rounded-2xl text-xs md:text-sm text-slate-800 dark:text-white placeholder-slate-400 outline-none focus:ring-2 focus:ring-amber-500 transition"
+                    />
+                  </div>
+                </div>
+
+                {/* Search Results Display */}
+                {wholesalerDrugMatches.length > 0 && (
+                  <div className="mt-3 overflow-x-auto rounded-2xl border border-black/[0.06] dark:border-white/[0.08]">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-50 dark:bg-slate-800/80 text-slate-500 dark:text-slate-400 font-semibold border-b border-black/[0.06] dark:border-white/[0.08]">
+                        <tr>
+                          <th className="p-3">Product Name</th>
+                          <th className="p-3">Strength & Form</th>
+                          <th className="p-3">Distributor</th>
+                          <th className="p-3">Available Packs</th>
+                          <th className="p-3">Cost Price / Pack</th>
+                          <th className="p-3 text-right">Order Direct</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-black/[0.04] dark:divide-white/[0.05]">
+                        {wholesalerDrugMatches.map(item => (
+                          <tr key={item.id} className="hover:bg-amber-50/50 dark:hover:bg-amber-950/20 transition">
+                            <td className="p-3 font-bold text-slate-900 dark:text-white">
+                              {item.brand_name ? `${item.brand_name} (${item.medicine_name})` : item.medicine_name}
+                            </td>
+                            <td className="p-3 text-slate-600 dark:text-slate-300">
+                              {item.strength} • {item.dosage_form} (Pack of {item.pack_size})
+                            </td>
+                            <td className="p-3">
+                              <span className="font-semibold text-slate-900 dark:text-white">{item.wholesaler_name}</span>
+                              <span className="block text-[10px] text-slate-400">{item.wholesaler_county}</span>
+                            </td>
+                            <td className="p-3">
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                                item.packs_available > 50 ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300' : 'bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300'
+                              }`}>
+                                {item.packs_available} packs
+                              </span>
+                            </td>
+                            <td className="p-3 font-black text-emerald-600 dark:text-emerald-400 text-sm">
+                              {curr}{Number(item.cost_price_per_pack).toLocaleString()}
+                            </td>
+                            <td className="p-3 text-right">
+                              <a
+                                href={`tel:${item.wholesaler_phone}`}
+                                className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-sm transition apple-spring"
+                              >
+                                <Phone className="w-3.5 h-3.5" />
+                                <span>Call {item.wholesaler_phone}</span>
+                              </a>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* Verified Distributors Cards Grid */}
+              <div className="grid md:grid-cols-3 gap-4">
+                {wholesalersList.map(w => (
+                  <div
+                    key={w.id}
+                    className={`p-5 rounded-3xl border transition apple-spring flex flex-col justify-between ${
+                      selectedWholesaler?.id === w.id
+                        ? 'bg-amber-50/80 dark:bg-amber-950/30 border-amber-500/50 shadow-md ring-2 ring-amber-500/20'
+                        : 'bg-white dark:bg-slate-900 border-black/[0.06] dark:border-white/[0.08] hover:border-amber-500/40'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-start justify-between mb-3">
+                        <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-amber-500 to-orange-400 flex items-center justify-center text-slate-950 font-black shadow-md shadow-amber-500/20">
+                          <Building2 className="w-5 h-5" />
+                        </div>
+                        <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                          Verified Distributor
+                        </span>
+                      </div>
+
+                      <h4 className="font-extrabold text-slate-900 dark:text-white text-base leading-tight mb-1">{w.name}</h4>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">{w.address}, {w.county}</p>
+                      <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed mb-4">{w.description}</p>
+                    </div>
+
+                    <div className="space-y-2 pt-3 border-t border-black/[0.06] dark:border-white/[0.08]">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-slate-400">Direct Contact:</span>
+                        <span className="font-bold text-slate-900 dark:text-white">{w.contact_person}</span>
+                      </div>
+                      
+                      <div className="flex gap-2 pt-1">
+                        <a
+                          href={`tel:${w.phone}`}
+                          className="flex-1 py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center space-x-1.5 transition shadow-sm apple-spring"
+                        >
+                          <Phone className="w-3.5 h-3.5" />
+                          <span>Call {w.phone}</span>
+                        </a>
+
+                        <button
+                          type="button"
+                          onClick={() => fetchWholesalerCatalog(w)}
+                          className="py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-white font-bold text-xs transition apple-spring"
+                        >
+                          View Catalog
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Wholesaler Specific Catalog Table */}
+              {selectedWholesaler && (
+                <div className="bg-white dark:bg-slate-900 p-5 md:p-6 rounded-3xl border border-black/[0.06] dark:border-white/[0.08] shadow-sm space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
+                        <span>📦 {selectedWholesaler.name} Live Warehouse Inventory</span>
+                      </h4>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        {wholesalerCatalog.length} listed medicines in stock • Call {selectedWholesaler.phone} to order
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedWholesaler(null)}
+                      className="text-xs font-bold text-slate-400 hover:text-slate-700 dark:hover:text-white px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 transition"
+                    >
+                      Close Catalog
+                    </button>
+                  </div>
+
+                  <div className="overflow-x-auto rounded-2xl border border-black/[0.06] dark:border-white/[0.08]">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-50 dark:bg-slate-800/80 text-slate-500 dark:text-slate-400 font-semibold border-b border-black/[0.06] dark:border-white/[0.08]">
+                        <tr>
+                          <th className="p-3">Medicine & Brand</th>
+                          <th className="p-3">Strength & Form</th>
+                          <th className="p-3">Pack Size</th>
+                          <th className="p-3">Available Packs</th>
+                          <th className="p-3">Expiry Date</th>
+                          <th className="p-3">Wholesale Price</th>
+                          <th className="p-3 text-right">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-black/[0.04] dark:divide-white/[0.05]">
+                        {wholesalerCatalog.map(item => (
+                          <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
+                            <td className="p-3 font-bold text-slate-900 dark:text-white">
+                              {item.brand_name ? `${item.brand_name} (${item.medicine_name})` : item.medicine_name}
+                            </td>
+                            <td className="p-3 text-slate-600 dark:text-slate-300">{item.strength} • {item.dosage_form}</td>
+                            <td className="p-3">{item.pack_size} units/pack</td>
+                            <td className="p-3 font-bold text-emerald-600 dark:text-emerald-400">{item.packs_available} packs</td>
+                            <td className="p-3 text-slate-500">{item.expiry_date || 'N/A'}</td>
+                            <td className="p-3 font-black text-sm text-slate-900 dark:text-white">
+                              {curr}{Number(item.cost_price_per_pack).toLocaleString()}
+                            </td>
+                            <td className="p-3 text-right">
+                              <a
+                                href={`tel:${selectedWholesaler.phone}`}
+                                className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] transition shadow-xs"
+                              >
+                                <Phone className="w-3 h-3" />
+                                <span>Order Now</span>
+                              </a>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ============================================================ */}
           {/* 8. SETTINGS & CUSTOMIZATION TAB                             */}
           {/* ============================================================ */}
           {activeTab === 'settings' && (
@@ -4101,6 +4521,24 @@ export default function App() {
                     </div>
                   </button>
                 )}
+
+                <button
+                  type="button"
+                  onClick={() => { setActiveTab('wholesalers'); setShowMobileMoreMenu(false); }}
+                  className={`p-3 rounded-2xl border flex items-center space-x-3 text-left transition apple-spring ${
+                    activeTab === 'wholesalers'
+                      ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-500/40 text-amber-800 dark:text-amber-300 font-bold'
+                      : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200/80 dark:border-white/5 text-slate-700 dark:text-slate-200'
+                  }`}
+                >
+                  <div className="w-9 h-9 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+                    <Building2 className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold leading-tight">Wholesale Hub</p>
+                    <p className="text-[10px] text-slate-400">Restock & Call Suppliers</p>
+                  </div>
+                </button>
 
                 <button
                   type="button"

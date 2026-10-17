@@ -106,6 +106,44 @@ function authRateLimiter(req, res, next) {
   next();
 }
 
+// Hardcoded Subscription & Trial Security Middleware
+function requireActiveSubscription(req, res, next) {
+  const user = getAuthUser(req);
+  if (!user) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+  // Superadmin or system admin always passes
+  if (user.role === 'superadmin') {
+    return next();
+  }
+
+  const freshUser = db.prepare('SELECT subscription_tier, trial_ends_at FROM users WHERE id = ?').get(user.id);
+  if (!freshUser) {
+    return res.status(401).json({ error: 'User account not found' });
+  }
+
+  const tier = freshUser.subscription_tier || 'trial';
+  const paidTiers = ['basic', 'standard', 'premium', 'org_basic', 'org_enterprise', 'wholesale_basic', 'wholesale_growth', 'wholesale_enterprise'];
+
+  if (paidTiers.includes(tier)) {
+    return next();
+  }
+
+  // If in trial mode, check expiry timestamp
+  if (freshUser.trial_ends_at) {
+    const trialEndMs = new Date(freshUser.trial_ends_at).getTime();
+    if (Date.now() > trialEndMs) {
+      return res.status(402).json({
+        error: 'Your 30-day free trial has expired. Please select a subscription plan to continue using dispensing, batch receiving, and inventory tools.',
+        code: 'SUBSCRIPTION_EXPIRED',
+        trial_expired: true
+      });
+    }
+  }
+
+  next();
+}
+
 // --- AUTHENTICATION ENDPOINTS ---
 app.post('/api/auth/register', authRateLimiter, (req, res) => {
   try {
@@ -672,7 +710,11 @@ app.post('/api/subscription/upgrade', (req, res) => {
     const user = getAuthUser(req);
     if (!user) return res.status(401).json({ error: 'Authentication required' });
     const { tier } = req.body;
-    const validTiers = ['basic', 'standard', 'premium', 'org_basic', 'org_enterprise'];
+    const validTiers = [
+      'basic', 'standard', 'premium',
+      'org_basic', 'org_enterprise',
+      'wholesale_basic', 'wholesale_growth', 'wholesale_enterprise'
+    ];
     if (!validTiers.includes(tier)) {
       return res.status(400).json({ error: 'Invalid subscription tier selected' });
     }
@@ -684,6 +726,96 @@ app.post('/api/subscription/upgrade', (req, res) => {
       success: true,
       message: `Subscription successfully updated to ${tier.toUpperCase()}`,
       subscription_tier: tier
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- WHOLESALER DIRECTORY & LIVE RESTOCK CATALOG ---
+app.get('/api/wholesalers', (req, res) => {
+  try {
+    const list = db.prepare('SELECT id, name, contact_person, phone, email, address, county, description FROM wholesalers ORDER BY name ASC').all();
+    res.json(list);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/wholesalers/:id/catalog', (req, res) => {
+  try {
+    const wid = parseInt(req.params.id, 10);
+    const catalog = db.prepare('SELECT * FROM wholesaler_catalog WHERE wholesaler_id = ? ORDER BY medicine_name ASC').all(wid);
+    res.json(catalog);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Search all wholesalers for a drug when a pharmacy is low on stock
+app.get('/api/wholesalers/search-drug', (req, res) => {
+  try {
+    const query = (req.query.q || '').trim().toLowerCase();
+    if (!query) return res.json([]);
+
+    const results = db.prepare(`
+      SELECT 
+        wc.id, wc.medicine_name, wc.brand_name, wc.strength, wc.dosage_form,
+        wc.pack_size, wc.cost_price_per_pack, wc.packs_available, wc.expiry_date,
+        w.id as wholesaler_id, w.name as wholesaler_name, w.phone as wholesaler_phone, w.county as wholesaler_county
+      FROM wholesaler_catalog wc
+      JOIN wholesalers w ON wc.wholesaler_id = w.id
+      WHERE LOWER(wc.medicine_name) LIKE ? OR LOWER(COALESCE(wc.brand_name, '')) LIKE ?
+      ORDER BY wc.cost_price_per_pack ASC
+      LIMIT 30
+    `).all(`%${query}%`, `%${query}%`);
+
+    res.json(results);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Wholesaler stock input endpoint (for Wholesalers to manage their warehouse stock)
+app.post('/api/wholesalers/catalog', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ error: 'Authentication required' });
+
+    const {
+      wholesaler_id, medicine_name, brand_name = '', strength = '',
+      dosage_form = 'Tablets', pack_size = 100, cost_price_per_pack,
+      packs_available = 0, expiry_date = '', category = 'OTC'
+    } = req.body;
+
+    if (!medicine_name || !cost_price_per_pack) {
+      return res.status(400).json({ error: 'Medicine name and cost price per pack are required' });
+    }
+
+    const nowStr = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    const result = db.prepare(`
+      INSERT INTO wholesaler_catalog (
+        wholesaler_id, medicine_name, brand_name, strength, dosage_form,
+        pack_size, cost_price_per_pack, packs_available, expiry_date, category, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      wholesaler_id || user.organization_id || user.id,
+      medicine_name.trim(),
+      brand_name.trim(),
+      strength.trim(),
+      dosage_form.trim(),
+      Number(pack_size),
+      Number(cost_price_per_pack),
+      Number(packs_available),
+      expiry_date.trim(),
+      category.trim(),
+      nowStr
+    );
+
+    res.json({
+      success: true,
+      message: 'Product listed in wholesale warehouse catalog',
+      id: Number(result.lastInsertRowid)
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1305,7 +1437,7 @@ app.patch('/api/medicines/:id/price', (req, res) => {
 });
 
 // ADD BATCH (SMART STOCK INTAKE & SIMULTANEOUS PRICE SETTING)
-app.post('/api/batches', (req, res) => {
+app.post('/api/batches', requireActiveSubscription, (req, res) => {
   try {
     const user = getAuthUser(req);
     const activeUserId = user ? user.id : -1;
@@ -1423,7 +1555,7 @@ app.post('/api/batches', (req, res) => {
 });
 
 // --- POINT OF SALE (POS) & DISPENSING ---
-app.post('/api/sales', (req, res) => {
+app.post('/api/sales', requireActiveSubscription, (req, res) => {
   try {
     const {
       customer_name, customer_phone, payment_method,

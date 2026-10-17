@@ -274,6 +274,72 @@ export function initDatabase() {
     `);
   } catch (e) {}
 
+  // ── Wholesale Portal Tables ──────────────────────────────────────────────
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS wholesalers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        contact_person TEXT,
+        phone TEXT NOT NULL,
+        email TEXT,
+        address TEXT,
+        county TEXT,
+        description TEXT,
+        account_type TEXT DEFAULT 'wholesale',
+        subscription_tier TEXT DEFAULT 'trial',
+        trial_ends_at TEXT,
+        organization_id INTEGER,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS wholesaler_catalog (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        wholesaler_id INTEGER NOT NULL REFERENCES wholesalers(id) ON DELETE CASCADE,
+        medicine_name TEXT NOT NULL,
+        brand_name TEXT,
+        strength TEXT,
+        dosage_form TEXT,
+        pack_size INTEGER DEFAULT 100,
+        cost_price_per_pack REAL NOT NULL,
+        packs_available INTEGER DEFAULT 0,
+        expiry_date TEXT,
+        category TEXT DEFAULT 'OTC',
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS stock_alerts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        organization_id INTEGER NOT NULL,
+        medicine_id INTEGER,
+        medicine_name TEXT NOT NULL,
+        current_stock INTEGER DEFAULT 0,
+        min_stock INTEGER DEFAULT 10,
+        alert_type TEXT DEFAULT 'low_stock',
+        is_resolved INTEGER DEFAULT 0,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS mpesa_transactions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        checkout_request_id TEXT UNIQUE,
+        merchant_request_id TEXT,
+        amount REAL NOT NULL,
+        phone TEXT NOT NULL,
+        plan_tier TEXT NOT NULL,
+        account_type TEXT DEFAULT 'solo',
+        status TEXT DEFAULT 'pending',
+        result_code INTEGER,
+        result_desc TEXT,
+        mpesa_receipt TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT
+      );
+    `);
+  } catch (e) {}
+
   // Default settings if empty
   const getSetting = db.prepare('SELECT value FROM settings WHERE key = ?');
   const insertSetting = db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)');
@@ -295,6 +361,80 @@ export function initDatabase() {
 
   // Proactively ensure comprehensive drug templates (Ointments, Syrups, Drops, Inhalers, Injections, Supplies) exist
   seedComprehensiveTemplates();
+
+  // Seed Kenyan Wholesale Distributors and Live Warehouse Catalog if empty
+  try {
+    const countWholesalers = db.prepare('SELECT count(*) as count FROM wholesalers').get();
+    if (countWholesalers.count === 0) {
+      const nowStr = new Date().toISOString().replace('T', ' ').slice(0, 19);
+      const w1 = db.prepare(`
+        INSERT INTO wholesalers (name, contact_person, phone, email, address, county, description, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        'Harleys Pharma Distributors Ltd',
+        'Sales Desk (Nairobi Hub)',
+        '+254 722 000111',
+        'orders@harleys.co.ke',
+        'Harleys Building, Commercial St, Industrial Area',
+        'Nairobi',
+        'Top pharmaceutical & surgical importer. Official distributor for GSK, Novartis, Pfizer.',
+        nowStr
+      );
+
+      const w2 = db.prepare(`
+        INSERT INTO wholesalers (name, contact_person, phone, email, address, county, description, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        'Laborex Kenya Ltd',
+        'Wholesale Operations',
+        '+254 733 444555',
+        'orders@laborex.co.ke',
+        'Mombasa Road, Opp. Standard Group',
+        'Nairobi',
+        'Pan-African distributor of ethical drugs, OTC, vaccines, cold chain and animal health items.',
+        nowStr
+      );
+
+      const w3 = db.prepare(`
+        INSERT INTO wholesalers (name, contact_person, phone, email, address, county, description, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        'Crown Healthcare Distributors',
+        'Medical Supplies Rep',
+        '+254 720 888999',
+        'dispatch@crown.co.ke',
+        'Enterprise Road, Industrial Area',
+        'Nairobi',
+        'Specialists in essential generics, surgical sundries, diagnostics, and OTC formulations.',
+        nowStr
+      );
+
+      const insertCatalog = db.prepare(`
+        INSERT INTO wholesaler_catalog (
+          wholesaler_id, medicine_name, brand_name, strength, dosage_form,
+          pack_size, cost_price_per_pack, packs_available, expiry_date, category, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      const w1Id = Number(w1.lastInsertRowid);
+      const w2Id = Number(w2.lastInsertRowid);
+      const w3Id = Number(w3.lastInsertRowid);
+
+      insertCatalog.run(w1Id, 'Amoxicillin + Clavulanic Acid', 'Augmentin 625mg', '625mg', 'Tablets', 14, 1250, 450, '2027-08-30', 'Prescription', nowStr);
+      insertCatalog.run(w1Id, 'Paracetamol BP', 'Panadol Extra', '500mg/65mg', 'Tablets', 100, 480, 1200, '2028-02-15', 'OTC', nowStr);
+      insertCatalog.run(w1Id, 'Cetirizine Hydrochloride', 'Zyrtec 10mg', '10mg', 'Tablets', 30, 850, 320, '2027-11-20', 'OTC', nowStr);
+
+      insertCatalog.run(w2Id, 'Artemether + Lumefantrine', 'Coartem 20/120', '20/120mg', 'Tablets', 24, 380, 800, '2027-06-10', 'Prescription', nowStr);
+      insertCatalog.run(w2Id, 'Azithromycin Dihydrate', 'Zithromax 500mg', '500mg', 'Tablets', 3, 620, 500, '2027-09-15', 'Prescription', nowStr);
+      insertCatalog.run(w2Id, 'Metformin Hydrochloride', 'Glucophage 500mg', '500mg', 'Tablets', 100, 750, 600, '2027-12-01', 'Prescription', nowStr);
+
+      insertCatalog.run(w3Id, 'Ibuprofen BP', 'Brufen 400mg', '400mg', 'Tablets', 100, 350, 950, '2027-10-18', 'OTC', nowStr);
+      insertCatalog.run(w3Id, 'Omeprazole BP', 'Omez 20mg', '20mg', 'Capsules', 30, 280, 700, '2027-07-25', 'Prescription', nowStr);
+      insertCatalog.run(w3Id, 'Ciprofloxacin', 'Ciproxin 500mg', '500mg', 'Tablets', 10, 220, 820, '2027-05-14', 'Prescription', nowStr);
+    }
+  } catch (e) {
+    console.error('Error seeding wholesalers:', e);
+  }
 
   // Seed sample customer loans for demo mode only (user_id = -1)
   const countLoans = db.prepare('SELECT count(*) as count FROM customer_loans').get();
