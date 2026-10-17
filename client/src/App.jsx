@@ -3099,19 +3099,19 @@ export default function App() {
           {/* 7. SETTINGS & CUSTOMIZATION TAB                             */}
           {/* ============================================================ */}
           {activeTab === 'settings' && (
-            <div className="max-w-2xl bg-white rounded-3xl border border-slate-200/80 shadow-sm p-6 space-y-6">
+            <div className="max-w-2xl bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-white/10 shadow-sm p-6 space-y-6">
               <div>
-                <h3 className="font-bold text-slate-900 text-lg">Pharmacy Customization</h3>
-                <p className="text-xs text-slate-500">
+                <h3 className="font-bold text-slate-900 dark:text-white text-lg">Pharmacy Customization</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
                   Configure store headers, currency symbols, and inventory alert parameters.
                 </p>
               </div>
 
               {/* Automatic Location Detection Banner */}
-              <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center justify-between text-xs">
+              <div className="p-4 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/40 rounded-2xl flex items-center justify-between text-xs">
                 <div>
-                  <p className="font-bold text-emerald-900">🌍 Auto-Detected Location: {detectedLocale.country}</p>
-                  <p className="text-emerald-700">Timezone: {detectedLocale.timezone || 'Local'} • Standard Currency: {detectedLocale.currency}</p>
+                  <p className="font-bold text-emerald-900 dark:text-emerald-200">🌍 Auto-Detected Location: {detectedLocale.country}</p>
+                  <p className="text-emerald-700 dark:text-emerald-400">Timezone: {detectedLocale.timezone || 'Local'} • Standard Currency: {detectedLocale.currency}</p>
                 </div>
                 <button
                   type="button"
@@ -3131,57 +3131,57 @@ export default function App() {
 
               <form onSubmit={handleSaveSettings} className="space-y-4 text-xs">
                 <div>
-                  <label className="block text-slate-700 font-semibold mb-1">Pharmacy / Store Name</label>
+                  <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">Pharmacy / Store Name</label>
                   <input
                     type="text"
                     value={settings.pharmacy_name}
                     onChange={(e) => setSettings({ ...settings, pharmacy_name: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm text-slate-900 dark:text-white"
                     required
                   />
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-slate-700 font-semibold mb-1">Currency Symbol</label>
+                    <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">Currency Symbol</label>
                     <input
                       type="text"
                       value={settings.currency_symbol}
                       onChange={(e) => setSettings({ ...settings, currency_symbol: e.target.value })}
                       placeholder="e.g. KSh, $, €, £, NGN"
-                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm font-bold text-emerald-800"
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm font-bold text-emerald-800 dark:text-emerald-400"
                       required
                     />
                   </div>
                   <div>
-                    <label className="block text-slate-700 font-semibold mb-1">Expiry Warning Threshold (Days)</label>
+                    <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">Expiry Warning Threshold (Days)</label>
                     <input
                       type="number"
                       value={settings.expiry_warning_days}
                       onChange={(e) => setSettings({ ...settings, expiry_warning_days: e.target.value })}
-                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm text-slate-900 dark:text-white"
                       required
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-slate-700 font-semibold mb-1">Physical Address</label>
+                  <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">Physical Address</label>
                   <input
                     type="text"
                     value={settings.address}
                     onChange={(e) => setSettings({ ...settings, address: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm text-slate-900 dark:text-white"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-slate-700 font-semibold mb-1">Phone / WhatsApp Number</label>
+                  <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">Phone / WhatsApp Number</label>
                   <input
                     type="text"
                     value={settings.phone}
                     onChange={(e) => setSettings({ ...settings, phone: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm text-slate-900 dark:text-white"
                   />
                 </div>
 
@@ -3743,12 +3743,6 @@ export default function App() {
                 const selectedBatchMed = medicines.find(m => String(m.id) === String(newBatchForm.medicine_id));
                 if (!selectedBatchMed) return null;
 
-                const matchingBatch = batches.find(b => 
-                  String(b.medicine_id) === String(newBatchForm.medicine_id) && 
-                  newBatchForm.batch_number?.trim() && 
-                  b.batch_number?.trim().toLowerCase() === newBatchForm.batch_number.trim().toLowerCase()
-                );
-
                 return (
                   <div className="space-y-2">
                     <div className="p-3 bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-800/40 rounded-2xl flex items-center justify-between text-xs">
@@ -3769,17 +3763,9 @@ export default function App() {
                         </span>
                       </div>
                     </div>
-
-                    {/* Duplicate Batch / Lot Alert */}
-                    {matchingBatch && (
-                      <div className="p-2.5 bg-amber-500/15 border border-amber-500/30 rounded-xl flex items-center gap-2 text-xs text-amber-800 dark:text-amber-200 animate-fade-in">
-                        <span className="text-base">⚡</span>
-                        <div>
-                          <p className="font-bold">Active Lot Detected: #{matchingBatch.batch_number}</p>
-                          <p className="text-[11px] opacity-90">
-                            Currently has {matchingBatch.packs_available} packs on shelf (Exp: {matchingBatch.expiry_date}). Intake will top up this existing lot!
-                          </p>
-                        </div>
+                    {newBatchForm.batch_number?.trim() && (
+                      <div className="p-2.5 bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200/60 dark:border-blue-800/40 rounded-xl text-xs text-blue-800 dark:text-blue-200">
+                        <span className="font-bold">⚡ Smart Batch:</span> If lot <span className="font-mono font-bold">#{newBatchForm.batch_number}</span> already exists, stock will be topped up automatically.
                       </div>
                     )}
                   </div>
