@@ -321,6 +321,20 @@ export function initDatabase() {
         created_at TEXT NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS wholesale_delivery_orders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        wholesaler_id INTEGER NOT NULL,
+        pharmacy_name TEXT NOT NULL,
+        contact_phone TEXT NOT NULL,
+        delivery_location TEXT NOT NULL,
+        items_json TEXT NOT NULL,
+        total_amount REAL NOT NULL,
+        status TEXT DEFAULT 'pending', -- 'pending', 'packed', 'dispatched', 'delivered'
+        driver_name TEXT,
+        vehicle_plate TEXT,
+        created_at TEXT NOT NULL
+      );
+
       CREATE TABLE IF NOT EXISTS mpesa_transactions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER NOT NULL,
@@ -431,6 +445,41 @@ export function initDatabase() {
       insertCatalog.run(w3Id, 'Ibuprofen BP', 'Brufen 400mg', '400mg', 'Tablets', 100, 350, 950, '2027-10-18', 'OTC', nowStr);
       insertCatalog.run(w3Id, 'Omeprazole BP', 'Omez 20mg', '20mg', 'Capsules', 30, 280, 700, '2027-07-25', 'Prescription', nowStr);
       insertCatalog.run(w3Id, 'Ciprofloxacin', 'Ciproxin 500mg', '500mg', 'Tablets', 10, 220, 820, '2027-05-14', 'Prescription', nowStr);
+      // Seed sample wholesale dispatch delivery orders
+      const countOrders = db.prepare('SELECT count(*) as count FROM wholesale_delivery_orders').get();
+      if (countOrders.count === 0) {
+        const insertOrder = db.prepare(`
+          INSERT INTO wholesale_delivery_orders (
+            wholesaler_id, pharmacy_name, contact_phone, delivery_location, items_json, total_amount, status, driver_name, vehicle_plate, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+
+        insertOrder.run(
+          w1Id,
+          'Metropolitan Care Pharmacy',
+          '+254 722 998877',
+          'Ngong Road, Next to Prestige Plaza, Nairobi',
+          JSON.stringify([{ item: 'Augmentin 625mg', qty: 25, price: 1250 }, { item: 'Panadol Extra', qty: 50, price: 480 }]),
+          55250,
+          'dispatched',
+          'David Ochieng',
+          'KBZ 482Y',
+          nowStr
+        );
+
+        insertOrder.run(
+          w1Id,
+          'HealthFirst Community Chemist',
+          '+254 711 334455',
+          'Biashara Street, CBD, Nairobi',
+          JSON.stringify([{ item: 'Zyrtec 10mg', qty: 15, price: 850 }]),
+          12750,
+          'pending',
+          null,
+          null,
+          nowStr
+        );
+      }
     }
   } catch (e) {
     console.error('Error seeding wholesalers:', e);

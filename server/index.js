@@ -551,18 +551,29 @@ app.post('/api/organization/staff', (req, res) => {
 
     const orgId = user.organization_id || user.id;
 
+    // Solo Pharmacies are strictly 1-system single-user accounts
+    if (user.account_type === 'solo') {
+      return res.status(403).json({
+        error: 'Solo Pharmacy accounts are strictly single-user systems (1 user only). To add multiple staff counters and roles, please upgrade to an Organization / Enterprise Hub account.',
+        code: 'SOLO_TIER_NO_STAFF'
+      });
+    }
+
     // Check plan limits
     const currentStaffCount = db.prepare('SELECT count(*) as count FROM users WHERE organization_id = ?').get(orgId).count;
     const tier = user.subscription_tier || 'trial';
     const limits = {
       trial: 5,
       basic: 1,
-      standard: 3,
-      premium: 7,
+      standard: 1,
+      premium: 1,
       org_basic: 5,
-      org_enterprise: 9999
+      org_enterprise: 9999,
+      wholesale_basic: 3,
+      wholesale_growth: 8,
+      wholesale_enterprise: 9999
     };
-    const maxAllowed = limits[tier] || 3;
+    const maxAllowed = limits[tier] || 5;
     if (currentStaffCount >= maxAllowed) {
       return res.status(403).json({
         error: `Your current plan (${tier}) allows a maximum of ${maxAllowed} staff accounts. Please upgrade to Organization Enterprise for unlimited staff.`
@@ -821,6 +832,39 @@ app.post('/api/wholesalers/catalog', (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// --- WHOLESALE DISPATCH & DELIVERY ORDERS ---
+app.get('/api/wholesalers/:id/orders', (req, res) => {
+  try {
+    const wid = parseInt(req.params.id, 10);
+    const orders = db.prepare('SELECT * FROM wholesale_delivery_orders WHERE wholesaler_id = ? ORDER BY id DESC').all(wid);
+    const parsed = orders.map(o => {
+      let items = [];
+      try { items = JSON.parse(o.items_json); } catch (e) {}
+      return { ...o, items };
+    });
+    res.json(parsed);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/wholesalers/orders/:id/status', (req, res) => {
+  try {
+    const orderId = parseInt(req.params.id, 10);
+    const { status, driver_name, vehicle_plate } = req.body;
+    db.prepare(`
+      UPDATE wholesale_delivery_orders
+      SET status = ?, driver_name = COALESCE(?, driver_name), vehicle_plate = COALESCE(?, vehicle_plate)
+      WHERE id = ?
+    `).run(status, driver_name || null, vehicle_plate || null, orderId);
+
+    res.json({ success: true, message: `Order #${orderId} status updated to ${status}` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 
 // --- ADVANCED SALES & FINANCIAL ACCOUNTING ---
 app.get('/api/accounting/summary', (req, res) => {
