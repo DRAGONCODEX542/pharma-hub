@@ -2524,7 +2524,7 @@ export default function App() {
           {/* 1. POS & DISPENSING TAB (Apple Liquid Glass SoloPOS) */}
           {activeTab === 'pos' && (
             <SoloPOS
-              drugs={drugs}
+              drugs={medicines}
               currency={currentUser?.currency_symbol || 'KSh'}
               onCompleteSale={handleSoloSaleSubmit}
               showToast={showToast}
