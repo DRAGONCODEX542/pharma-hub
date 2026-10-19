@@ -212,6 +212,7 @@ const SUBSCRIPTION_PLANS = {
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('pos'); // 'pos', 'dashboard', 'inventory', 'batches', 'loans', 'sales', 'settings', 'staff', 'accounting'
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showMobileMoreMenu, setShowMobileMoreMenu] = useState(false);
   const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
   const [showStaffModal, setShowStaffModal] = useState(false);
@@ -2212,260 +2213,144 @@ export default function App() {
         </div>
       )}
 
-      {/* Desktop Sidebar Navigation */}
-      <aside className="hidden md:flex flex-col w-60 bg-slate-900 dark:bg-[#0D0D11] text-slate-300 border-r border-slate-800 dark:border-white/[0.06] select-none shrink-0">
-        <div className="p-5 flex items-center space-x-3 border-b border-slate-800 dark:border-white/[0.06]">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-400 flex items-center justify-center text-white shadow-lg shadow-emerald-900/30">
-            <Pill className="w-5 h-5 transform -rotate-45" />
-          </div>
-          <div className="min-w-0">
-            <h1 className="text-white font-bold text-sm leading-tight truncate">{settings.pharmacy_name}</h1>
-            <span className="text-[11px] text-emerald-400 font-medium flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-              {isDemoGuest ? 'Demo Mode' : `${settings.currency_symbol} Active`}
-            </span>
-          </div>
-        </div>
-
-        <nav className="flex-1 p-2.5 space-y-0.5">
-          {[
-            { id: 'pos', icon: ShoppingCart, label: 'POS & Dispense', permission: 'pos', badge: cart.length > 0 ? cart.length : null, badgeColor: 'bg-emerald-400 text-slate-950' },
-            { id: 'dashboard', icon: LayoutDashboard, label: 'Dashboard', permission: 'dashboard', badge: dashboardData?.expiringCount > 0 ? dashboardData.expiringCount : null, badgeColor: 'bg-amber-500 text-slate-950' },
-            { id: 'loans', icon: HandCoins, label: 'Trust Loans', permission: 'loans', badge: overdueLoansCount > 0 ? `${overdueLoansCount} due` : null, badgeColor: 'bg-rose-500 text-white animate-pulse' },
-            { id: 'inventory', icon: Pill, label: 'Medicines & Pricing', permission: 'inventory_read', badge: null },
-            { id: 'batches', icon: Boxes, label: 'Batches & Expiry', permission: 'inventory_write', badge: null },
-            { id: 'sales', icon: Receipt, label: 'Sales & Accounting', permission: 'accounting', badge: null },
-            ...(currentUser?.role === 'admin' ? [{ id: 'staff', icon: Users, label: 'Staff & Roles', permission: 'staff_management', badge: staffList?.length ? `${staffList.length}` : null, badgeColor: 'bg-blue-500 text-white' }] : []),
-            { id: 'wholesalers', icon: Building2, label: 'Wholesale Hub', permission: 'wholesalers', badge: 'Live', badgeColor: 'bg-amber-500 text-slate-950 font-bold' },
-            ...(currentUser?.role === 'admin' ? [{ id: 'settings', icon: Settings, label: 'Settings', permission: 'settings', badge: null }] : []),
-          ].filter(({ permission }) => {
-            // Admins see EVERYTHING
-            if (!currentUser || currentUser.role === 'admin' || currentUser.role === 'superadmin') return true;
-            // Staff only see what the Admin permitted
-            const userPerms = Array.isArray(currentUser.permissions) ? currentUser.permissions : [];
-            if (permission === 'dashboard' || permission === 'wholesalers') return true;
-            return userPerms.includes(permission);
-          }).map(({ id, icon: Icon, label, badge, badgeColor }) => (
-            <button
-              key={id}
-              onClick={() => setActiveTab(id)}
-              className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all apple-spring ${
-                activeTab === id
-                  ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-900/40'
-                  : 'hover:bg-slate-800 dark:hover:bg-white/[0.06] text-slate-400 hover:text-white'
-              }`}
-            >
-              <Icon className="w-4.5 h-4.5 shrink-0" />
-              <span className="truncate">{label}</span>
-              {badge !== null && (
-                <span className={`ml-auto text-[11px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ${badgeColor}`}>
-                  {badge}
-                </span>
-              )}
-            </button>
-          ))}
-        </nav>
-
-        {/* Subscription & Free Trial Status Pill in Desktop Sidebar */}
-        <div className="p-3 mx-2.5 mb-2 bg-gradient-to-br from-slate-800/80 to-slate-800/40 dark:from-white/[0.04] dark:to-white/[0.02] border border-white/10 rounded-2xl text-xs space-y-2">
-          <div className="flex items-center justify-between text-[10px]">
-            <span className={`px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wider text-[9px] ${
-              currentUser?.subscription_tier?.includes('enterprise') || currentUser?.subscription_tier?.includes('premium')
-                ? 'bg-amber-500/20 text-amber-300'
-                : 'bg-emerald-500/20 text-emerald-300'
-            }`}>
-              {currentUser?.subscription_tier ? currentUser.subscription_tier.replace('_', ' ').toUpperCase() : 'FREE TRIAL'}
-            </span>
-            {currentUser?.trial_days_remaining !== undefined && (
-              <span className="text-[10px] text-slate-400">
-                {currentUser.trial_days_remaining > 0 ? `${currentUser.trial_days_remaining}d trial left` : '30-Day Free Trial'}
-              </span>
-            )}
-          </div>
-          <div className="flex items-center space-x-2">
-            <div className="w-7 h-7 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 shrink-0">
-              <CreditCard className="w-3.5 h-3.5" />
-            </div>
-            <div className="min-w-0">
-              <p className="font-bold text-white text-[11px] truncate">
-                {currentUser?.account_type === 'organization' ? 'Organization Plan' : 'Community Chemist'}
-              </p>
-              <p className="text-[10px] text-slate-400 truncate">
-                {currentUser?.staff_title || (currentUser?.role === 'admin' ? 'Administrator' : 'Staff')}
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => setShowSubscriptionModal(true)}
-            className="w-full py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold rounded-xl text-[11px] transition text-center flex items-center justify-center space-x-1 shadow-xs"
-          >
-            <span>Upgrade Plan</span>
-            <span>↗</span>
-          </button>
-        </div>
-
-        {/* User Card in Sidebar Footer */}
-        {currentUser && (
-          <div className="p-3 border-t border-slate-800 dark:border-white/[0.06]">
-            <div className="flex items-center space-x-2.5 p-2.5 bg-slate-800/70 dark:bg-white/[0.04] rounded-xl">
-              <div className="w-7 h-7 rounded-full bg-emerald-500 flex items-center justify-center text-white text-xs font-bold shrink-0">
-                {currentUser.name ? currentUser.name[0].toUpperCase() : 'U'}
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-xs font-semibold text-white truncate">{currentUser.name?.split(' ')[0] || 'User'}</p>
-                <p className="text-[10px] text-slate-500 truncate">{currentUser.email}</p>
-              </div>
-              <button onClick={handleLogout} title="Sign Out" className="text-slate-500 hover:text-red-400 transition p-1">
-                <LogOut className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
-        )}
-      </aside>
-
+      {/* Apple Fullscreen Layout - Sidebar hidden for Solo Chemists */}
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col h-screen overflow-hidden">
         {/* Top Header — Apple frosted glass */}
-        <header className="h-14 apple-glass border-b border-black/[0.06] dark:border-white/[0.07] px-3 md:px-5 flex items-center justify-between shrink-0 sticky top-0 z-30">
-          <div className="flex items-center space-x-2 md:space-x-3 shrink-0">
-            <div className="md:hidden w-8 h-8 rounded-xl bg-emerald-600 flex items-center justify-center text-white shrink-0 shadow-sm active:scale-95 transition">
-              <Pill className="w-4.5 h-4.5 transform -rotate-45" />
+        <header className="h-16 apple-glass border-b border-black/[0.06] dark:border-white/[0.07] px-4 md:px-7 flex items-center justify-between shrink-0 sticky top-0 z-30">
+          {/* Brand Logo & Pharmacy Name */}
+          <div className="flex items-center space-x-3 shrink-0">
+            <div className="w-9 h-9 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-400 flex items-center justify-center text-white shrink-0 shadow-md shadow-emerald-600/20">
+              <Pill className="w-5 h-5 transform -rotate-45" />
             </div>
-            <div className="shrink-0">
-              <h2 className="text-sm md:text-base font-bold text-slate-900 dark:text-white capitalize flex items-center gap-1.5 leading-tight whitespace-nowrap">
-                {activeTab === 'pos' && 'Dispensing Counter'}
-                {activeTab === 'dashboard' && 'Pharmacy Dashboard'}
-                {activeTab === 'loans' && 'Trust Loans & Credits'}
-                {activeTab === 'inventory' && 'Medicines & Pricing'}
-                {activeTab === 'batches' && 'Batches & Expiry'}
-                {activeTab === 'sales' && 'Sales & Accounting'}
-                {activeTab === 'staff' && 'Organization Staff & RBAC'}
-                {activeTab === 'wholesalers' && 'Wholesale Catalog & Live Restock Hub'}
-                {activeTab === 'settings' && 'Settings'}
-              </h2>
-              <p className="text-[11px] text-slate-400 dark:text-slate-500 hidden sm:block whitespace-nowrap">PharmaHub • Smart Pharmacy OS</p>
+            <div>
+              <h1 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white leading-tight flex items-center gap-2">
+                <span>{settings.pharmacy_name || 'My Pharmacy'}</span>
+                <span className="hidden sm:inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 font-bold uppercase tracking-wider">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                  Solo Chemist
+                </span>
+              </h1>
+              <p className="text-[11px] text-slate-400 dark:text-slate-500 hidden sm:block">
+                3-Step Smart Dispensing & Stock Intelligence
+              </p>
             </div>
           </div>
 
-          <div className="flex items-center space-x-1 sm:space-x-1.5 shrink-0 overflow-x-hidden">
-            {/* Subscription & Trial Pill in Header */}
+          {/* Center: Apple Liquid Glass Segmented Pill (Only 3 Tabs!) */}
+          <div className="hidden md:flex items-center p-1 bg-black/[0.04] dark:bg-white/[0.08] backdrop-blur-2xl rounded-full border border-black/[0.06] dark:border-white/[0.1] shadow-xs">
             <button
-              onClick={() => setShowSubscriptionModal(true)}
-              className="hidden sm:flex items-center space-x-1 px-2.5 py-1.5 bg-gradient-to-r from-emerald-500/10 to-teal-500/10 dark:from-emerald-950/40 dark:to-teal-950/40 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 rounded-xl text-xs font-bold transition apple-spring min-h-[38px] active:scale-95"
-              title="View Subscription & Free Trial Status"
+              onClick={() => setActiveTab('pos')}
+              className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all apple-press flex items-center gap-1.5 ${
+                activeTab === 'pos'
+                  ? 'bg-emerald-600 text-white shadow-sm'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              }`}
             >
-              <CreditCard className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-              <span className="hidden md:inline">
-                {currentUser?.subscription_tier ? currentUser.subscription_tier.replace('_', ' ').toUpperCase() : 'FREE TRIAL'}
-              </span>
+              <span>💊</span>
+              <span>Dispense (POS)</span>
             </button>
-
-            {/* Auto-detected Currency & Country Tag */}
-            <div
-              onClick={() => {
-                setSettings(s => ({
-                  ...s,
-                  currency_symbol: detectedLocale.currency,
-                  detected_country: detectedLocale.country
-                }));
-                showToast(`Applied ${detectedLocale.country} currency (${detectedLocale.currency})`, 'success');
-              }}
-              className="cursor-pointer hidden sm:flex items-center space-x-1 px-2 py-1.5 bg-emerald-50 dark:bg-emerald-900/20 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 border border-emerald-200 dark:border-emerald-700/40 text-emerald-800 dark:text-emerald-300 rounded-xl text-xs font-semibold transition apple-spring min-h-[36px]"
-              title="Click to apply detected local currency"
-            >
-              <Globe className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-              <span>{settings.currency_symbol}</span>
-            </div>
-
-            {/* Quick Restock Trigger (Mobile Optimized Icon) */}
             <button
-              onClick={() => setShowAddBatchModal(true)}
-              className="flex sm:hidden p-2 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 bg-emerald-500/10 border border-emerald-300/60 dark:border-emerald-700/40 rounded-xl transition apple-spring min-w-[38px] min-h-[38px] items-center justify-center active:scale-95"
-              title="Quick Receive Stock"
+              onClick={() => setActiveTab('inventory')}
+              className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all apple-press flex items-center gap-1.5 ${
+                activeTab === 'inventory'
+                  ? 'bg-emerald-600 text-white shadow-sm'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              }`}
             >
-              <Boxes className="w-4 h-4" />
+              <span>📦</span>
+              <span>Stock & Pricing</span>
             </button>
-
             <button
-              onClick={fetchAllData}
-              className="p-2 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition apple-spring min-w-[38px] min-h-[38px] flex items-center justify-center active:scale-95"
-              title="Refresh Data"
+              onClick={() => setActiveTab('loans')}
+              className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all apple-press flex items-center gap-1.5 ${
+                activeTab === 'loans'
+                  ? 'bg-emerald-600 text-white shadow-sm'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              }`}
             >
-              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+              <span>🤝</span>
+              <span>Customer Loans</span>
+              {overdueLoansCount > 0 && (
+                <span className="w-4 h-4 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center">
+                  {overdueLoansCount}
+                </span>
+              )}
             </button>
+          </div>
 
-            <button
-              onClick={() => { setTourStep(0); setShowFeatureTour(true); }}
-              className="flex items-center space-x-1 px-2 sm:px-2.5 py-1.5 bg-indigo-50 dark:bg-indigo-950/40 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 border border-indigo-200/60 dark:border-indigo-700/40 text-indigo-700 dark:text-indigo-300 rounded-xl text-xs font-semibold transition apple-spring shadow-xs min-h-[38px] min-w-[38px] justify-center active:scale-95"
-              title="Interactive System & Feature Tour"
-            >
-              <Sparkles className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
-              <span className="hidden lg:inline">Feature Tour</span>
-            </button>
-
-            <button
-              onClick={() => setShowAddMedicineModal(true)}
-              className="hidden xl:flex items-center space-x-1.5 px-2.5 py-1.5 bg-slate-800 dark:bg-slate-700 hover:bg-slate-700 dark:hover:bg-slate-600 text-white text-xs font-semibold rounded-xl transition apple-spring shadow-sm min-h-[38px]"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Add Drug</span>
-            </button>
-
-            <button
-              onClick={() => setShowAddBatchModal(true)}
-              className="hidden xl:flex items-center space-x-1.5 px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-xl transition apple-spring shadow-sm min-h-[38px]"
-            >
-              <Boxes className="w-3.5 h-3.5" />
-              <span>Restock</span>
-            </button>
-
-            {/* Auth Button */}
-            {currentUser ? (
-              <div className="flex items-center space-x-1">
-                <div className="hidden sm:flex items-center space-x-1.5 px-2.5 py-1.5 bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-700/50 rounded-xl min-h-[38px]">
-                  <div className="w-5 h-5 rounded-full bg-emerald-500 flex items-center justify-center text-white text-[10px] font-bold">
-                    {currentUser.name ? currentUser.name[0].toUpperCase() : 'U'}
-                  </div>
-                  <span className="text-xs font-semibold text-emerald-800 dark:text-emerald-300 max-w-[80px] truncate">
-                    {currentUser.name?.split(' ')[0] || currentUser.email}
-                  </span>
-                </div>
-                <button
-                  onClick={handleLogout}
-                  className="flex items-center space-x-1 px-2.5 py-1.5 bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/40 border border-red-200 dark:border-red-700/40 text-red-600 dark:text-red-400 rounded-xl text-xs font-semibold transition apple-spring min-h-[38px] min-w-[38px] justify-center active:scale-95"
-                  title="Sign Out"
-                >
-                  <LogOut className="w-4 h-4" />
-                  <span className="hidden lg:inline">Sign Out</span>
-                </button>
-              </div>
-            ) : isDemoGuest ? (
-              <button
-                onClick={() => { setIsDemoGuest(false); setShowAuthModal(true); setAuthMode('register'); }}
-                className="flex items-center space-x-1 px-2.5 sm:px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-xl transition apple-spring shadow-sm min-h-[38px] active:scale-95"
-              >
-                <LogIn className="w-4 h-4" />
-                <span className="hidden xs:inline">Create Account</span>
-              </button>
-            ) : (
-              <button
-                onClick={() => { setShowAuthModal(true); setAuthMode('login'); }}
-                className="flex items-center space-x-1 px-2.5 sm:px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-xl transition apple-spring shadow-sm min-h-[38px] active:scale-95"
-              >
-                <LogIn className="w-4 h-4" />
-                <span className="hidden xs:inline">Sign In</span>
-              </button>
-            )}
-
-            {/* Dark Mode Toggle */}
+          {/* Right: Theme Toggle & Clean Apple Profile Pill */}
+          <div className="flex items-center space-x-2">
             <button
               onClick={() => setIsDarkMode(d => !d)}
-              className="p-2 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition apple-spring min-h-[38px] min-w-[38px] flex items-center justify-center active:scale-95"
-              title={isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+              className="p-2 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/60 rounded-full transition apple-press"
+              title={isDarkMode ? 'Light Mode' : 'Dark Mode'}
             >
               {isDarkMode ? <Sun className="w-4.5 h-4.5" /> : <Moon className="w-4.5 h-4.5" />}
             </button>
+
+            {/* Apple User Profile Pill with Popover */}
+            <div className="relative">
+              <button
+                onClick={() => setShowProfileMenu(!showProfileMenu)}
+                className="flex items-center gap-2 pl-1.5 pr-3 py-1 rounded-full bg-black/[0.04] dark:bg-white/[0.08] border border-black/[0.06] dark:border-white/[0.1] hover:scale-102 active:scale-95 transition"
+              >
+                <div className="w-7 h-7 rounded-full bg-emerald-600 text-white flex items-center justify-center text-xs font-black shadow-xs">
+                  {currentUser?.name?.[0]?.toUpperCase() || 'P'}
+                </div>
+                <span className="text-xs font-bold text-slate-800 dark:text-slate-200 hidden sm:inline max-w-[90px] truncate">
+                  {currentUser?.name?.split(' ')[0] || 'Pharmacist'}
+                </span>
+              </button>
+
+              {/* Apple Popover Menu */}
+              {showProfileMenu && (
+                <div className="absolute right-0 mt-2 w-64 rounded-3xl p-4 bg-white/95 dark:bg-slate-900/95 backdrop-blur-2xl border border-black/[0.08] dark:border-white/[0.1] shadow-2xl z-50 animate-slide-up space-y-3">
+                  <div className="pb-3 border-b border-slate-100 dark:border-slate-800">
+                    <p className="text-sm font-bold text-slate-900 dark:text-white truncate">{settings.pharmacy_name}</p>
+                    <p className="text-xs text-slate-500 truncate">{currentUser?.email}</p>
+                    <div className="mt-2 flex items-center justify-between text-xs font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2.5 py-1.5 rounded-xl">
+                      <span>30-Day Free Trial</span>
+                      <button onClick={() => { setShowProfileMenu(false); setShowSubscriptionModal(true); }} className="underline font-bold">Upgrade</button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <button
+                      onClick={() => { setShowProfileMenu(false); setActiveTab('inventory'); setShowAddMedicineModal(true); }}
+                      className="w-full text-left px-3 py-2 text-xs font-semibold rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 flex items-center gap-2"
+                    >
+                      <Plus className="w-4 h-4 text-emerald-600" />
+                      <span>Add Medicine</span>
+                    </button>
+                    <button
+                      onClick={() => { setShowProfileMenu(false); setShowAddBatchModal(true); }}
+                      className="w-full text-left px-3 py-2 text-xs font-semibold rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 flex items-center gap-2"
+                    >
+                      <Boxes className="w-4 h-4 text-emerald-600" />
+                      <span>Receive Stock</span>
+                    </button>
+                    <button
+                      onClick={() => { setShowProfileMenu(false); setShowSubscriptionModal(true); }}
+                      className="w-full text-left px-3 py-2 text-xs font-semibold rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 flex items-center gap-2"
+                    >
+                      <CreditCard className="w-4 h-4 text-emerald-600" />
+                      <span>Subscription Plans</span>
+                    </button>
+                  </div>
+
+                  <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+                    <button
+                      onClick={() => { setShowProfileMenu(false); handleLogout(); }}
+                      className="w-full text-left px-3 py-2 text-xs font-bold text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-xl flex items-center gap-2"
+                    >
+                      <LogOut className="w-4 h-4" />
+                      <span>Sign Out</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </header>
 
@@ -4034,93 +3919,38 @@ export default function App() {
         </div>
 
         {/* Mobile Navigation Bar (Apple iOS Frosted Glass & Touch Safe Area) */}
-        <nav className="md:hidden fixed bottom-0 left-0 right-0 apple-glass border-t border-black/[0.08] dark:border-white/[0.08] px-1 py-1 flex justify-around items-center z-40 ios-safe-bottom shadow-[0_-4px_24px_rgba(0,0,0,0.08)]">
-          {/* 1. POS */}
+        <nav className="md:hidden fixed bottom-4 inset-x-6 max-w-xs mx-auto liquid-glass rounded-full border border-white/80 dark:border-white/15 px-4 py-2 flex justify-around items-center z-40 shadow-2xl">
           <button
             type="button"
-            onClick={() => { setActiveTab('pos'); setShowMobileMoreMenu(false); }}
-            className={`flex-1 flex flex-col items-center justify-center py-1.5 min-h-[48px] rounded-2xl transition apple-spring relative touch-manipulation active:scale-95 ${
-              activeTab === 'pos' ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-slate-400 dark:text-slate-500'
+            onClick={() => setActiveTab('pos')}
+            className={`flex flex-col items-center justify-center py-1 px-3 rounded-full transition-all apple-press ${
+              activeTab === 'pos' ? 'text-emerald-600 dark:text-emerald-400 font-bold scale-105' : 'text-slate-400 dark:text-slate-500'
             }`}
           >
-            <div className="relative">
-              <ShoppingCart className="w-5 h-5 mb-0.5" />
-              {cart.length > 0 && (
-                <span className="absolute -top-1.5 -right-2 bg-emerald-500 text-white font-extrabold text-[9px] w-4 h-4 rounded-full flex items-center justify-center shadow-sm">
-                  {cart.length}
-                </span>
-              )}
-            </div>
-            <span className="text-[10px] tracking-tight">POS</span>
+            <ShoppingCart className="w-5 h-5 mb-0.5" />
+            <span className="text-[10px]">Dispense</span>
           </button>
 
-          {/* 2. Drugs & Pricing */}
           <button
             type="button"
-            onClick={() => { setActiveTab('inventory'); setShowMobileMoreMenu(false); }}
-            className={`flex-1 flex flex-col items-center justify-center py-1.5 min-h-[48px] rounded-2xl transition apple-spring touch-manipulation active:scale-95 ${
-              activeTab === 'inventory' ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-slate-400 dark:text-slate-500'
+            onClick={() => setActiveTab('inventory')}
+            className={`flex flex-col items-center justify-center py-1 px-3 rounded-full transition-all apple-press ${
+              activeTab === 'inventory' ? 'text-emerald-600 dark:text-emerald-400 font-bold scale-105' : 'text-slate-400 dark:text-slate-500'
             }`}
           >
             <Pill className="w-5 h-5 mb-0.5" />
-            <span className="text-[10px] tracking-tight">Drugs</span>
+            <span className="text-[10px]">Stock</span>
           </button>
 
-          {/* 3. Batches & Expiry */}
           <button
             type="button"
-            onClick={() => { setActiveTab('batches'); setShowMobileMoreMenu(false); }}
-            className={`flex-1 flex flex-col items-center justify-center py-1.5 min-h-[48px] rounded-2xl transition apple-spring relative touch-manipulation active:scale-95 ${
-              activeTab === 'batches' ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-slate-400 dark:text-slate-500'
+            onClick={() => setActiveTab('loans')}
+            className={`flex flex-col items-center justify-center py-1 px-3 rounded-full transition-all apple-press ${
+              activeTab === 'loans' ? 'text-amber-600 dark:text-amber-400 font-bold scale-105' : 'text-slate-400 dark:text-slate-500'
             }`}
           >
-            <div className="relative">
-              <Boxes className="w-5 h-5 mb-0.5" />
-              {dashboardData?.expiringCount > 0 && (
-                <span className="absolute -top-1.5 -right-2 bg-amber-500 text-white font-extrabold text-[9px] w-4 h-4 rounded-full flex items-center justify-center shadow-sm">
-                  {dashboardData.expiringCount}
-                </span>
-              )}
-            </div>
-            <span className="text-[10px] tracking-tight">Batches</span>
-          </button>
-
-          {/* 4. Trust Loans */}
-          <button
-            type="button"
-            onClick={() => { setActiveTab('loans'); setShowMobileMoreMenu(false); }}
-            className={`flex-1 flex flex-col items-center justify-center py-1.5 min-h-[48px] rounded-2xl transition apple-spring relative touch-manipulation active:scale-95 ${
-              activeTab === 'loans' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-400 dark:text-slate-500'
-            }`}
-          >
-            <div className="relative">
-              <HandCoins className="w-5 h-5 mb-0.5" />
-              {overdueLoansCount > 0 && (
-                <span className="absolute -top-1.5 -right-2 bg-rose-500 text-white font-extrabold text-[9px] w-4 h-4 rounded-full flex items-center justify-center shadow-sm animate-pulse">
-                  {overdueLoansCount}
-                </span>
-              )}
-            </div>
-            <span className="text-[10px] tracking-tight">Loans</span>
-          </button>
-
-          {/* 5. More Menu */}
-          <button
-            type="button"
-            onClick={() => setShowMobileMoreMenu(prev => !prev)}
-            className={`flex-1 flex flex-col items-center justify-center py-1.5 min-h-[48px] rounded-2xl transition apple-spring relative touch-manipulation active:scale-95 ${
-              ['dashboard', 'sales', 'settings'].includes(activeTab) || showMobileMoreMenu
-                ? 'text-emerald-600 dark:text-emerald-400 font-bold'
-                : 'text-slate-400 dark:text-slate-500'
-            }`}
-          >
-            <div className="relative">
-              <MoreHorizontal className="w-5 h-5 mb-0.5" />
-              {['dashboard', 'sales', 'settings'].includes(activeTab) && (
-                <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-emerald-500"></span>
-              )}
-            </div>
-            <span className="text-[10px] tracking-tight">More</span>
+            <HandCoins className="w-5 h-5 mb-0.5" />
+            <span className="text-[10px]">Loans</span>
           </button>
         </nav>
 
