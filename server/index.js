@@ -716,6 +716,126 @@ app.get('/api/subscription/status', (req, res) => {
   }
 });
 
+// --- WORKSPACE LICENSING & ANTI-THEFT ACCESS CONTROL ---
+// Ensures 1 company email can own multiple systems, but must hold an active license/trial for each
+function ensureUserSystemLicenses(userId, defaultAccountType = 'solo') {
+  const systems = ['solo', 'organization', 'wholesale'];
+  const now = new Date();
+  const nowStr = now.toISOString().replace('T', ' ').slice(0, 19);
+  const thirtyDaysLater = new Date(now.getTime() + 30 * 86400000).toISOString().replace('T', ' ').slice(0, 19);
+
+  for (const sys of systems) {
+    const existing = db.prepare('SELECT * FROM user_system_licenses WHERE user_id = ? AND system_type = ?').get(userId, sys);
+    if (!existing) {
+      if (sys === defaultAccountType) {
+        // Primary registered system gets initial 30-day free trial
+        db.prepare(`
+          INSERT INTO user_system_licenses (user_id, system_type, status, subscription_tier, trial_started_at, trial_ends_at, created_at)
+          VALUES (?, ?, 'trial', 'trial', ?, ?, ?)
+        `).run(userId, sys, nowStr, thirtyDaysLater, nowStr);
+      } else {
+        // Other systems start as unstarted (can activate their own 30-day trial when first opened)
+        db.prepare(`
+          INSERT INTO user_system_licenses (user_id, system_type, status, subscription_tier, created_at)
+          VALUES (?, ?, 'unstarted', 'none', ?)
+        `).run(userId, sys, nowStr);
+      }
+    }
+  }
+}
+
+app.get('/api/user/systems', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ error: 'Authentication required' });
+    const orgId = user.organization_id || user.id;
+    ensureUserSystemLicenses(orgId, user.account_type || 'solo');
+
+    const licenses = db.prepare('SELECT * FROM user_system_licenses WHERE user_id = ?').all(orgId);
+    const now = new Date();
+    const result = {
+      active_system: user.account_type || 'solo',
+      systems: {}
+    };
+
+    for (const lic of licenses) {
+      let isAccessible = false;
+      let trialDaysRemaining = 0;
+
+      if (lic.status === 'active') {
+        isAccessible = true;
+      } else if (lic.status === 'trial') {
+        if (lic.trial_ends_at) {
+          const diffMs = new Date(lic.trial_ends_at) - now;
+          trialDaysRemaining = Math.max(0, Math.ceil(diffMs / 86400000));
+          if (trialDaysRemaining > 0) {
+            isAccessible = true;
+          } else {
+            // Trial has expired
+            db.prepare("UPDATE user_system_licenses SET status = 'expired' WHERE id = ?").run(lic.id);
+            lic.status = 'expired';
+          }
+        }
+      } else if (lic.status === 'unstarted') {
+        // Can be activated for a free 30-day trial
+        isAccessible = false;
+      }
+
+      result.systems[lic.system_type] = {
+        system_type: lic.system_type,
+        status: lic.status,
+        subscription_tier: lic.subscription_tier,
+        trial_days_remaining: trialDaysRemaining,
+        is_accessible: isAccessible
+      };
+    }
+
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/user/systems/activate-trial', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ error: 'Authentication required' });
+    const { system_type } = req.body;
+    if (!['solo', 'organization', 'wholesale'].includes(system_type)) {
+      return res.status(400).json({ error: 'Invalid system type' });
+    }
+    const orgId = user.organization_id || user.id;
+    ensureUserSystemLicenses(orgId, user.account_type || 'solo');
+
+    const lic = db.prepare('SELECT * FROM user_system_licenses WHERE user_id = ? AND system_type = ?').get(orgId, system_type);
+    if (!lic) return res.status(404).json({ error: 'License record not found' });
+
+    if (lic.status === 'active') {
+      return res.json({ success: true, message: 'System is already active under a paid subscription' });
+    }
+    if (lic.status === 'trial' || lic.status === 'expired') {
+      return res.status(400).json({ error: '30-Day trial has already been used for this system. Please subscribe to unlock access.', requires_subscription: true });
+    }
+
+    const now = new Date();
+    const nowStr = now.toISOString().replace('T', ' ').slice(0, 19);
+    const thirtyDaysLater = new Date(now.getTime() + 30 * 86400000).toISOString().replace('T', ' ').slice(0, 19);
+
+    db.prepare(`
+      UPDATE user_system_licenses
+      SET status = 'trial', subscription_tier = 'trial', trial_started_at = ?, trial_ends_at = ?
+      WHERE id = ?
+    `).run(nowStr, thirtyDaysLater, lic.id);
+
+    // Switch active system to newly activated trial
+    db.prepare('UPDATE users SET account_type = ? WHERE id = ? OR organization_id = ?').run(system_type, orgId, orgId);
+
+    res.json({ success: true, message: `30-Day Free Trial activated for ${system_type.toUpperCase()}!`, system_type });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/subscription/upgrade', (req, res) => {
   try {
     const user = getAuthUser(req);
@@ -734,6 +854,17 @@ app.post('/api/subscription/upgrade', (req, res) => {
     let targetAccountType = 'solo';
     if (tier.startsWith('org_')) targetAccountType = 'organization';
     else if (tier.startsWith('wholesale_')) targetAccountType = 'wholesale';
+
+    ensureUserSystemLicenses(orgId, targetAccountType);
+
+    // Activate the paid subscription license for this specific system
+    const now = new Date();
+    const thirtyDaysLater = new Date(now.getTime() + 30 * 86400000).toISOString().replace('T', ' ').slice(0, 19);
+    db.prepare(`
+      UPDATE user_system_licenses
+      SET status = 'active', subscription_tier = ?, subscription_ends_at = ?
+      WHERE user_id = ? AND system_type = ?
+    `).run(tier, thirtyDaysLater, orgId, targetAccountType);
 
     db.prepare('UPDATE users SET subscription_tier = ?, account_type = ? WHERE id = ? OR organization_id = ?').run(tier, targetAccountType, orgId, orgId);
 
@@ -757,6 +888,28 @@ app.post('/api/user/switch-portal', (req, res) => {
       return res.status(400).json({ error: 'Invalid portal type selected' });
     }
     const orgId = user.organization_id || user.id;
+    ensureUserSystemLicenses(orgId, user.account_type || 'solo');
+
+    // Anti-theft check: Ensure user has an active paid subscription or running trial for this system
+    const lic = db.prepare('SELECT * FROM user_system_licenses WHERE user_id = ? AND system_type = ?').get(orgId, account_type);
+    if (!lic || (lic.status !== 'active' && lic.status !== 'trial')) {
+      return res.status(403).json({
+        error: `Access to ${account_type.toUpperCase()} requires an active license or trial. Please subscribe to unlock this workspace.`,
+        requires_license: true,
+        license_status: lic ? lic.status : 'locked'
+      });
+    }
+
+    if (lic.status === 'trial' && lic.trial_ends_at) {
+      if (new Date(lic.trial_ends_at) < new Date()) {
+        db.prepare("UPDATE user_system_licenses SET status = 'expired' WHERE id = ?").run(lic.id);
+        return res.status(403).json({
+          error: `The 30-day trial for ${account_type.toUpperCase()} has expired. Please choose a subscription plan to continue.`,
+          requires_subscription: true
+        });
+      }
+    }
+
     db.prepare('UPDATE users SET account_type = ? WHERE id = ? OR organization_id = ?').run(account_type, orgId, orgId);
     res.json({ success: true, account_type });
   } catch (err) {

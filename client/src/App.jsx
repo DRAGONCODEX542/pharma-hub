@@ -647,7 +647,32 @@ export default function App() {
         setShowProfileMenu(false);
         setShowMobileMoreMenu(false);
       } else {
-        showToast(data.error || 'Failed to switch portal', 'error');
+        if (data.license_status === 'unstarted') {
+          // If system trial hasn't been started yet, activate the 30-day trial!
+          const actRes = await authFetch('/api/user/systems/activate-trial', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ system_type: type })
+          });
+          const actData = await actRes.json();
+          if (actRes.ok) {
+            showToast(actData.message, 'success');
+            const updated = { ...currentUser, account_type: type };
+            setCurrentUser(updated);
+            localStorage.setItem('pharmahub_user', JSON.stringify(updated));
+            if (type === 'wholesale') setActiveTab('wholesalers');
+            else if (type === 'organization') setActiveTab('dashboard');
+            else setActiveTab('pos');
+            setShowProfileMenu(false);
+            setShowMobileMoreMenu(false);
+            return;
+          }
+        }
+        showToast(data.error || 'Access requires active subscription', 'error');
+        if (data.requires_license || data.requires_subscription) {
+          setShowSubscriptionModal(true);
+          setAuthForm(f => ({ ...f, account_type: type }));
+        }
       }
     } catch {
       showToast('Error switching portal', 'error');

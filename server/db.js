@@ -584,6 +584,21 @@ export function initDatabase() {
         is_active INTEGER DEFAULT 1,
         created_at TEXT NOT NULL
       );
+
+      -- System Workspaces & Anti-Theft Licensing Matrix
+      -- Tracks per-system independent subscriptions/trials for each user account
+      CREATE TABLE IF NOT EXISTS user_system_licenses (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        system_type TEXT NOT NULL,       -- 'solo' | 'organization' | 'wholesale'
+        status TEXT DEFAULT 'locked',    -- 'trial' | 'active' | 'expired' | 'locked'
+        subscription_tier TEXT DEFAULT 'none',
+        trial_started_at TEXT,
+        trial_ends_at TEXT,
+        subscription_ends_at TEXT,
+        created_at TEXT NOT NULL,
+        UNIQUE(user_id, system_type)
+      );
     `);
   } catch (e) { console.error('Wholesale depot schema error:', e.message); }
 
