@@ -331,38 +331,6 @@ export default function App() {
   const [editingStaffMember, setEditingStaffMember] = useState(null);
   const [selectedRolePreset, setSelectedRolePreset] = useState('pharmacist');
 
-  // Granular Role & Permission Access Gatekeeper (Station Operator Aware)
-  const canAccess = (perm) => {
-    if (!currentUser) return false;
-    if (currentUser.account_type === 'solo') return true;
-
-    // Use active station operator if set on this device
-    if (activeOperator) {
-      if (activeOperator.role === 'admin' || activeOperator.role === 'superadmin') return true;
-      let perms = [];
-      if (Array.isArray(activeOperator.permissions)) perms = activeOperator.permissions;
-      else if (typeof activeOperator.permissions === 'string') {
-        try { perms = JSON.parse(activeOperator.permissions); } catch (e) { perms = []; }
-      }
-      if (perms.includes('all') || perms.includes('*')) return true;
-      return perms.includes(perm);
-    }
-
-    // If no active operator is selected yet on this device:
-    // If other staff exist in the organization, require station sign-in (deny until operator signs in)
-    const hasOtherStaff = staffList.some(s => s.id !== currentUser.id && s.role !== 'admin');
-    if (hasOtherStaff) return false;
-
-    // First time system opened by owner with no staff yet: full admin
-    return currentUser.role === 'admin' || currentUser.role === 'superadmin';
-  };
-
-  const isCurrentAdmin = currentUser?.account_type === 'solo' || (
-    activeOperator
-      ? (activeOperator.role === 'admin' || activeOperator.role === 'superadmin')
-      : (staffList.some(s => s.id !== currentUser.id && s.role !== 'admin') ? false : (currentUser?.role === 'admin' || currentUser?.role === 'superadmin'))
-  );
-
   // Wholesalers & Live Restock Directory State
   const [wholesalersList, setWholesalersList] = useState([]);
   const [selectedWholesaler, setSelectedWholesaler] = useState(null);
@@ -526,6 +494,38 @@ export default function App() {
   const [selectedOperatorForPin, setSelectedOperatorForPin] = useState(null);
   const [operatorPinInput, setOperatorPinInput] = useState('');
   const [operatorAdminPassword, setOperatorAdminPassword] = useState('');
+
+  // Granular Role & Permission Access Gatekeeper (Station Operator Aware)
+  const canAccess = (perm) => {
+    if (!currentUser) return false;
+    if (currentUser.account_type === 'solo') return true;
+
+    // Use active station operator if set on this device
+    if (activeOperator) {
+      if (activeOperator.role === 'admin' || activeOperator.role === 'superadmin') return true;
+      let perms = [];
+      if (Array.isArray(activeOperator.permissions)) perms = activeOperator.permissions;
+      else if (typeof activeOperator.permissions === 'string') {
+        try { perms = JSON.parse(activeOperator.permissions); } catch (e) { perms = []; }
+      }
+      if (perms.includes('all') || perms.includes('*')) return true;
+      return perms.includes(perm);
+    }
+
+    // If no active operator is selected yet on this device:
+    // If other staff exist in the organization, require station sign-in (deny until operator signs in)
+    const hasOtherStaff = staffList.some(s => s.id !== currentUser.id && s.role !== 'admin');
+    if (hasOtherStaff) return false;
+
+    // First time system opened by owner with no staff yet: full admin
+    return currentUser.role === 'admin' || currentUser.role === 'superadmin';
+  };
+
+  const isCurrentAdmin = currentUser?.account_type === 'solo' || (
+    activeOperator
+      ? (activeOperator.role === 'admin' || activeOperator.role === 'superadmin')
+      : (staffList.some(s => s.id !== currentUser.id && s.role !== 'admin') ? false : (currentUser?.role === 'admin' || currentUser?.role === 'superadmin'))
+  );
 
   // Department Category Filter (for both POS and Medicines views)
   const [selectedFormCategory, setSelectedFormCategory] = useState('All');
