@@ -54,6 +54,7 @@ import {
 } from 'lucide-react';
 import SoloPOS from './components/SoloPOS';
 import PharmaGuide from './components/PharmaGuide';
+import WholesaleHub from './components/WholesaleHub';
 
 const DEPARTMENTS = [
   { id: 'All', label: 'All Products', icon: '✨' },
@@ -2296,6 +2297,22 @@ export default function App() {
           </div>
         )}
       </div>
+    );
+  }
+
+  // Dedicated Wholesale Distribution System (Wholesale Hub Portal)
+  if (currentUser?.account_type === 'wholesale') {
+    return (
+      <WholesaleHub
+        currentUser={currentUser}
+        authFetch={authFetch}
+        showToast={showToast}
+        isDarkMode={isDarkMode}
+        setIsDarkMode={setIsDarkMode}
+        handleLogout={handleLogout}
+        handleSwitchAccountType={handleSwitchAccountType}
+        setShowSubscriptionModal={setShowSubscriptionModal}
+      />
     );
   }
 

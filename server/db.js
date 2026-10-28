@@ -354,6 +354,283 @@ export function initDatabase() {
     `);
   } catch (e) {}
 
+  // ── WHOLESALE DEPOT SYSTEM — Full B2B Distribution Platform ──────────────
+  try {
+    db.exec(`
+      -- Wholesale depot profiles (linked to users with account_type='wholesale')
+      CREATE TABLE IF NOT EXISTS wholesale_depots (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        depot_name TEXT NOT NULL,
+        owner_name TEXT,
+        phone TEXT,
+        email TEXT,
+        address TEXT,
+        county TEXT,
+        country TEXT DEFAULT 'Kenya',
+        currency TEXT DEFAULT 'KSh',
+        business_reg TEXT,
+        kra_pin TEXT,
+        logo_url TEXT,
+        created_at TEXT NOT NULL
+      );
+
+      -- Pharmacy ↔ Depot connections
+      CREATE TABLE IF NOT EXISTS depot_pharmacy_connections (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        depot_id INTEGER NOT NULL REFERENCES wholesale_depots(id) ON DELETE CASCADE,
+        pharmacy_user_id INTEGER NOT NULL REFERENCES users(id),
+        pharmacy_name TEXT NOT NULL,
+        contact_name TEXT,
+        contact_phone TEXT,
+        county TEXT,
+        payment_terms TEXT DEFAULT 'COD',   -- 'COD' | 'credit_30' | 'credit_60' | 'upfront'
+        credit_limit REAL DEFAULT 0,
+        outstanding_balance REAL DEFAULT 0,
+        status TEXT DEFAULT 'active',       -- 'active' | 'suspended'
+        connected_at TEXT NOT NULL
+      );
+
+      -- Wholesale product catalog (depot's inventory available to pharmacies)
+      CREATE TABLE IF NOT EXISTS depot_catalog (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        depot_id INTEGER NOT NULL REFERENCES wholesale_depots(id) ON DELETE CASCADE,
+        brand_name TEXT NOT NULL,
+        generic_name TEXT,
+        strength TEXT,
+        dosage_form TEXT,
+        manufacturer TEXT,
+        category TEXT DEFAULT 'OTC',
+        carton_size INTEGER DEFAULT 100,       -- units per carton
+        units_per_inner_pack INTEGER DEFAULT 10,
+        carton_price REAL NOT NULL,
+        inner_pack_price REAL,
+        unit_price REAL,
+        stock_cartons INTEGER DEFAULT 0,
+        stock_loose_units INTEGER DEFAULT 0,
+        batch_number TEXT,
+        manufacture_date TEXT,
+        expiry_date TEXT,
+        reorder_carton_level INTEGER DEFAULT 5,
+        is_visible INTEGER DEFAULT 1,         -- visible to all connected pharmacies by default
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      -- Per-pharmacy catalog visibility overrides
+      CREATE TABLE IF NOT EXISTS depot_catalog_visibility (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        depot_id INTEGER NOT NULL,
+        catalog_item_id INTEGER NOT NULL REFERENCES depot_catalog(id) ON DELETE CASCADE,
+        pharmacy_user_id INTEGER NOT NULL,
+        is_visible INTEGER DEFAULT 1,
+        PRIMARY KEY (catalog_item_id, pharmacy_user_id)
+      ) WITHOUT ROWID;
+
+      -- Inbound stock receiving (depot restocking in bulk)
+      CREATE TABLE IF NOT EXISTS depot_stock_receipts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        depot_id INTEGER NOT NULL REFERENCES wholesale_depots(id) ON DELETE CASCADE,
+        received_by INTEGER REFERENCES users(id),
+        supplier_name TEXT,
+        invoice_ref TEXT,
+        total_cost REAL,
+        notes TEXT,
+        received_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS depot_stock_receipt_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        receipt_id INTEGER NOT NULL REFERENCES depot_stock_receipts(id) ON DELETE CASCADE,
+        catalog_item_id INTEGER REFERENCES depot_catalog(id),
+        brand_name TEXT NOT NULL,
+        qty_cartons INTEGER DEFAULT 0,
+        qty_loose_units INTEGER DEFAULT 0,
+        cost_per_carton REAL,
+        batch_number TEXT,
+        expiry_date TEXT,
+        manufacture_date TEXT
+      );
+
+      -- Pharmacy orders placed to the depot
+      CREATE TABLE IF NOT EXISTS depot_orders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        depot_id INTEGER NOT NULL REFERENCES wholesale_depots(id),
+        pharmacy_user_id INTEGER NOT NULL REFERENCES users(id),
+        pharmacy_name TEXT NOT NULL,
+        order_ref TEXT NOT NULL,
+        subtotal REAL NOT NULL,
+        discount REAL DEFAULT 0,
+        total REAL NOT NULL,
+        currency TEXT DEFAULT 'KSh',
+        payment_method TEXT DEFAULT 'COD',
+        status TEXT DEFAULT 'pending',   -- pending|confirmed|packed|dispatched|delivered|cancelled
+        notes TEXT,
+        placed_at TEXT NOT NULL,
+        confirmed_at TEXT,
+        dispatched_at TEXT,
+        delivered_at TEXT,
+        cancelled_at TEXT,
+        cancel_reason TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS depot_order_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        order_id INTEGER NOT NULL REFERENCES depot_orders(id) ON DELETE CASCADE,
+        catalog_item_id INTEGER REFERENCES depot_catalog(id),
+        brand_name TEXT NOT NULL,
+        strength TEXT,
+        dosage_form TEXT,
+        qty_cartons INTEGER DEFAULT 0,
+        qty_loose_units INTEGER DEFAULT 0,
+        carton_price REAL,
+        unit_price REAL,
+        subtotal REAL NOT NULL
+      );
+
+      -- Delivery management
+      CREATE TABLE IF NOT EXISTS depot_deliveries (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        order_id INTEGER NOT NULL REFERENCES depot_orders(id),
+        depot_id INTEGER NOT NULL,
+        driver_user_id INTEGER REFERENCES users(id),
+        driver_name TEXT,
+        driver_phone TEXT,
+        vehicle_plate TEXT,
+        scheduled_date TEXT,
+        scheduled_time TEXT,
+        dispatched_at TEXT,
+        delivered_at TEXT,
+        delivery_address TEXT,
+        delivery_notes TEXT,
+        proof_note TEXT,
+        status TEXT DEFAULT 'scheduled'  -- scheduled|dispatched|delivered|failed
+      );
+
+      -- Invoices per order
+      CREATE TABLE IF NOT EXISTS depot_invoices (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        order_id INTEGER NOT NULL REFERENCES depot_orders(id),
+        depot_id INTEGER NOT NULL,
+        pharmacy_user_id INTEGER NOT NULL,
+        pharmacy_name TEXT NOT NULL,
+        invoice_ref TEXT UNIQUE NOT NULL,
+        amount REAL NOT NULL,
+        currency TEXT DEFAULT 'KSh',
+        payment_terms TEXT DEFAULT 'COD',
+        due_date TEXT,
+        paid_at TEXT,
+        status TEXT DEFAULT 'unpaid',   -- unpaid|partial|paid|overdue
+        notes TEXT,
+        created_at TEXT NOT NULL
+      );
+
+      -- Invoice payments
+      CREATE TABLE IF NOT EXISTS depot_payments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        invoice_id INTEGER NOT NULL REFERENCES depot_invoices(id),
+        depot_id INTEGER NOT NULL,
+        amount REAL NOT NULL,
+        currency TEXT DEFAULT 'KSh',
+        method TEXT DEFAULT 'cash',   -- cash|mpesa|bank_transfer|cheque
+        reference TEXT,
+        paid_by TEXT,
+        recorded_by INTEGER REFERENCES users(id),
+        notes TEXT,
+        paid_at TEXT NOT NULL
+      );
+
+      -- Teleseller / Sales Rep CRM call logs
+      CREATE TABLE IF NOT EXISTS depot_call_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        depot_id INTEGER NOT NULL,
+        staff_user_id INTEGER REFERENCES users(id),
+        staff_name TEXT,
+        pharmacy_user_id INTEGER,
+        pharmacy_name TEXT NOT NULL,
+        phone_called TEXT,
+        called_at TEXT NOT NULL,
+        outcome TEXT DEFAULT 'no_answer',  -- no_answer|interested|placed_order|callback|declined|other
+        follow_up_date TEXT,
+        notes TEXT
+      );
+
+      -- Return requests from pharmacies
+      CREATE TABLE IF NOT EXISTS depot_returns (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        order_id INTEGER REFERENCES depot_orders(id),
+        depot_id INTEGER NOT NULL,
+        pharmacy_user_id INTEGER NOT NULL,
+        pharmacy_name TEXT NOT NULL,
+        return_ref TEXT UNIQUE NOT NULL,
+        reason TEXT NOT NULL,
+        items_json TEXT NOT NULL,
+        credit_note_amount REAL DEFAULT 0,
+        status TEXT DEFAULT 'requested',  -- requested|approved|rejected|credit_issued
+        created_at TEXT NOT NULL,
+        resolved_at TEXT
+      );
+
+      -- Wholesale staff (per depot)
+      CREATE TABLE IF NOT EXISTS depot_staff (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        depot_id INTEGER NOT NULL REFERENCES wholesale_depots(id) ON DELETE CASCADE,
+        user_id INTEGER REFERENCES users(id),
+        name TEXT NOT NULL,
+        email TEXT,
+        phone TEXT,
+        role TEXT NOT NULL DEFAULT 'teleseller',  -- admin|accountant|teleseller|warehouse|driver
+        custom_permissions TEXT,   -- JSON override array
+        is_active INTEGER DEFAULT 1,
+        created_at TEXT NOT NULL
+      );
+    `);
+  } catch (e) { console.error('Wholesale depot schema error:', e.message); }
+
+  // Safe migrations for wholesale depot tables
+  try { db.exec('ALTER TABLE depot_catalog ADD COLUMN tags TEXT;'); } catch(e) {}
+  try { db.exec('ALTER TABLE depot_orders ADD COLUMN assigned_teleseller TEXT;'); } catch(e) {}
+  try { db.exec('ALTER TABLE wholesale_depots ADD COLUMN user_id INTEGER;'); } catch(e) {}
+
+  // Seed demo wholesale depot if none exists (linked to first wholesale user or standalone)
+  try {
+    const depotCount = db.prepare('SELECT count(*) as c FROM wholesale_depots').get();
+    if (depotCount.c === 0) {
+      const nowStr = new Date().toISOString().replace('T', ' ').slice(0, 19);
+      const depotId = db.prepare(`
+        INSERT INTO wholesale_depots (user_id, depot_name, owner_name, phone, email, address, county, country, currency, business_reg, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(-1, 'PharmaHub Demo Depot', 'Demo Admin', '+254 700 000001', 'depot@pharmahub.co.ke', 'Industrial Area, Nairobi', 'Nairobi', 'Kenya', 'KSh', 'PVT-DEMO-001', nowStr).lastInsertRowid;
+
+      // Seed demo catalog items
+      const catalogItems = [
+        { brand: 'Augmentin 625mg Tabs (GSK)', generic: 'Amoxicillin + Clavulanate', strength: '500mg+125mg', form: 'Tablet', mfr: 'GSK Kenya', category: 'Prescription', carton: 100, ipu: 10, carton_price: 12500, unit: 125, stock: 80, expiry: '2027-06-30' },
+        { brand: 'Coartem 80/480mg (Novartis)', generic: 'Artemether + Lumefantrine', strength: '80mg/480mg', form: 'Tablet', mfr: 'Novartis', category: 'Prescription', carton: 60, ipu: 6, carton_price: 9600, unit: 160, stock: 120, expiry: '2027-03-31' },
+        { brand: 'Panadol 500mg (GSK)', generic: 'Paracetamol', strength: '500mg', form: 'Tablet', mfr: 'GSK Kenya', category: 'OTC', carton: 500, ipu: 50, carton_price: 4500, unit: 9, stock: 200, expiry: '2027-12-31' },
+        { brand: 'Flagyl 400mg (Sanofi)', generic: 'Metronidazole', strength: '400mg', form: 'Tablet', mfr: 'Sanofi', category: 'Prescription', carton: 100, ipu: 10, carton_price: 3800, unit: 38, stock: 95, expiry: '2027-09-30' },
+        { brand: 'Amoxil 500mg Capsules', generic: 'Amoxicillin', strength: '500mg', form: 'Capsule', mfr: 'Beecham', category: 'Prescription', carton: 100, ipu: 10, carton_price: 5200, unit: 52, stock: 150, expiry: '2027-05-31' },
+        { brand: 'Septrin DS 960mg (Aspen)', generic: 'Cotrimoxazole', strength: '960mg DS', form: 'Tablet', mfr: 'Aspen', category: 'Prescription', carton: 100, ipu: 10, carton_price: 4200, unit: 42, stock: 60, expiry: '2027-08-31' },
+        { brand: 'Ventolin Evohaler (GSK)', generic: 'Salbutamol', strength: '100mcg/dose', form: 'Inhaler', mfr: 'GSK Kenya', category: 'Prescription', carton: 30, ipu: 1, carton_price: 18000, unit: 600, stock: 40, expiry: '2027-04-30' },
+        { brand: 'Glucophage 500mg (Merck)', generic: 'Metformin', strength: '500mg', form: 'Tablet', mfr: 'Merck', category: 'Prescription', carton: 100, ipu: 10, carton_price: 7200, unit: 72, stock: 110, expiry: '2027-11-30' },
+        { brand: 'Omeprazole 20mg Caps Generic', generic: 'Omeprazole', strength: '20mg', form: 'Capsule', mfr: 'Cipla', category: 'OTC', carton: 100, ipu: 10, carton_price: 3500, unit: 35, stock: 180, expiry: '2027-07-31' },
+        { brand: 'Doxycycline 100mg Caps', generic: 'Doxycycline', strength: '100mg', form: 'Capsule', mfr: 'MedPharma', category: 'Prescription', carton: 100, ipu: 10, carton_price: 5600, unit: 56, stock: 75, expiry: '2027-02-28' },
+        { brand: 'Piriton Syrup 100ml (GSK)', generic: 'Chlorphenamine', strength: '2mg/5ml', form: 'Syrup', mfr: 'GSK Kenya', category: 'OTC', carton: 50, ipu: 1, carton_price: 8500, unit: 170, stock: 55, expiry: '2026-12-31' },
+        { brand: 'Gentamicin Eye Drops 5ml', generic: 'Gentamicin', strength: '0.3%', form: 'Eye Drop', mfr: 'Sifapharm', category: 'Prescription', carton: 100, ipu: 1, carton_price: 9000, unit: 90, stock: 45, expiry: '2027-01-31' },
+        { brand: 'ORS Sachet (UNICEF Oral Salt)', generic: 'Oral Rehydration Salts', strength: 'WHO formula', form: 'Sachet', mfr: 'Shelys', category: 'OTC', carton: 500, ipu: 10, carton_price: 6000, unit: 12, stock: 300, expiry: '2028-01-31' },
+        { brand: 'IV Fluid NS 0.9% 500ml', generic: 'Sodium Chloride', strength: '0.9%', form: 'IV Infusion', mfr: 'Fresenius Kabi', category: 'Prescription', carton: 24, ipu: 1, carton_price: 4800, unit: 200, stock: 60, expiry: '2027-06-30' },
+        { brand: 'Insulin Actrapid 10ml (Novo)', generic: 'Human Insulin', strength: '100IU/ml', form: 'Injection', mfr: 'Novo Nordisk', category: 'Prescription', carton: 25, ipu: 1, carton_price: 18750, unit: 750, stock: 30, expiry: '2027-03-31' },
+      ];
+
+      const insertCatalog = db.prepare(`
+        INSERT INTO depot_catalog (depot_id, brand_name, generic_name, strength, dosage_form, manufacturer, category, carton_size, units_per_inner_pack, carton_price, unit_price, stock_cartons, expiry_date, is_visible, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+      `);
+      for (const item of catalogItems) {
+        insertCatalog.run(depotId, item.brand, item.generic, item.strength, item.form, item.mfr, item.category, item.carton, item.ipu, item.carton_price, item.unit, item.stock, item.expiry, nowStr, nowStr);
+      }
+    }
+  } catch (e) { console.error('Depot seed error:', e.message); }
+
   // Default settings if empty
   const getSetting = db.prepare('SELECT value FROM settings WHERE key = ?');
   const insertSetting = db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)');

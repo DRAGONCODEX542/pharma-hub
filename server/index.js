@@ -764,7 +764,568 @@ app.post('/api/user/switch-portal', (req, res) => {
   }
 });
 
-// --- WHOLESALER DIRECTORY & LIVE RESTOCK CATALOG ---
+// =====================================================
+// WHOLESALE DEPOT B2B API (Full Distribution System)
+// =====================================================
+
+// -- SSE clients registry for real-time stock broadcast --
+const wholesaleSSEClients = new Map(); // depotId -> Set of res objects
+
+function broadcastDepotUpdate(depotId, event, data) {
+  const clients = wholesaleSSEClients.get(depotId);
+  if (!clients || clients.size === 0) return;
+  const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  for (const client of clients) {
+    try { client.write(payload); } catch (e) { clients.delete(client); }
+  }
+}
+
+// SSE stream endpoint (pharmacies + depot staff subscribe for real-time updates)
+app.get('/api/depot/stream', (req, res) => {
+  const depotId = parseInt(req.query.depot_id, 10);
+  if (!depotId) return res.status(400).json({ error: 'depot_id required' });
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.flushHeaders();
+  res.write(`event: connected\ndata: {"depotId":${depotId}}\n\n`);
+  if (!wholesaleSSEClients.has(depotId)) wholesaleSSEClients.set(depotId, new Set());
+  wholesaleSSEClients.get(depotId).add(res);
+  const heartbeat = setInterval(() => { try { res.write(': ping\n\n'); } catch(e) {} }, 25000);
+  req.on('close', () => {
+    clearInterval(heartbeat);
+    wholesaleSSEClients.get(depotId)?.delete(res);
+  });
+});
+
+// Get or create depot for current wholesale user
+app.get('/api/depot/me', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ error: 'Authentication required' });
+    let depot = db.prepare('SELECT * FROM wholesale_depots WHERE user_id = ?').get(user.id);
+    if (!depot) {
+      // Auto-create depot for new wholesale users
+      const nowStr = new Date().toISOString().replace('T', ' ').slice(0, 19);
+      const depotId = db.prepare(`
+        INSERT INTO wholesale_depots (user_id, depot_name, owner_name, phone, email, address, county, country, currency, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(user.id, user.pharmacy_name || 'My Wholesale Depot', user.name, user.phone || '', user.email || '', user.address || '', '', 'Kenya', user.currency_symbol || 'KSh', nowStr).lastInsertRowid;
+      depot = db.prepare('SELECT * FROM wholesale_depots WHERE id = ?').get(Number(depotId));
+    }
+    // Augment with stats
+    const catCount = db.prepare('SELECT count(*) as c FROM depot_catalog WHERE depot_id = ?').get(depot.id);
+    const connCount = db.prepare('SELECT count(*) as c FROM depot_pharmacy_connections WHERE depot_id = ? AND status = ?').get(depot.id, 'active');
+    const pendingOrders = db.prepare('SELECT count(*) as c FROM depot_orders WHERE depot_id = ? AND status = ?').get(depot.id, 'pending');
+    const overdueInvoices = db.prepare("SELECT count(*) as c FROM depot_invoices WHERE depot_id = ? AND status = 'overdue'").get(depot.id);
+    const expiryAlerts = db.prepare("SELECT count(*) as c FROM depot_catalog WHERE depot_id = ? AND expiry_date IS NOT NULL AND date(expiry_date) <= date('now', '+90 days')").get(depot.id);
+    res.json({ ...depot, catalog_count: catCount.c, pharmacy_connections: connCount.c, pending_orders: pendingOrders.c, overdue_invoices: overdueInvoices.c, expiry_alerts: expiryAlerts.c });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/depot/me', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ error: 'Authentication required' });
+    const depot = db.prepare('SELECT * FROM wholesale_depots WHERE user_id = ?').get(user.id);
+    if (!depot) return res.status(404).json({ error: 'Depot not found' });
+    const { depot_name, owner_name, phone, email, address, county, country, currency, business_reg, kra_pin } = req.body;
+    db.prepare(`UPDATE wholesale_depots SET depot_name=COALESCE(?,depot_name), owner_name=COALESCE(?,owner_name), phone=COALESCE(?,phone), email=COALESCE(?,email), address=COALESCE(?,address), county=COALESCE(?,county), country=COALESCE(?,country), currency=COALESCE(?,currency), business_reg=COALESCE(?,business_reg), kra_pin=COALESCE(?,kra_pin) WHERE id=?`)
+      .run(depot_name||null, owner_name||null, phone||null, email||null, address||null, county||null, country||null, currency||null, business_reg||null, kra_pin||null, depot.id);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- DEPOT CATALOG ---
+app.get('/api/depot/catalog', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ error: 'Authentication required' });
+    let depotId;
+    if (user.account_type === 'wholesale') {
+      const depot = db.prepare('SELECT id FROM wholesale_depots WHERE user_id = ?').get(user.id);
+      depotId = depot?.id;
+    } else {
+      // Pharmacy browsing — get from query
+      depotId = parseInt(req.query.depot_id, 10) || null;
+    }
+    if (!depotId) return res.json([]);
+    const q = (req.query.q || '').trim();
+    const cat = req.query.category || '';
+    let sql = 'SELECT * FROM depot_catalog WHERE depot_id = ?';
+    const params = [depotId];
+    if (q) { sql += ' AND (brand_name LIKE ? OR generic_name LIKE ?)'; params.push(`%${q}%`, `%${q}%`); }
+    if (cat) { sql += ' AND category = ?'; params.push(cat); }
+    sql += ' ORDER BY brand_name ASC';
+    const items = db.prepare(sql).all(...params);
+    // Mark expiry status
+    const today = new Date();
+    const enriched = items.map(item => {
+      const expDays = item.expiry_date ? Math.ceil((new Date(item.expiry_date) - today) / 86400000) : null;
+      return { ...item, days_to_expiry: expDays, expiry_status: expDays !== null ? (expDays <= 0 ? 'expired' : expDays <= 30 ? 'critical' : expDays <= 90 ? 'warning' : 'ok') : 'ok' };
+    });
+    res.json(enriched);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/depot/catalog', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user || user.account_type !== 'wholesale') return res.status(403).json({ error: 'Wholesale depot access required' });
+    const depot = db.prepare('SELECT id FROM wholesale_depots WHERE user_id = ?').get(user.id);
+    if (!depot) return res.status(404).json({ error: 'Depot not found' });
+    const { brand_name, generic_name, strength, dosage_form, manufacturer, category, carton_size, units_per_inner_pack, carton_price, inner_pack_price, unit_price, stock_cartons, stock_loose_units, expiry_date, manufacture_date, batch_number, reorder_carton_level, tags } = req.body;
+    if (!brand_name || !carton_price) return res.status(400).json({ error: 'Brand name and carton price are required' });
+    const nowStr = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    const result = db.prepare(`
+      INSERT INTO depot_catalog (depot_id, brand_name, generic_name, strength, dosage_form, manufacturer, category, carton_size, units_per_inner_pack, carton_price, inner_pack_price, unit_price, stock_cartons, stock_loose_units, expiry_date, manufacture_date, batch_number, reorder_carton_level, tags, is_visible, created_at, updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?)
+    `).run(depot.id, brand_name, generic_name||null, strength||null, dosage_form||null, manufacturer||null, category||'OTC', carton_size||100, units_per_inner_pack||10, Number(carton_price), inner_pack_price||null, unit_price||null, stock_cartons||0, stock_loose_units||0, expiry_date||null, manufacture_date||null, batch_number||null, reorder_carton_level||5, tags||null, nowStr, nowStr);
+    broadcastDepotUpdate(depot.id, 'catalog_updated', { type: 'new', id: Number(result.lastInsertRowid) });
+    res.json({ success: true, id: Number(result.lastInsertRowid) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/depot/catalog/:id', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user || user.account_type !== 'wholesale') return res.status(403).json({ error: 'Wholesale access required' });
+    const depot = db.prepare('SELECT id FROM wholesale_depots WHERE user_id = ?').get(user.id);
+    if (!depot) return res.status(404).json({ error: 'Depot not found' });
+    const itemId = parseInt(req.params.id, 10);
+    const { brand_name, generic_name, strength, dosage_form, manufacturer, category, carton_size, units_per_inner_pack, carton_price, unit_price, stock_cartons, stock_loose_units, expiry_date, reorder_carton_level, is_visible, tags } = req.body;
+    const nowStr = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    db.prepare(`UPDATE depot_catalog SET brand_name=COALESCE(?,brand_name), generic_name=COALESCE(?,generic_name), strength=COALESCE(?,strength), dosage_form=COALESCE(?,dosage_form), manufacturer=COALESCE(?,manufacturer), category=COALESCE(?,category), carton_size=COALESCE(?,carton_size), units_per_inner_pack=COALESCE(?,units_per_inner_pack), carton_price=COALESCE(?,carton_price), unit_price=COALESCE(?,unit_price), stock_cartons=COALESCE(?,stock_cartons), stock_loose_units=COALESCE(?,stock_loose_units), expiry_date=COALESCE(?,expiry_date), reorder_carton_level=COALESCE(?,reorder_carton_level), is_visible=COALESCE(?,is_visible), tags=COALESCE(?,tags), updated_at=? WHERE id=? AND depot_id=?`)
+      .run(brand_name||null, generic_name||null, strength||null, dosage_form||null, manufacturer||null, category||null, carton_size||null, units_per_inner_pack||null, carton_price||null, unit_price||null, stock_cartons||null, stock_loose_units||null, expiry_date||null, reorder_carton_level||null, is_visible !== undefined ? is_visible : null, tags||null, nowStr, itemId, depot.id);
+    broadcastDepotUpdate(depot.id, 'catalog_updated', { type: 'edit', id: itemId });
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/depot/catalog/:id', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user || user.account_type !== 'wholesale') return res.status(403).json({ error: 'Wholesale access required' });
+    const depot = db.prepare('SELECT id FROM wholesale_depots WHERE user_id = ?').get(user.id);
+    const itemId = parseInt(req.params.id, 10);
+    db.prepare('DELETE FROM depot_catalog WHERE id = ? AND depot_id = ?').run(itemId, depot.id);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Bulk stock receive into depot catalog
+app.post('/api/depot/stock-receive', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user || user.account_type !== 'wholesale') return res.status(403).json({ error: 'Wholesale access required' });
+    const depot = db.prepare('SELECT id FROM wholesale_depots WHERE user_id = ?').get(user.id);
+    if (!depot) return res.status(404).json({ error: 'Depot not found' });
+    const { supplier_name, invoice_ref, total_cost, notes, items } = req.body;
+    if (!items || !items.length) return res.status(400).json({ error: 'No items provided' });
+    const nowStr = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    const receiptId = db.prepare(`INSERT INTO depot_stock_receipts (depot_id, received_by, supplier_name, invoice_ref, total_cost, notes, received_at) VALUES (?,?,?,?,?,?,?)`)
+      .run(depot.id, user.id, supplier_name||'', invoice_ref||'', total_cost||0, notes||'', nowStr).lastInsertRowid;
+    for (const item of items) {
+      db.prepare(`INSERT INTO depot_stock_receipt_items (receipt_id, catalog_item_id, brand_name, qty_cartons, qty_loose_units, cost_per_carton, batch_number, expiry_date, manufacture_date) VALUES (?,?,?,?,?,?,?,?,?)`)
+        .run(Number(receiptId), item.catalog_item_id||null, item.brand_name, item.qty_cartons||0, item.qty_loose_units||0, item.cost_per_carton||0, item.batch_number||'', item.expiry_date||'', item.manufacture_date||'');
+      if (item.catalog_item_id) {
+        db.prepare(`UPDATE depot_catalog SET stock_cartons = stock_cartons + ?, stock_loose_units = stock_loose_units + ?, updated_at = ? WHERE id = ? AND depot_id = ?`)
+          .run(item.qty_cartons||0, item.qty_loose_units||0, nowStr, item.catalog_item_id, depot.id);
+      }
+    }
+    broadcastDepotUpdate(depot.id, 'stock_updated', { receipt_id: Number(receiptId) });
+    res.json({ success: true, receipt_id: Number(receiptId) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- PHARMACY CONNECTIONS ---
+app.get('/api/depot/connections', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user || user.account_type !== 'wholesale') return res.status(403).json({ error: 'Wholesale access required' });
+    const depot = db.prepare('SELECT id FROM wholesale_depots WHERE user_id = ?').get(user.id);
+    if (!depot) return res.json([]);
+    const connections = db.prepare('SELECT * FROM depot_pharmacy_connections WHERE depot_id = ? ORDER BY pharmacy_name ASC').all(depot.id);
+    const withBalance = connections.map(c => {
+      const unpaidInvoices = db.prepare("SELECT COALESCE(SUM(amount),0) as total FROM depot_invoices WHERE depot_id = ? AND pharmacy_user_id = ? AND status != 'paid'").get(depot.id, c.pharmacy_user_id);
+      return { ...c, outstanding_balance: unpaidInvoices.total };
+    });
+    res.json(withBalance);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/depot/connections', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user || user.account_type !== 'wholesale') return res.status(403).json({ error: 'Wholesale access required' });
+    const depot = db.prepare('SELECT id FROM wholesale_depots WHERE user_id = ?').get(user.id);
+    if (!depot) return res.status(404).json({ error: 'Depot not found' });
+    const { pharmacy_name, contact_name, contact_phone, county, payment_terms, credit_limit } = req.body;
+    const nowStr = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    // Try to find matching pharmacy user
+    const pharmacyUser = db.prepare("SELECT id FROM users WHERE pharmacy_name LIKE ? AND account_type IN ('solo','organization') LIMIT 1").get(`%${pharmacy_name}%`);
+    const result = db.prepare(`INSERT INTO depot_pharmacy_connections (depot_id, pharmacy_user_id, pharmacy_name, contact_name, contact_phone, county, payment_terms, credit_limit, status, connected_at) VALUES (?,?,?,?,?,?,?,?,?,?)`)
+      .run(depot.id, pharmacyUser?.id || -1, pharmacy_name, contact_name||'', contact_phone||'', county||'', payment_terms||'COD', credit_limit||0, 'active', nowStr);
+    res.json({ success: true, id: Number(result.lastInsertRowid) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/depot/connections/:id', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user || user.account_type !== 'wholesale') return res.status(403).json({ error: 'Wholesale access required' });
+    const depot = db.prepare('SELECT id FROM wholesale_depots WHERE user_id = ?').get(user.id);
+    const connId = parseInt(req.params.id, 10);
+    const { payment_terms, credit_limit, status, contact_phone, county } = req.body;
+    db.prepare(`UPDATE depot_pharmacy_connections SET payment_terms=COALESCE(?,payment_terms), credit_limit=COALESCE(?,credit_limit), status=COALESCE(?,status), contact_phone=COALESCE(?,contact_phone), county=COALESCE(?,county) WHERE id=? AND depot_id=?`)
+      .run(payment_terms||null, credit_limit||null, status||null, contact_phone||null, county||null, connId, depot.id);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- DEPOT ORDERS ---
+app.get('/api/depot/orders', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ error: 'Authentication required' });
+    let depotId;
+    if (user.account_type === 'wholesale') {
+      const depot = db.prepare('SELECT id FROM wholesale_depots WHERE user_id = ?').get(user.id);
+      depotId = depot?.id;
+    } else {
+      depotId = parseInt(req.query.depot_id, 10) || null;
+    }
+    if (!depotId) return res.json([]);
+    const status = req.query.status || '';
+    let sql = 'SELECT * FROM depot_orders WHERE depot_id = ?';
+    const params = [depotId];
+    if (status) { sql += ' AND status = ?'; params.push(status); }
+    sql += ' ORDER BY placed_at DESC';
+    const orders = db.prepare(sql).all(...params);
+    const enriched = orders.map(o => {
+      const items = db.prepare('SELECT * FROM depot_order_items WHERE order_id = ?').all(o.id);
+      const delivery = db.prepare('SELECT * FROM depot_deliveries WHERE order_id = ?').get(o.id);
+      const invoice = db.prepare('SELECT * FROM depot_invoices WHERE order_id = ?').get(o.id);
+      return { ...o, items, delivery, invoice };
+    });
+    res.json(enriched);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Pharmacy places an order to a depot
+app.post('/api/depot/orders', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ error: 'Authentication required' });
+    const { depot_id, items, notes, payment_method } = req.body;
+    if (!depot_id || !items || !items.length) return res.status(400).json({ error: 'depot_id and items are required' });
+    const depot = db.prepare('SELECT * FROM wholesale_depots WHERE id = ?').get(depot_id);
+    if (!depot) return res.status(404).json({ error: 'Depot not found' });
+    const nowStr = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    const orderRef = 'ORD-' + Date.now().toString(36).toUpperCase();
+    let subtotal = 0;
+    for (const item of items) { subtotal += (item.subtotal || 0); }
+    // Get pharmacy payment terms
+    const conn = db.prepare('SELECT payment_terms FROM depot_pharmacy_connections WHERE depot_id = ? AND pharmacy_user_id = ?').get(depot_id, user.id);
+    const payMethod = payment_method || conn?.payment_terms || 'COD';
+    const orderId = db.prepare(`INSERT INTO depot_orders (depot_id, pharmacy_user_id, pharmacy_name, order_ref, subtotal, total, currency, payment_method, status, notes, placed_at) VALUES (?,?,?,?,?,?,?,?,'pending',?,?)`)
+      .run(depot_id, user.id, user.pharmacy_name, orderRef, subtotal, subtotal, depot.currency, payMethod, notes||'', nowStr).lastInsertRowid;
+    for (const item of items) {
+      db.prepare('INSERT INTO depot_order_items (order_id, catalog_item_id, brand_name, strength, dosage_form, qty_cartons, qty_loose_units, carton_price, unit_price, subtotal) VALUES (?,?,?,?,?,?,?,?,?,?)')
+        .run(Number(orderId), item.catalog_item_id||null, item.brand_name, item.strength||'', item.dosage_form||'', item.qty_cartons||0, item.qty_loose_units||0, item.carton_price||0, item.unit_price||0, item.subtotal||0);
+    }
+    broadcastDepotUpdate(depot_id, 'new_order', { order_id: Number(orderId), order_ref: orderRef, pharmacy: user.pharmacy_name, total: subtotal });
+    res.json({ success: true, order_id: Number(orderId), order_ref: orderRef });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Update order status (confirm, pack, dispatch, deliver, cancel)
+app.put('/api/depot/orders/:id/status', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user || user.account_type !== 'wholesale') return res.status(403).json({ error: 'Wholesale access required' });
+    const depot = db.prepare('SELECT * FROM wholesale_depots WHERE user_id = ?').get(user.id);
+    if (!depot) return res.status(404).json({ error: 'Depot not found' });
+    const orderId = parseInt(req.params.id, 10);
+    const order = db.prepare('SELECT * FROM depot_orders WHERE id = ? AND depot_id = ?').get(orderId, depot.id);
+    if (!order) return res.status(404).json({ error: 'Order not found' });
+    const { status, cancel_reason } = req.body;
+    const nowStr = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    const timestampFields = { confirmed: 'confirmed_at', dispatched: 'dispatched_at', delivered: 'delivered_at', cancelled: 'cancelled_at' };
+    const tsField = timestampFields[status] || null;
+    if (tsField) {
+      db.prepare(`UPDATE depot_orders SET status = ?, ${tsField} = ?, cancel_reason = COALESCE(?, cancel_reason) WHERE id = ?`).run(status, nowStr, cancel_reason||null, orderId);
+    } else {
+      db.prepare('UPDATE depot_orders SET status = ? WHERE id = ?').run(status, orderId);
+    }
+    // When confirmed, deduct stock from catalog
+    if (status === 'confirmed') {
+      const items = db.prepare('SELECT * FROM depot_order_items WHERE order_id = ?').all(orderId);
+      for (const item of items) {
+        if (item.catalog_item_id) {
+          db.prepare('UPDATE depot_catalog SET stock_cartons = MAX(0, stock_cartons - ?) WHERE id = ?').run(item.qty_cartons||0, item.catalog_item_id);
+        }
+      }
+      // Auto-create invoice
+      const invRef = 'INV-' + Date.now().toString(36).toUpperCase();
+      const conn = db.prepare('SELECT payment_terms FROM depot_pharmacy_connections WHERE depot_id = ? AND pharmacy_user_id = ?').get(depot.id, order.pharmacy_user_id);
+      const terms = conn?.payment_terms || 'COD';
+      let dueDate = null;
+      if (terms === 'credit_30') dueDate = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+      else if (terms === 'credit_60') dueDate = new Date(Date.now() + 60 * 86400000).toISOString().slice(0, 10);
+      db.prepare('INSERT INTO depot_invoices (order_id, depot_id, pharmacy_user_id, pharmacy_name, invoice_ref, amount, currency, payment_terms, due_date, status, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
+        .run(orderId, depot.id, order.pharmacy_user_id, order.pharmacy_name, invRef, order.total, depot.currency, terms, dueDate, terms === 'COD' ? 'unpaid' : 'unpaid', nowStr);
+      broadcastDepotUpdate(depot.id, 'stock_updated', { catalog_updated: true });
+    }
+    broadcastDepotUpdate(depot.id, 'order_updated', { order_id: orderId, status });
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- DELIVERIES ---
+app.get('/api/depot/deliveries', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ error: 'Authentication required' });
+    const depot = db.prepare('SELECT id FROM wholesale_depots WHERE user_id = ?').get(user.id);
+    if (!depot) return res.json([]);
+    const deliveries = db.prepare(`
+      SELECT d.*, o.order_ref, o.pharmacy_name, o.total, o.status as order_status
+      FROM depot_deliveries d JOIN depot_orders o ON d.order_id = o.id
+      WHERE d.depot_id = ? ORDER BY d.scheduled_date DESC, d.id DESC
+    `).all(depot.id);
+    res.json(deliveries);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/depot/deliveries', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user || user.account_type !== 'wholesale') return res.status(403).json({ error: 'Wholesale access required' });
+    const depot = db.prepare('SELECT id FROM wholesale_depots WHERE user_id = ?').get(user.id);
+    if (!depot) return res.status(404).json({ error: 'Depot not found' });
+    const { order_id, driver_name, driver_phone, vehicle_plate, scheduled_date, scheduled_time, delivery_address, delivery_notes } = req.body;
+    const result = db.prepare('INSERT INTO depot_deliveries (order_id, depot_id, driver_name, driver_phone, vehicle_plate, scheduled_date, scheduled_time, delivery_address, delivery_notes, status) VALUES (?,?,?,?,?,?,?,?,?,?)')
+      .run(order_id, depot.id, driver_name||'', driver_phone||'', vehicle_plate||'', scheduled_date||'', scheduled_time||'', delivery_address||'', delivery_notes||'', 'scheduled');
+    db.prepare("UPDATE depot_orders SET status = 'packed' WHERE id = ?").run(order_id);
+    res.json({ success: true, delivery_id: Number(result.lastInsertRowid) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/depot/deliveries/:id', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ error: 'Authentication required' });
+    const deliveryId = parseInt(req.params.id, 10);
+    const { status, proof_note } = req.body;
+    const nowStr = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    const delivery = db.prepare('SELECT * FROM depot_deliveries WHERE id = ?').get(deliveryId);
+    if (!delivery) return res.status(404).json({ error: 'Delivery not found' });
+    if (status === 'dispatched') {
+      db.prepare('UPDATE depot_deliveries SET status = ?, dispatched_at = ? WHERE id = ?').run(status, nowStr, deliveryId);
+      db.prepare("UPDATE depot_orders SET status = 'dispatched', dispatched_at = ? WHERE id = ?").run(nowStr, delivery.order_id);
+    } else if (status === 'delivered') {
+      db.prepare('UPDATE depot_deliveries SET status = ?, delivered_at = ?, proof_note = ? WHERE id = ?').run(status, nowStr, proof_note||'', deliveryId);
+      db.prepare("UPDATE depot_orders SET status = 'delivered', delivered_at = ? WHERE id = ?").run(nowStr, delivery.order_id);
+      // Mark invoice as unpaid (COD payment needed) or keep as-is for credit
+      const inv = db.prepare('SELECT * FROM depot_invoices WHERE order_id = ?').get(delivery.order_id);
+      if (inv && inv.payment_terms === 'COD') {
+        db.prepare("UPDATE depot_invoices SET status = 'unpaid' WHERE id = ?").run(inv.id);
+      }
+    } else {
+      db.prepare('UPDATE depot_deliveries SET status = ? WHERE id = ?').run(status, deliveryId);
+    }
+    broadcastDepotUpdate(delivery.depot_id, 'delivery_updated', { delivery_id: deliveryId, order_id: delivery.order_id, status });
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- INVOICES & PAYMENTS ---
+app.get('/api/depot/invoices', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user || user.account_type !== 'wholesale') return res.status(403).json({ error: 'Wholesale access required' });
+    const depot = db.prepare('SELECT id, currency FROM wholesale_depots WHERE user_id = ?').get(user.id);
+    if (!depot) return res.json([]);
+    // Auto-flag overdue invoices
+    db.prepare("UPDATE depot_invoices SET status = 'overdue' WHERE depot_id = ? AND status = 'unpaid' AND due_date IS NOT NULL AND date(due_date) < date('now')").run(depot.id);
+    const invoices = db.prepare('SELECT * FROM depot_invoices WHERE depot_id = ? ORDER BY created_at DESC').all(depot.id);
+    const enriched = invoices.map(inv => {
+      const payments = db.prepare('SELECT * FROM depot_payments WHERE invoice_id = ? ORDER BY paid_at DESC').all(inv.id);
+      const paid_total = payments.reduce((s, p) => s + p.amount, 0);
+      return { ...inv, payments, paid_total, balance: inv.amount - paid_total };
+    });
+    res.json(enriched);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/depot/invoices/:id/pay', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user || user.account_type !== 'wholesale') return res.status(403).json({ error: 'Wholesale access required' });
+    const depot = db.prepare('SELECT id FROM wholesale_depots WHERE user_id = ?').get(user.id);
+    const invoiceId = parseInt(req.params.id, 10);
+    const invoice = db.prepare('SELECT * FROM depot_invoices WHERE id = ? AND depot_id = ?').get(invoiceId, depot.id);
+    if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+    const { amount, method, reference, paid_by, notes } = req.body;
+    const nowStr = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    db.prepare('INSERT INTO depot_payments (invoice_id, depot_id, amount, currency, method, reference, paid_by, recorded_by, notes, paid_at) VALUES (?,?,?,?,?,?,?,?,?,?)')
+      .run(invoiceId, depot.id, Number(amount), invoice.currency, method||'cash', reference||'', paid_by||'', user.id, notes||'', nowStr);
+    const paid_total = db.prepare('SELECT COALESCE(SUM(amount),0) as t FROM depot_payments WHERE invoice_id = ?').get(invoiceId).t;
+    const newStatus = paid_total >= invoice.amount ? 'paid' : 'partial';
+    db.prepare("UPDATE depot_invoices SET status = ?, paid_at = CASE WHEN ? = 'paid' THEN ? ELSE NULL END WHERE id = ?").run(newStatus, newStatus, nowStr, invoiceId);
+    res.json({ success: true, status: newStatus, paid_total });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- TELESELLER CALL LOGS (CRM) ---
+app.get('/api/depot/call-logs', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user || user.account_type !== 'wholesale') return res.status(403).json({ error: 'Wholesale access required' });
+    const depot = db.prepare('SELECT id FROM wholesale_depots WHERE user_id = ?').get(user.id);
+    if (!depot) return res.json([]);
+    const logs = db.prepare('SELECT * FROM depot_call_logs WHERE depot_id = ? ORDER BY called_at DESC').all(depot.id);
+    res.json(logs);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/depot/call-logs', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user || user.account_type !== 'wholesale') return res.status(403).json({ error: 'Wholesale access required' });
+    const depot = db.prepare('SELECT id FROM wholesale_depots WHERE user_id = ?').get(user.id);
+    if (!depot) return res.status(404).json({ error: 'Depot not found' });
+    const { pharmacy_name, phone_called, outcome, follow_up_date, notes } = req.body;
+    const nowStr = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    const result = db.prepare('INSERT INTO depot_call_logs (depot_id, staff_user_id, staff_name, pharmacy_name, phone_called, called_at, outcome, follow_up_date, notes) VALUES (?,?,?,?,?,?,?,?,?)')
+      .run(depot.id, user.id, user.name, pharmacy_name, phone_called||'', nowStr, outcome||'no_answer', follow_up_date||null, notes||'');
+    res.json({ success: true, id: Number(result.lastInsertRowid) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- RETURNS ---
+app.get('/api/depot/returns', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user || user.account_type !== 'wholesale') return res.status(403).json({ error: 'Wholesale access required' });
+    const depot = db.prepare('SELECT id FROM wholesale_depots WHERE user_id = ?').get(user.id);
+    if (!depot) return res.json([]);
+    res.json(db.prepare('SELECT * FROM depot_returns WHERE depot_id = ? ORDER BY created_at DESC').all(depot.id));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/depot/returns', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ error: 'Authentication required' });
+    const { depot_id, order_id, reason, items_json, credit_note_amount } = req.body;
+    const depot = db.prepare('SELECT id FROM wholesale_depots WHERE id = ?').get(depot_id);
+    if (!depot) return res.status(404).json({ error: 'Depot not found' });
+    const nowStr = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    const retRef = 'RET-' + Date.now().toString(36).toUpperCase();
+    const result = db.prepare('INSERT INTO depot_returns (order_id, depot_id, pharmacy_user_id, pharmacy_name, return_ref, reason, items_json, credit_note_amount, status, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)')
+      .run(order_id||null, depot_id, user.id, user.pharmacy_name, retRef, reason, JSON.stringify(items_json||[]), credit_note_amount||0, 'requested', nowStr);
+    broadcastDepotUpdate(depot_id, 'new_return', { return_id: Number(result.lastInsertRowid), pharmacy: user.pharmacy_name });
+    res.json({ success: true, return_ref: retRef, id: Number(result.lastInsertRowid) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/depot/returns/:id', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user || user.account_type !== 'wholesale') return res.status(403).json({ error: 'Wholesale access required' });
+    const depot = db.prepare('SELECT id FROM wholesale_depots WHERE user_id = ?').get(user.id);
+    const retId = parseInt(req.params.id, 10);
+    const { status, credit_note_amount } = req.body;
+    const nowStr = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    db.prepare('UPDATE depot_returns SET status = ?, credit_note_amount = COALESCE(?, credit_note_amount), resolved_at = ? WHERE id = ? AND depot_id = ?').run(status, credit_note_amount||null, nowStr, retId, depot.id);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- DEPOT STAFF ---
+app.get('/api/depot/staff', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user || user.account_type !== 'wholesale') return res.status(403).json({ error: 'Wholesale access required' });
+    const depot = db.prepare('SELECT id FROM wholesale_depots WHERE user_id = ?').get(user.id);
+    if (!depot) return res.json([]);
+    res.json(db.prepare('SELECT * FROM depot_staff WHERE depot_id = ? ORDER BY name ASC').all(depot.id));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/depot/staff', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user || user.account_type !== 'wholesale') return res.status(403).json({ error: 'Wholesale access required' });
+    const depot = db.prepare('SELECT id FROM wholesale_depots WHERE user_id = ?').get(user.id);
+    if (!depot) return res.status(404).json({ error: 'Depot not found' });
+    const { name, email, phone, role, custom_permissions } = req.body;
+    const nowStr = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    const result = db.prepare('INSERT INTO depot_staff (depot_id, name, email, phone, role, custom_permissions, is_active, created_at) VALUES (?,?,?,?,?,?,1,?)')
+      .run(depot.id, name, email||'', phone||'', role||'teleseller', custom_permissions ? JSON.stringify(custom_permissions) : null, nowStr);
+    res.json({ success: true, id: Number(result.lastInsertRowid) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/depot/staff/:id', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user || user.account_type !== 'wholesale') return res.status(403).json({ error: 'Wholesale access required' });
+    const depot = db.prepare('SELECT id FROM wholesale_depots WHERE user_id = ?').get(user.id);
+    const staffId = parseInt(req.params.id, 10);
+    const { name, email, phone, role, custom_permissions, is_active } = req.body;
+    db.prepare('UPDATE depot_staff SET name=COALESCE(?,name), email=COALESCE(?,email), phone=COALESCE(?,phone), role=COALESCE(?,role), custom_permissions=COALESCE(?,custom_permissions), is_active=COALESCE(?,is_active) WHERE id=? AND depot_id=?')
+      .run(name||null, email||null, phone||null, role||null, custom_permissions ? JSON.stringify(custom_permissions) : null, is_active !== undefined ? is_active : null, staffId, depot.id);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/depot/staff/:id', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user || user.account_type !== 'wholesale') return res.status(403).json({ error: 'Wholesale access required' });
+    const depot = db.prepare('SELECT id FROM wholesale_depots WHERE user_id = ?').get(user.id);
+    db.prepare('DELETE FROM depot_staff WHERE id = ? AND depot_id = ?').run(parseInt(req.params.id, 10), depot.id);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- DEPOT ANALYTICS (Dashboard KPIs) ---
+app.get('/api/depot/analytics', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user || user.account_type !== 'wholesale') return res.status(403).json({ error: 'Wholesale access required' });
+    const depot = db.prepare('SELECT * FROM wholesale_depots WHERE user_id = ?').get(user.id);
+    if (!depot) return res.status(404).json({ error: 'Depot not found' });
+    const today = new Date().toISOString().slice(0, 10);
+    const todayRevenue = db.prepare("SELECT COALESCE(SUM(i.amount),0) as rev FROM depot_invoices i JOIN depot_orders o ON i.order_id = o.id WHERE i.depot_id = ? AND date(o.placed_at) = ?").get(depot.id, today);
+    const totalRevenue = db.prepare("SELECT COALESCE(SUM(amount),0) as rev FROM depot_invoices WHERE depot_id = ? AND status IN ('paid','partial')").get(depot.id);
+    const pendingOrders = db.prepare("SELECT count(*) as c FROM depot_orders WHERE depot_id = ? AND status = 'pending'").get(depot.id);
+    const confirmedOrders = db.prepare("SELECT count(*) as c FROM depot_orders WHERE depot_id = ? AND status IN ('confirmed','packed')").get(depot.id);
+    const todayOrders = db.prepare("SELECT count(*) as c FROM depot_orders WHERE depot_id = ? AND date(placed_at) = ?").get(depot.id, today);
+    const overdueInvoices = db.prepare("SELECT count(*) as c, COALESCE(SUM(amount),0) as total FROM depot_invoices WHERE depot_id = ? AND status = 'overdue'").get(depot.id);
+    const expiryNext30 = db.prepare("SELECT count(*) as c FROM depot_catalog WHERE depot_id = ? AND expiry_date IS NOT NULL AND date(expiry_date) BETWEEN date('now') AND date('now', '+30 days')").get(depot.id);
+    const expiryNext90 = db.prepare("SELECT count(*) as c FROM depot_catalog WHERE depot_id = ? AND expiry_date IS NOT NULL AND date(expiry_date) BETWEEN date('now', '+30 days') AND date('now', '+90 days')").get(depot.id);
+    const lowStock = db.prepare('SELECT count(*) as c FROM depot_catalog WHERE depot_id = ? AND stock_cartons <= reorder_carton_level').get(depot.id);
+    const connections = db.prepare("SELECT count(*) as c FROM depot_pharmacy_connections WHERE depot_id = ? AND status = 'active'").get(depot.id);
+    const topPharmacies = db.prepare("SELECT pharmacy_name, count(*) as order_count, COALESCE(SUM(total),0) as total_spent FROM depot_orders WHERE depot_id = ? GROUP BY pharmacy_name ORDER BY total_spent DESC LIMIT 5").all(depot.id);
+    const recentOrders = db.prepare("SELECT order_ref, pharmacy_name, total, status, placed_at FROM depot_orders WHERE depot_id = ? ORDER BY placed_at DESC LIMIT 8").all(depot.id);
+    res.json({ today_revenue: todayRevenue.rev, total_revenue: totalRevenue.rev, pending_orders: pendingOrders.c, confirmed_orders: confirmedOrders.c, today_orders: todayOrders.c, overdue_count: overdueInvoices.c, overdue_amount: overdueInvoices.total, expiry_next_30: expiryNext30.c, expiry_next_90: expiryNext90.c, low_stock_count: lowStock.c, active_connections: connections.c, top_pharmacies: topPharmacies, recent_orders: recentOrders, currency: depot.currency });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- PHARMACY-FACING: List all depots they can connect to ---
+app.get('/api/depots/public', (req, res) => {
+  try {
+    const depots = db.prepare('SELECT id, depot_name, owner_name, phone, email, address, county, country, currency FROM wholesale_depots ORDER BY depot_name ASC').all();
+    res.json(depots);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- WHOLESALER DIRECTORY & LIVE RESTOCK CATALOG (Legacy — kept for backward compatibility) ---
 app.get('/api/wholesalers', (req, res) => {
   try {
     const list = db.prepare('SELECT id, name, contact_person, phone, email, address, county, description FROM wholesalers ORDER BY name ASC').all();
