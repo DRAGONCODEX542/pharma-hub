@@ -719,20 +719,49 @@ app.get('/api/subscription/status', (req, res) => {
 // --- WORKSPACE LICENSING & ANTI-THEFT ACCESS CONTROL ---
 // Ensures 1 company email can own multiple systems, but must hold an active license/trial for each
 function ensureUserSystemLicenses(userId, defaultAccountType = 'solo') {
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS user_system_licenses (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        system_type TEXT NOT NULL,
+        status TEXT DEFAULT 'locked',
+        subscription_tier TEXT DEFAULT 'none',
+        trial_started_at TEXT,
+        trial_ends_at TEXT,
+        subscription_ends_at TEXT,
+        created_at TEXT NOT NULL,
+        UNIQUE(user_id, system_type)
+      );
+    `);
+  } catch (e) {}
+
   const systems = ['solo', 'organization', 'wholesale'];
   const now = new Date();
   const nowStr = now.toISOString().replace('T', ' ').slice(0, 19);
   const thirtyDaysLater = new Date(now.getTime() + 30 * 86400000).toISOString().replace('T', ' ').slice(0, 19);
 
+  const user = db.prepare('SELECT id, account_type, subscription_tier, trial_ends_at FROM users WHERE id = ?').get(userId);
+  const paidTiers = ['basic', 'standard', 'premium', 'org_basic', 'org_enterprise', 'wholesale_basic', 'wholesale_growth', 'wholesale_enterprise'];
+  const isPaid = user && paidTiers.includes(user.subscription_tier);
+
   for (const sys of systems) {
     const existing = db.prepare('SELECT * FROM user_system_licenses WHERE user_id = ? AND system_type = ?').get(userId, sys);
     if (!existing) {
       if (sys === defaultAccountType) {
-        // Primary registered system gets initial 30-day free trial
-        db.prepare(`
-          INSERT INTO user_system_licenses (user_id, system_type, status, subscription_tier, trial_started_at, trial_ends_at, created_at)
-          VALUES (?, ?, 'trial', 'trial', ?, ?, ?)
-        `).run(userId, sys, nowStr, thirtyDaysLater, nowStr);
+        if (isPaid) {
+          // Primary registered system is already paid
+          db.prepare(`
+            INSERT INTO user_system_licenses (user_id, system_type, status, subscription_tier, subscription_ends_at, created_at)
+            VALUES (?, ?, 'active', ?, ?, ?)
+          `).run(userId, sys, user.subscription_tier, thirtyDaysLater, nowStr);
+        } else {
+          // Primary registered system gets initial 30-day free trial
+          db.prepare(`
+            INSERT INTO user_system_licenses (user_id, system_type, status, subscription_tier, trial_started_at, trial_ends_at, created_at)
+            VALUES (?, ?, 'trial', 'trial', ?, ?, ?)
+          `).run(userId, sys, nowStr, thirtyDaysLater, nowStr);
+        }
       } else {
         // Other systems start as unstarted (can activate their own 30-day trial when first opened)
         db.prepare(`
@@ -740,6 +769,12 @@ function ensureUserSystemLicenses(userId, defaultAccountType = 'solo') {
           VALUES (?, ?, 'unstarted', 'none', ?)
         `).run(userId, sys, nowStr);
       }
+    } else if (sys === defaultAccountType && isPaid && existing.status !== 'active') {
+      db.prepare(`
+        UPDATE user_system_licenses 
+        SET status = 'active', subscription_tier = ?, subscription_ends_at = ?
+        WHERE id = ?
+      `).run(user.subscription_tier, thirtyDaysLater, existing.id);
     }
   }
 }

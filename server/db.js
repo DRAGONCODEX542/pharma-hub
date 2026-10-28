@@ -360,7 +360,7 @@ export function initDatabase() {
       -- Wholesale depot profiles (linked to users with account_type='wholesale')
       CREATE TABLE IF NOT EXISTS wholesale_depots (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL REFERENCES users(id),
+        user_id INTEGER REFERENCES users(id),
         depot_name TEXT NOT NULL,
         owner_name TEXT,
         phone TEXT,
@@ -424,8 +424,8 @@ export function initDatabase() {
         catalog_item_id INTEGER NOT NULL REFERENCES depot_catalog(id) ON DELETE CASCADE,
         pharmacy_user_id INTEGER NOT NULL,
         is_visible INTEGER DEFAULT 1,
-        PRIMARY KEY (catalog_item_id, pharmacy_user_id)
-      ) WITHOUT ROWID;
+        UNIQUE(catalog_item_id, pharmacy_user_id)
+      );
 
       -- Inbound stock receiving (depot restocking in bulk)
       CREATE TABLE IF NOT EXISTS depot_stock_receipts (
@@ -584,9 +584,13 @@ export function initDatabase() {
         is_active INTEGER DEFAULT 1,
         created_at TEXT NOT NULL
       );
+    `);
+  } catch (e) { console.error('Wholesale depot schema error:', e.message); }
 
-      -- System Workspaces & Anti-Theft Licensing Matrix
-      -- Tracks per-system independent subscriptions/trials for each user account
+  // System Workspaces & Anti-Theft Licensing Matrix
+  // Tracks per-system independent subscriptions/trials for each user account
+  try {
+    db.exec(`
       CREATE TABLE IF NOT EXISTS user_system_licenses (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER NOT NULL,
@@ -600,7 +604,7 @@ export function initDatabase() {
         UNIQUE(user_id, system_type)
       );
     `);
-  } catch (e) { console.error('Wholesale depot schema error:', e.message); }
+  } catch (e) { console.error('user_system_licenses schema error:', e.message); }
 
   // Safe migrations for wholesale depot tables
   try { db.exec('ALTER TABLE depot_catalog ADD COLUMN tags TEXT;'); } catch(e) {}
@@ -611,11 +615,16 @@ export function initDatabase() {
   try {
     const depotCount = db.prepare('SELECT count(*) as c FROM wholesale_depots').get();
     if (depotCount.c === 0) {
+      const firstUser = db.prepare('SELECT id FROM users LIMIT 1').get();
+      const ownerUserId = firstUser ? firstUser.id : 1;
       const nowStr = new Date().toISOString().replace('T', ' ').slice(0, 19);
+
+      db.exec('PRAGMA foreign_keys = OFF;');
       const depotId = db.prepare(`
         INSERT INTO wholesale_depots (user_id, depot_name, owner_name, phone, email, address, county, country, currency, business_reg, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(-1, 'PharmaHub Demo Depot', 'Demo Admin', '+254 700 000001', 'depot@pharmahub.co.ke', 'Industrial Area, Nairobi', 'Nairobi', 'Kenya', 'KSh', 'PVT-DEMO-001', nowStr).lastInsertRowid;
+      `).run(ownerUserId, 'PharmaHub Demo Depot', 'Demo Admin', '+254 700 000001', 'depot@pharmahub.co.ke', 'Industrial Area, Nairobi', 'Nairobi', 'Kenya', 'KSh', 'PVT-DEMO-001', nowStr).lastInsertRowid;
+      db.exec('PRAGMA foreign_keys = ON;');
 
       // Seed demo catalog items
       const catalogItems = [
