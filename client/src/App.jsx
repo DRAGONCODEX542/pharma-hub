@@ -2213,84 +2213,159 @@ export default function App() {
         </div>
       )}
 
-      {/* Apple Fullscreen Layout - Sidebar hidden for Solo Chemists */}
-      {/* Main Content Area */}
-      <main className="flex-1 flex flex-col h-screen overflow-hidden">
-        {/* Top Header — Apple frosted glass */}
-        <header className="h-16 apple-glass border-b border-black/[0.06] dark:border-white/[0.07] px-4 md:px-7 flex items-center justify-between shrink-0 sticky top-0 z-30">
-          {/* Brand Logo & Pharmacy Name */}
-          <div className="flex items-center space-x-3 shrink-0">
-            <div className="w-9 h-9 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-400 flex items-center justify-center text-white shrink-0 shadow-md shadow-emerald-600/20">
-              <Pill className="w-5 h-5 transform -rotate-45" />
+      {/* ════════════════════════════════════════════════════════════
+           DESKTOP / TABLET SIDEBAR — hidden on mobile (md:flex)
+           ════════════════════════════════════════════════════════════ */}
+      <aside className="hidden md:flex flex-col w-56 shrink-0 bg-slate-900 dark:bg-[#0d0d12] border-r border-white/[0.06] h-screen sticky top-0 z-30 overflow-y-auto">
+        {/* Brand */}
+        <div className="px-5 pt-5 pb-4 border-b border-white/[0.07] shrink-0">
+          <div className="flex items-center space-x-2.5">
+            <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-400 flex items-center justify-center text-white shrink-0 shadow-md shadow-emerald-600/30">
+              <Pill className="w-4 h-4 transform -rotate-45" />
             </div>
             <div>
-              <h1 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white leading-tight flex items-center gap-2">
-                <span>{settings.pharmacy_name || 'My Pharmacy'}</span>
-                <span className="hidden sm:inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 font-bold uppercase tracking-wider">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                  Solo Chemist
-                </span>
-              </h1>
-              <p className="text-[11px] text-slate-400 dark:text-slate-500 hidden sm:block">
-                3-Step Smart Dispensing & Stock Intelligence
+              <p className="text-xs font-black text-white leading-tight truncate max-w-[110px]">{settings.pharmacy_name || 'PharmaHub'}</p>
+              <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider">Solo Chemist</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Nav Items */}
+        <nav className="flex-1 px-3 py-4 space-y-0.5">
+          {[
+            { id: 'pos',         label: 'Dispense (POS)',   icon: ShoppingCart, color: 'emerald' },
+            { id: 'dashboard',   label: 'Dashboard',        icon: LayoutDashboard, color: 'emerald' },
+            { id: 'inventory',   label: 'Stock & Pricing',  icon: Pill, color: 'emerald' },
+            { id: 'batches',     label: 'Batch / FEFO',     icon: Boxes, color: 'emerald' },
+            { id: 'loans',       label: 'Customer Loans',   icon: HandCoins, color: 'amber', badge: overdueLoansCount },
+            { id: 'sales',       label: 'Sales & P&L',      icon: BarChart3, color: 'blue' },
+            { id: 'wholesalers', label: 'Wholesale Hub',    icon: Building2, color: 'amber' },
+            ...(currentUser?.role === 'admin' ? [{ id: 'staff', label: 'Staff & Roles', icon: Users, color: 'teal' }] : []),
+            { id: 'settings',    label: 'Settings',         icon: Settings, color: 'purple' },
+          ].map(({ id, label, icon: Icon, color, badge }) => (
+            <button
+              key={id}
+              onClick={() => setActiveTab(id)}
+              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all apple-press group ${
+                activeTab === id
+                  ? 'bg-emerald-600/20 text-emerald-300 border border-emerald-600/30'
+                  : 'text-slate-400 hover:text-white hover:bg-white/[0.06]'
+              }`}
+            >
+              <div className="flex items-center space-x-2.5">
+                <Icon className={`w-4 h-4 shrink-0 ${activeTab === id ? 'text-emerald-400' : 'text-slate-500 group-hover:text-slate-300'}`} />
+                <span>{label}</span>
+              </div>
+              {badge > 0 && (
+                <span className="w-4 h-4 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center shrink-0">{badge}</span>
+              )}
+            </button>
+          ))}
+        </nav>
+
+        {/* Bottom: User & Trial */}
+        <div className="px-3 pb-4 pt-3 border-t border-white/[0.07] shrink-0 space-y-3">
+          {currentUser?.trial_days_remaining !== undefined && (
+            <div className="px-3 py-2 rounded-xl bg-emerald-600/10 border border-emerald-600/20 space-y-1">
+              <p className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider">
+                {currentUser.trial_days_remaining > 0 ? `${currentUser.trial_days_remaining}d Trial Left` : 'Trial Expired'}
               </p>
+              <button
+                onClick={() => setShowSubscriptionModal(true)}
+                className="text-[11px] font-bold text-white hover:text-emerald-300 transition underline"
+              >
+                View Plans ↗
+              </button>
+            </div>
+          )}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2 min-w-0">
+              <div className="w-7 h-7 rounded-full bg-emerald-600 text-white flex items-center justify-center text-xs font-black shrink-0">
+                {currentUser?.name?.[0]?.toUpperCase() || 'P'}
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-white truncate max-w-[80px]">{currentUser?.name?.split(' ')[0] || 'User'}</p>
+                <p className="text-[10px] text-slate-500 truncate max-w-[80px]">{currentUser?.email}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-1">
+              <button onClick={() => setIsDarkMode(d => !d)} className="p-1.5 text-slate-500 hover:text-white rounded-lg transition" title="Toggle theme">
+                {isDarkMode ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
+              </button>
+              <button onClick={handleLogout} className="p-1.5 text-slate-500 hover:text-rose-400 rounded-lg transition" title="Sign out">
+                <LogOut className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      {/* Main Content Area */}
+      <main className="flex-1 flex flex-col h-screen overflow-hidden min-w-0">
+        {/* Top Header — mobile brand + page title; desktop hides brand (sidebar has it) */}
+        <header className="h-14 apple-glass border-b border-black/[0.06] dark:border-white/[0.07] px-4 flex items-center justify-between shrink-0 sticky top-0 z-30">
+          {/* Left: Mobile brand (hidden on desktop since sidebar shows it) + current page label */}
+          <div className="flex items-center gap-3">
+            {/* Mobile-only brand pill */}
+            <div className="flex md:hidden items-center space-x-2">
+              <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-400 flex items-center justify-center text-white shrink-0 shadow-sm">
+                <Pill className="w-4 h-4 transform -rotate-45" />
+              </div>
+              <span className="text-sm font-black text-slate-900 dark:text-white truncate max-w-[120px]">
+                {settings.pharmacy_name || 'PharmaHub'}
+              </span>
+            </div>
+            {/* Desktop page title */}
+            <div className="hidden md:block">
+              <h1 className="text-sm font-bold text-slate-900 dark:text-white capitalize">
+                {activeTab === 'pos' ? '💊 Dispense (POS)' :
+                 activeTab === 'dashboard' ? '📊 Dashboard' :
+                 activeTab === 'inventory' ? '📦 Stock & Pricing' :
+                 activeTab === 'batches' ? '🗂️ Batch / FEFO' :
+                 activeTab === 'loans' ? '🤝 Customer Loans' :
+                 activeTab === 'sales' ? '📈 Sales & P&L' :
+                 activeTab === 'wholesalers' ? '🏭 Wholesale Hub' :
+                 activeTab === 'staff' ? '👥 Staff & Roles' :
+                 activeTab === 'settings' ? '⚙️ Settings' : 'PharmaHub'}
+              </h1>
             </div>
           </div>
 
-          {/* Center: Apple Liquid Glass Segmented Pill (Only 3 Tabs!) */}
-          <div className="hidden md:flex items-center p-1 bg-black/[0.04] dark:bg-white/[0.08] backdrop-blur-2xl rounded-full border border-black/[0.06] dark:border-white/[0.1] shadow-xs">
-            <button
-              onClick={() => setActiveTab('pos')}
-              className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all apple-press flex items-center gap-1.5 ${
-                activeTab === 'pos'
-                  ? 'bg-emerald-600 text-white shadow-sm'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              <span>💊</span>
-              <span>Dispense (POS)</span>
-            </button>
-            <button
-              onClick={() => setActiveTab('inventory')}
-              className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all apple-press flex items-center gap-1.5 ${
-                activeTab === 'inventory'
-                  ? 'bg-emerald-600 text-white shadow-sm'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              <span>📦</span>
-              <span>Stock & Pricing</span>
-            </button>
-            <button
-              onClick={() => setActiveTab('loans')}
-              className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all apple-press flex items-center gap-1.5 ${
-                activeTab === 'loans'
-                  ? 'bg-emerald-600 text-white shadow-sm'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              <span>🤝</span>
-              <span>Customer Loans</span>
-              {overdueLoansCount > 0 && (
-                <span className="w-4 h-4 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center">
-                  {overdueLoansCount}
-                </span>
-              )}
-            </button>
-          </div>
-
-          {/* Right: Theme Toggle & Clean Apple Profile Pill */}
-          <div className="flex items-center space-x-2">
+          {/* Right: mobile theme + menu button; desktop shows trial pill + quick actions */}
+          <div className="flex items-center gap-2">
+            {/* Theme toggle — mobile only (desktop sidebar has it) */}
             <button
               onClick={() => setIsDarkMode(d => !d)}
-              className="p-2 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/60 rounded-full transition apple-press"
+              className="md:hidden p-2 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/60 rounded-full transition apple-press"
               title={isDarkMode ? 'Light Mode' : 'Dark Mode'}
             >
               {isDarkMode ? <Sun className="w-4.5 h-4.5" /> : <Moon className="w-4.5 h-4.5" />}
             </button>
 
-            {/* Apple User Profile Pill with Popover */}
-            <div className="relative">
+            {/* Desktop: trial status chip */}
+            {currentUser?.trial_days_remaining !== undefined && (
+              <button
+                onClick={() => setShowSubscriptionModal(true)}
+                className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-700/50 text-emerald-700 dark:text-emerald-300 text-[11px] font-bold hover:bg-emerald-100 dark:hover:bg-emerald-950/60 transition apple-press"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                {currentUser.trial_days_remaining > 0 ? `${currentUser.trial_days_remaining}d Trial` : 'Upgrade'}
+              </button>
+            )}
+
+            {/* Mobile: hamburger → opens bottom sheet more menu */}
+            <button
+              onClick={() => setShowMobileMoreMenu(true)}
+              className="md:hidden flex flex-col items-center justify-center w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-800 gap-1 apple-press"
+              title="More"
+            >
+              <span className="w-4 h-0.5 bg-slate-600 dark:bg-slate-300 rounded-full" />
+              <span className="w-4 h-0.5 bg-slate-600 dark:bg-slate-300 rounded-full" />
+              <span className="w-2.5 h-0.5 bg-slate-600 dark:bg-slate-300 rounded-full" />
+            </button>
+
+            {/* Desktop: quick-add profile pill */}
+            <div className="hidden md:block relative">
               <button
                 onClick={() => setShowProfileMenu(!showProfileMenu)}
                 className="flex items-center gap-2 pl-1.5 pr-3 py-1 rounded-full bg-black/[0.04] dark:bg-white/[0.08] border border-black/[0.06] dark:border-white/[0.1] hover:scale-102 active:scale-95 transition"
@@ -2298,7 +2373,7 @@ export default function App() {
                 <div className="w-7 h-7 rounded-full bg-emerald-600 text-white flex items-center justify-center text-xs font-black shadow-xs">
                   {currentUser?.name?.[0]?.toUpperCase() || 'P'}
                 </div>
-                <span className="text-xs font-bold text-slate-800 dark:text-slate-200 hidden sm:inline max-w-[90px] truncate">
+                <span className="text-xs font-bold text-slate-800 dark:text-slate-200 max-w-[80px] truncate">
                   {currentUser?.name?.split(' ')[0] || 'Pharmacist'}
                 </span>
               </button>
@@ -2354,9 +2429,9 @@ export default function App() {
           </div>
         </header>
 
-        {/* Trial & Subscription Status Bar */}
+        {/* Trial & Subscription Status Bar — only on mobile (sidebar shows it on desktop) */}
         {currentUser?.trial_days_remaining !== undefined && (
-          <div className="bg-gradient-to-r from-emerald-950/20 via-teal-950/15 to-blue-950/20 dark:bg-emerald-950/30 border-b border-black/[0.04] dark:border-white/[0.06] px-3 md:px-5 py-1.5 flex items-center justify-between text-[11px] shrink-0 transition-all select-none">
+          <div className="md:hidden bg-gradient-to-r from-emerald-950/20 via-teal-950/15 to-blue-950/20 dark:bg-emerald-950/30 border-b border-black/[0.04] dark:border-white/[0.06] px-3 py-1.5 flex items-center justify-between text-[11px] shrink-0 transition-all select-none">
             <div className="flex items-center space-x-2 min-w-0">
               <span className="px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase tracking-wider bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 shrink-0 border border-emerald-500/30">
                 {currentUser.subscription_tier ? currentUser.subscription_tier.replace('_', ' ').toUpperCase() : '30-DAY TRIAL'}
@@ -2416,167 +2491,129 @@ export default function App() {
             />
           )}
 
-          {/* 2. CUSTOMER TRUST LOANS & REMINDERS TAB                      */}
+          {/* 2. CUSTOMER TRUST LOANS & REMINDERS TAB */}
           {/* ============================================================ */}
           {activeTab === 'loans' && (
-            <div className="space-y-6">
-              {/* Stat Cards */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-sm flex items-center justify-between">
-                  <div>
-                    <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider">Total Outstanding Debt</p>
-                    <p className="text-2xl font-black text-amber-600 mt-1">
-                      {curr}{loans.reduce((acc, l) => acc + (l.balance_due || 0), 0).toFixed(2)}
-                    </p>
-                    <p className="text-xs text-slate-500 font-medium mt-0.5">{loans.filter(l => l.balance_due > 0).length} active patient credits</p>
-                  </div>
-                  <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center">
-                    <HandCoins className="w-6 h-6" />
-                  </div>
-                </div>
-
-                <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-sm flex items-center justify-between">
-                  <div>
-                    <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider">Overdue Payments</p>
-                    <p className="text-2xl font-black text-rose-600 mt-1">{overdueLoansCount}</p>
-                    <p className="text-xs text-rose-600 font-medium mt-0.5">Payment promise date passed</p>
-                  </div>
-                  <div className="w-12 h-12 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center">
-                    <AlertTriangle className="w-6 h-6" />
-                  </div>
-                </div>
-
-                <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-sm flex items-center justify-between">
-                  <div>
-                    <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider">Due Within 3 Days</p>
-                    <p className="text-2xl font-black text-blue-600 mt-1">
-                      {loans.filter(l => l.is_due_soon).length}
-                    </p>
-                    <p className="text-xs text-blue-600 font-medium mt-0.5">Send early reminder</p>
-                  </div>
-                  <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center">
-                    <Clock className="w-6 h-6" />
-                  </div>
-                </div>
+            <div className="space-y-5 max-w-3xl mx-auto">
+              {/* Header */}
+              <div>
+                <h2 className="text-xl font-black text-slate-900 dark:text-white">Customer Loans</h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Track credit, send reminders, record payments.</p>
               </div>
 
-              {/* Loans Ledger Table */}
-              <div className="bg-white rounded-3xl border border-slate-200/80 shadow-sm p-5 space-y-4">
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
-                  <div>
-                    <h3 className="font-bold text-slate-900 text-base">Pharmacy Customer Credit & Debt Ledger</h3>
-                    <p className="text-xs text-slate-500">
-                      Track patient promises, follow up on unpaid medicines, and send instant WhatsApp/SMS reminders.
-                    </p>
+              {/* 3 Stat Pills */}
+              <div className="grid grid-cols-3 gap-3">
+                {[
+                  { label: 'Outstanding', value: `${curr}${loans.reduce((acc, l) => acc + (l.balance_due || 0), 0).toFixed(0)}`, sub: `${loans.filter(l => l.balance_due > 0).length} patients`, color: 'amber', icon: HandCoins },
+                  { label: 'Overdue', value: String(overdueLoansCount), sub: 'Past promise date', color: 'rose', icon: AlertTriangle },
+                  { label: 'Due Soon', value: String(loans.filter(l => l.is_due_soon).length), sub: 'Within 3 days', color: 'blue', icon: Clock },
+                ].map(({ label, value, sub, color, icon: Icon }) => (
+                  <div key={label} className={`bg-white dark:bg-slate-900 rounded-2xl border p-4 flex items-center gap-3 shadow-sm ${
+                    color === 'amber' ? 'border-amber-200/60 dark:border-amber-700/30' :
+                    color === 'rose'  ? 'border-rose-200/60 dark:border-rose-700/30' :
+                                        'border-blue-200/60 dark:border-blue-700/30'
+                  }`}>
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                      color === 'amber' ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-600' :
+                      color === 'rose'  ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-600' :
+                                          'bg-blue-50 dark:bg-blue-950/40 text-blue-600'
+                    }`}>
+                      <Icon className="w-5 h-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className={`text-lg font-black leading-tight ${
+                        color === 'amber' ? 'text-amber-600' : color === 'rose' ? 'text-rose-600' : 'text-blue-600'
+                      }`}>{value}</p>
+                      <p className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider">{label}</p>
+                      <p className="text-[10px] text-slate-400">{sub}</p>
+                    </div>
                   </div>
-                </div>
+                ))}
+              </div>
 
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead>
-                      <tr className="border-b border-slate-200 text-slate-400 font-semibold uppercase tracking-wider">
-                        <th className="pb-3">Patient & Contact</th>
-                        <th className="pb-3">Medicines Taken</th>
-                        <th className="pb-3">Promised Due Date</th>
-                        <th className="pb-3">Total Credit</th>
-                        <th className="pb-3">Amount Paid</th>
-                        <th className="pb-3">Balance Due</th>
-                        <th className="pb-3">Status</th>
-                        <th className="pb-3 text-right">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {loans.map((l) => (
-                        <tr key={l.id} className="hover:bg-slate-50/80 transition">
-                          <td className="py-3">
-                            <p className="font-bold text-slate-900">{l.customer_name}</p>
-                            <p className="text-[11px] text-slate-500 font-mono">{l.customer_phone}</p>
-                            {l.national_id_or_notes && (
-                              <p className="text-[10px] text-slate-400 italic">{l.national_id_or_notes}</p>
-                            )}
-                          </td>
-                          <td className="py-3 text-slate-700 max-w-xs truncate" title={l.items_summary}>
-                            {l.items_summary}
-                          </td>
-                          <td className="py-3 font-semibold text-slate-800">
-                            {l.promise_date}
-                            {l.is_overdue && (
-                              <span className="block text-[10px] text-rose-600 font-bold">
-                                {Math.abs(Math.round(l.days_left))} days overdue
-                              </span>
-                            )}
-                            {l.is_due_soon && (
-                              <span className="block text-[10px] text-amber-600 font-bold">
-                                Due in {Math.round(l.days_left)} days
-                              </span>
-                            )}
-                          </td>
-                          <td className="py-3 font-bold text-slate-800">{curr}{Number(l.total_amount).toFixed(2)}</td>
-                          <td className="py-3 text-slate-600">{curr}{Number(l.amount_paid).toFixed(2)}</td>
-                          <td className="py-3 font-extrabold text-amber-700 text-sm">
-                            {curr}{Number(l.balance_due).toFixed(2)}
-                          </td>
-                          <td className="py-3">
-                            <span
-                              className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                                l.balance_due <= 0
-                                  ? 'bg-emerald-100 text-emerald-800'
-                                  : l.is_overdue
-                                  ? 'bg-rose-100 text-rose-800 animate-pulse'
-                                  : l.is_due_soon
-                                  ? 'bg-amber-100 text-amber-800'
-                                  : 'bg-blue-100 text-blue-800'
-                              }`}
+              {/* Loans — Card List (cleaner than table) */}
+              <div className="space-y-2.5">
+                {loans.length === 0 && (
+                  <div className="flex flex-col items-center justify-center py-16 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-white/10">
+                    <HandCoins className="w-10 h-10 text-slate-300 dark:text-slate-600 mb-3" />
+                    <p className="text-sm font-semibold text-slate-600 dark:text-slate-400">No customer loans yet</p>
+                    <p className="text-xs text-slate-400 mt-1">Loans are created when you select "Credit/Loan" at the POS.</p>
+                  </div>
+                )}
+                {loans.map((l) => (
+                  <div
+                    key={l.id}
+                    className={`bg-white dark:bg-slate-900 rounded-2xl border shadow-sm p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                      l.balance_due <= 0
+                        ? 'border-emerald-200/60 dark:border-emerald-800/30'
+                        : l.is_overdue
+                        ? 'border-rose-200/70 dark:border-rose-800/40'
+                        : l.is_due_soon
+                        ? 'border-amber-200/70 dark:border-amber-800/40'
+                        : 'border-slate-200/70 dark:border-white/[0.07]'
+                    }`}
+                  >
+                    {/* Left: patient info + items */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <div className="w-8 h-8 rounded-full bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 flex items-center justify-center text-sm font-black shrink-0">
+                          {l.customer_name?.[0]?.toUpperCase() || '?'}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-bold text-slate-900 dark:text-white truncate">{l.customer_name}</p>
+                          <p className="text-[11px] text-slate-500 font-mono">{l.customer_phone}</p>
+                        </div>
+                        <span className={`ml-auto sm:ml-0 shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide ${
+                          l.balance_due <= 0
+                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300'
+                            : l.is_overdue
+                            ? 'bg-rose-100 text-rose-800 dark:bg-rose-950/50 dark:text-rose-400 animate-pulse'
+                            : l.is_due_soon
+                            ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300'
+                            : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                        }`}>
+                          {l.balance_due <= 0 ? '✓ Paid' : l.is_overdue ? `${Math.abs(Math.round(l.days_left))}d overdue` : l.is_due_soon ? `${Math.round(l.days_left)}d left` : 'Active'}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 truncate pl-10">{l.items_summary}</p>
+                      <p className="text-[11px] text-slate-400 pl-10 mt-0.5">Promise: {l.promise_date}</p>
+                    </div>
+
+                    {/* Right: amounts + actions */}
+                    <div className="flex items-center justify-between sm:justify-end gap-3 pl-10 sm:pl-0">
+                      <div className="text-right">
+                        <p className="text-xs text-slate-500 dark:text-slate-400">Balance due</p>
+                        <p className={`text-base font-black ${l.balance_due <= 0 ? 'text-emerald-600' : 'text-amber-600'}`}>
+                          {curr}{Number(l.balance_due).toFixed(2)}
+                        </p>
+                      </div>
+                      {l.balance_due > 0 && (
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {l.whatsapp_url && (
+                            <a href={l.whatsapp_url} target="_blank" rel="noreferrer"
+                              className="p-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl transition apple-press"
+                              title="WhatsApp Reminder"
                             >
-                              {l.balance_due <= 0 ? 'Paid' : l.is_overdue ? 'Overdue' : l.is_due_soon ? 'Due Soon' : 'Active'}
-                            </span>
-                          </td>
-                          <td className="py-3 text-right space-x-1.5 whitespace-nowrap">
-                            {/* WhatsApp Reminder Button */}
-                            {l.balance_due > 0 && l.whatsapp_url && (
-                              <a
-                                href={l.whatsapp_url}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="inline-flex items-center space-x-1 px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold transition shadow-sm"
-                                title="Send WhatsApp Reminder"
-                              >
-                                <MessageCircle className="w-3.5 h-3.5" />
-                                <span>WhatsApp</span>
-                              </a>
-                            )}
-
-                            {/* SMS Reminder Link */}
-                            {l.balance_due > 0 && (
-                              <a
-                                href={l.sms_url}
-                                className="inline-flex items-center space-x-1 px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition"
-                                title="Send SMS"
-                              >
-                                <Send className="w-3.5 h-3.5" />
-                                <span>SMS</span>
-                              </a>
-                            )}
-
-                            {/* Record Payment Button */}
-                            {l.balance_due > 0 && (
-                              <button
-                                onClick={() => {
-                                  setSelectedLoanForRepayment(l);
-                                  setRepayAmount(String(l.balance_due));
-                                  setShowRepaymentModal(true);
-                                }}
-                                className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-semibold transition"
-                              >
-                                Pay
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                              <MessageCircle className="w-4 h-4" />
+                            </a>
+                          )}
+                          <a href={l.sms_url}
+                            className="p-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl transition"
+                            title="SMS Reminder"
+                          >
+                            <Send className="w-4 h-4" />
+                          </a>
+                          <button
+                            onClick={() => { setSelectedLoanForRepayment(l); setRepayAmount(String(l.balance_due)); setShowRepaymentModal(true); }}
+                            className="px-3 py-2 bg-amber-500 hover:bg-amber-400 text-white rounded-xl text-xs font-bold transition apple-press"
+                          >
+                            Pay
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           )}
@@ -2796,8 +2833,8 @@ export default function App() {
           {/* ============================================================ */}
           {activeTab === 'inventory' && (
             <div className="space-y-5">
-              {/* Web Market Price Checker Bar */}
-              <div className="bg-gradient-to-r from-blue-900 to-slate-900 text-white rounded-3xl p-5 shadow-sm space-y-3">
+              {/* Web Market Price Checker Bar — collapsible on mobile */}
+              <div className="bg-gradient-to-r from-blue-900 to-slate-900 text-white rounded-3xl p-4 shadow-sm space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-2">
                     <Globe className="w-5 h-5 text-blue-400" />
@@ -2869,14 +2906,12 @@ export default function App() {
                 )}
               </div>
 
-              {/* Drug Catalog Table */}
+              {/* Drug Catalog — clean card list */}
               <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-white/10 shadow-sm p-5 space-y-4">
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-white/10">
                   <div>
-                    <h3 className="font-bold text-slate-900 dark:text-white text-base">Store Drug Catalog & Wholesaler Pricing Guide</h3>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">
-                      Formulary guide across all departments. Easily adjust wholesaler purchase cost and selling prices per pharmacy.
-                    </p>
+                    <h3 className="font-bold text-slate-900 dark:text-white text-base">Stock & Pricing Catalog</h3>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Tap any row to edit price or compare market rates.</p>
                   </div>
                   <div className="flex items-center gap-2">
                     <button
@@ -2899,143 +2934,125 @@ export default function App() {
                 {/* Search & Department Filters */}
                 <div className="space-y-2.5">
                   <div className="relative">
-                    <Search className="w-4.5 h-4.5 absolute left-3 top-2.5 text-slate-400 dark:text-slate-500" />
+                    <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400 dark:text-slate-500" />
                     <input
                       type="text"
-                      placeholder="Filter catalog by brand, generic molecule, or manufacturer..."
+                      placeholder="Search by brand, molecule, or manufacturer…"
                       value={medCatalogSearch}
                       onChange={(e) => setMedCatalogSearch(e.target.value)}
-                      className="w-full pl-10 pr-4 py-2 bg-[#F5F5F7] dark:bg-slate-800 border border-black/[0.06] dark:border-white/[0.08] rounded-xl text-xs dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 transition"
+                      className="w-full pl-9 pr-4 py-2 bg-[#F5F5F7] dark:bg-slate-800 border border-black/[0.06] dark:border-white/[0.08] rounded-xl text-xs dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 transition"
                     />
                     {medCatalogSearch && (
-                      <button
-                        onClick={() => setMedCatalogSearch('')}
-                        className="absolute right-3 top-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-                      >
+                      <button onClick={() => setMedCatalogSearch('')} className="absolute right-3 top-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
                         <X className="w-4 h-4" />
                       </button>
                     )}
                   </div>
 
                   {/* Department Chips */}
-                  <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs scrollbar-none">
+                  <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
                     {DEPARTMENTS.map((dept) => (
                       <button
                         key={dept.id}
                         type="button"
                         onClick={() => setMedCatalogFormCategory(dept.id)}
-                        className={`px-2.5 py-1.5 rounded-xl font-bold transition apple-press shrink-0 text-[11px] flex items-center space-x-1.5 ${
+                        className={`px-2.5 py-1 rounded-xl font-bold transition apple-press shrink-0 text-[11px] flex items-center space-x-1 ${
                           medCatalogFormCategory === dept.id
                             ? 'bg-slate-900 dark:bg-emerald-600 text-white shadow-sm'
                             : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
                         }`}
                       >
                         <span>{dept.icon}</span>
-                        <span>{dept.label}</span>
+                        <span className="hidden sm:inline">{dept.label}</span>
                       </button>
                     ))}
-                    <span className="text-slate-300 dark:text-slate-700">|</span>
-                    <span className="text-[11px] text-slate-400 shrink-0 self-center">
-                      {filteredCatalogMeds.length} items
-                    </span>
+                    <span className="text-[11px] text-slate-400 shrink-0 pl-2">{filteredCatalogMeds.length} items</span>
                   </div>
                 </div>
 
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead>
-                      <tr className="border-b border-slate-200 dark:border-white/10 text-slate-400 font-semibold uppercase tracking-wider">
-                        <th className="pb-3">Brand & Strength</th>
-                        <th className="pb-3">Department & Molecule</th>
-                        <th className="pb-3">Wholesale Cost</th>
-                        <th className="pb-3">Retail Box Price</th>
-                        <th className="pb-3">Profit Margin</th>
-                        <th className="pb-3">Sub-units</th>
-                        <th className="pb-3">Stock (Boxes)</th>
-                        <th className="pb-3 text-right">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 dark:divide-white/[0.06]">
-                      {filteredCatalogMeds.map((med) => {
-                        const cost = med.wholesale_pack_price || med.avg_cost_price || 0;
-                        const hasMargin = cost > 0 && med.pack_price > 0;
-                        const marginPct = hasMargin ? (((med.pack_price - cost) / med.pack_price) * 100).toFixed(1) : null;
-                        const profit = hasMargin ? (med.pack_price - cost).toFixed(2) : null;
+                {/* Card Rows — one card per medicine */}
+                <div className="space-y-2">
+                  {filteredCatalogMeds.length === 0 && (
+                    <div className="flex flex-col items-center justify-center py-10">
+                      <Pill className="w-10 h-10 text-slate-300 dark:text-slate-600 mb-2" />
+                      <p className="text-sm text-slate-500 dark:text-slate-400">No medicines found. Add your first medicine above.</p>
+                    </div>
+                  )}
+                  {filteredCatalogMeds.map((med) => {
+                    const cost = med.wholesale_pack_price || med.avg_cost_price || 0;
+                    const hasMargin = cost > 0 && med.pack_price > 0;
+                    const marginPct = hasMargin ? (((med.pack_price - cost) / med.pack_price) * 100).toFixed(1) : null;
+                    const profit = hasMargin ? (med.pack_price - cost).toFixed(2) : null;
+                    const stockLow = med.total_packs > 0 && med.total_packs <= med.min_stock_alert;
+                    const outOfStock = med.total_packs <= 0;
 
-                        return (
-                          <tr key={med.id} className="hover:bg-slate-50/80 dark:hover:bg-white/[0.02] transition">
-                            <td className="py-3 pr-2">
-                              <p className="font-bold text-slate-900 dark:text-white">{med.brand_name}</p>
-                              <p className="text-[11px] text-slate-500 dark:text-slate-400">{med.strength} • {med.manufacturer}</p>
-                            </td>
-                            <td className="py-3 pr-2">
-                              <span className="inline-block text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-slate-100 dark:bg-white/10 text-slate-700 dark:text-slate-300 mb-0.5">
-                                {med.form_category || med.dosage_form}
-                              </span>
-                              <p className="text-slate-600 dark:text-slate-400 text-[11px] truncate max-w-[180px]">{med.molecule_name}</p>
-                            </td>
-                            <td className="py-3 text-slate-700 dark:text-slate-300 font-semibold">
-                              {cost > 0 ? (
-                                <span>{curr}{Number(cost).toFixed(2)}</span>
-                              ) : (
-                                <span className="text-slate-400 italic">Not set</span>
-                              )}
-                            </td>
-                            <td className="py-3 font-bold text-slate-900 dark:text-white text-sm">
-                              {curr}{Number(med.pack_price).toFixed(2)}
-                            </td>
-                            <td className="py-3">
-                              {hasMargin ? (
-                                <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
-                                  Number(marginPct) >= 25
-                                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300'
-                                    : Number(marginPct) > 0
-                                    ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300'
-                                    : 'bg-rose-100 text-rose-800 dark:bg-rose-950/50 dark:text-rose-300'
-                                }`}>
-                                  +{marginPct}% (+{curr}{profit})
-                                </span>
-                              ) : (
-                                <span className="text-slate-400 text-[11px]">Set wholesale cost</span>
-                              )}
-                            </td>
-                            <td className="py-3 text-slate-500 dark:text-slate-400 text-[11px]">
-                              {med.strip_price ? `Strip: ${curr}${Number(med.strip_price).toFixed(2)}` : ''}
-                              <div>Unit: {curr}{Number(med.unit_price).toFixed(2)}</div>
-                            </td>
-                            <td className="py-3">
-                              <span className={`font-bold px-2 py-0.5 rounded-full text-xs ${
-                                med.total_packs > 0
-                                  ? med.total_packs <= med.min_stock_alert
-                                    ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/40'
-                                    : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40'
-                                  : 'bg-slate-100 text-slate-500 dark:bg-slate-800'
-                              }`}>
-                                {med.total_packs} packs
-                              </span>
-                            </td>
-                            <td className="py-3 text-right space-x-1.5 whitespace-nowrap">
-                              <button
-                                onClick={() => handleOpenPriceEdit(med)}
-                                className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold shadow-sm transition apple-press inline-flex items-center gap-1"
-                                title="Edit Wholesale Cost & Retail Selling Price"
-                              >
-                                <Edit3 className="w-3.5 h-3.5" />
-                                <span>Edit Price</span>
-                              </button>
-                              <button
-                                onClick={() => handleOpenAlternatives(med)}
-                                className="px-2.5 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-semibold transition inline-flex items-center gap-1"
-                                title="Compare originator vs generic alternatives"
-                              >
-                                <span>Compare</span>
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                    return (
+                      <div
+                        key={med.id}
+                        className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-2xl border border-slate-100 dark:border-white/[0.06] hover:bg-slate-50/80 dark:hover:bg-white/[0.02] transition group"
+                      >
+                        {/* Left: brand + molecule + category */}
+                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                          <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 text-sm ${
+                            outOfStock ? 'bg-slate-100 dark:bg-slate-800 text-slate-400'
+                            : stockLow  ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-600'
+                                        : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600'
+                          }`}>
+                            <Pill className="w-4 h-4" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-bold text-slate-900 dark:text-white truncate">{med.brand_name}</p>
+                            <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">{med.molecule_name} · {med.strength} · {med.dosage_form}</p>
+                          </div>
+                        </div>
+
+                        {/* Center: prices + margin */}
+                        <div className="flex items-center gap-4 pl-12 sm:pl-0 text-xs shrink-0">
+                          <div className="text-center">
+                            <p className="text-[10px] text-slate-400 uppercase font-semibold">Sell</p>
+                            <p className="font-black text-slate-900 dark:text-white">{curr}{Number(med.pack_price).toFixed(2)}</p>
+                          </div>
+                          {hasMargin && (
+                            <div className="text-center">
+                              <p className="text-[10px] text-slate-400 uppercase font-semibold">Margin</p>
+                              <span className={`font-bold px-2 py-0.5 rounded-full ${
+                                Number(marginPct) >= 25 ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300'
+                                : Number(marginPct) > 0  ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300'
+                                                         : 'bg-rose-100 text-rose-800 dark:bg-rose-950/50 dark:text-rose-300'
+                              }`}>+{marginPct}%</span>
+                            </div>
+                          )}
+                          <div className="text-center">
+                            <p className="text-[10px] text-slate-400 uppercase font-semibold">Stock</p>
+                            <span className={`font-bold px-2 py-0.5 rounded-full text-xs ${
+                              outOfStock  ? 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
+                              : stockLow  ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300'
+                                          : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300'
+                            }`}>
+                              {outOfStock ? '0' : med.total_packs} packs
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Right: actions */}
+                        <div className="flex items-center gap-1.5 pl-12 sm:pl-0 shrink-0">
+                          <button
+                            onClick={() => handleOpenPriceEdit(med)}
+                            className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold shadow-sm transition apple-press inline-flex items-center gap-1"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                            <span>Price</span>
+                          </button>
+                          <button
+                            onClick={() => handleOpenAlternatives(med)}
+                            className="px-2.5 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-semibold transition inline-flex items-center gap-1"
+                          >
+                            <span>Compare</span>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             </div>
@@ -3918,39 +3935,36 @@ export default function App() {
           )}
         </div>
 
-        {/* Mobile Navigation Bar (Apple iOS Frosted Glass & Touch Safe Area) */}
-        <nav className="md:hidden fixed bottom-4 inset-x-6 max-w-xs mx-auto liquid-glass rounded-full border border-white/80 dark:border-white/15 px-4 py-2 flex justify-around items-center z-40 shadow-2xl">
+        {/* Mobile Navigation Bar — 5 tabs: POS / Stock / Loans / Sales / More */}
+        <nav className="md:hidden fixed bottom-0 inset-x-0 liquid-glass border-t border-black/[0.07] dark:border-white/[0.08] px-2 pb-safe pt-1 flex justify-around items-center z-40 shadow-2xl">
+          {[
+            { id: 'pos',       icon: ShoppingCart, label: 'Dispense',  color: 'emerald' },
+            { id: 'inventory', icon: Pill,          label: 'Stock',     color: 'emerald' },
+            { id: 'loans',     icon: HandCoins,     label: 'Loans',     color: 'amber' },
+            { id: 'sales',     icon: BarChart3,     label: 'Sales',     color: 'blue' },
+          ].map(({ id, icon: Icon, label, color }) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setActiveTab(id)}
+              className={`flex flex-col items-center justify-center py-1.5 px-3 rounded-2xl transition-all apple-press min-w-[56px] ${
+                activeTab === id
+                  ? color === 'amber' ? 'text-amber-600 dark:text-amber-400 font-bold' : color === 'blue' ? 'text-blue-600 dark:text-blue-400 font-bold' : 'text-emerald-600 dark:text-emerald-400 font-bold'
+                  : 'text-slate-400 dark:text-slate-500'
+              }`}
+            >
+              <Icon className="w-5 h-5 mb-0.5" />
+              <span className="text-[10px] font-semibold">{label}</span>
+              {activeTab === id && <span className="absolute bottom-1 w-1 h-1 rounded-full bg-current opacity-60" />}
+            </button>
+          ))}
           <button
             type="button"
-            onClick={() => setActiveTab('pos')}
-            className={`flex flex-col items-center justify-center py-1 px-3 rounded-full transition-all apple-press ${
-              activeTab === 'pos' ? 'text-emerald-600 dark:text-emerald-400 font-bold scale-105' : 'text-slate-400 dark:text-slate-500'
-            }`}
+            onClick={() => setShowMobileMoreMenu(true)}
+            className="flex flex-col items-center justify-center py-1.5 px-3 rounded-2xl text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition apple-press min-w-[56px]"
           >
-            <ShoppingCart className="w-5 h-5 mb-0.5" />
-            <span className="text-[10px]">Dispense</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab('inventory')}
-            className={`flex flex-col items-center justify-center py-1 px-3 rounded-full transition-all apple-press ${
-              activeTab === 'inventory' ? 'text-emerald-600 dark:text-emerald-400 font-bold scale-105' : 'text-slate-400 dark:text-slate-500'
-            }`}
-          >
-            <Pill className="w-5 h-5 mb-0.5" />
-            <span className="text-[10px]">Stock</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab('loans')}
-            className={`flex flex-col items-center justify-center py-1 px-3 rounded-full transition-all apple-press ${
-              activeTab === 'loans' ? 'text-amber-600 dark:text-amber-400 font-bold scale-105' : 'text-slate-400 dark:text-slate-500'
-            }`}
-          >
-            <HandCoins className="w-5 h-5 mb-0.5" />
-            <span className="text-[10px]">Loans</span>
+            <MoreHorizontal className="w-5 h-5 mb-0.5" />
+            <span className="text-[10px] font-semibold">More</span>
           </button>
         </nav>
 
