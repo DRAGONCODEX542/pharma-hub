@@ -524,11 +524,12 @@ app.get('/api/organization/staff', (req, res) => {
 
     const staffRows = db.prepare(`
       SELECT id, name, email, phone, role, staff_title, account_type, subscription_tier,
-             allowed_departments, permissions, is_active, created_at
+             allowed_departments, permissions, is_active, created_at,
+             (pin_code IS NOT NULL AND pin_code != '') as has_pin
       FROM users
-      WHERE organization_id = ?
+      WHERE organization_id = ? OR id = ?
       ORDER BY id ASC
-    `).all(orgId);
+    `).all(orgId, orgId);
 
     const staff = staffRows.map(s => {
       let allowedDeps = ['All'];
@@ -561,6 +562,7 @@ app.post('/api/organization/staff', (req, res) => {
       name,
       email,
       password,
+      pin_code,
       role = 'staff',
       staff_title = 'Staff Pharmacist',
       allowed_departments = ['All'],
@@ -613,17 +615,18 @@ app.post('/api/organization/staff', (req, res) => {
 
     const stmt = db.prepare(`
       INSERT INTO users (
-        name, email, password_hash, pharmacy_name, phone, address, currency_symbol,
+        name, email, password_hash, pin_code, pharmacy_name, phone, address, currency_symbol,
         role, account_type, subscription_tier, trial_ends_at, organization_id,
         staff_title, allowed_departments, permissions, is_active, created_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
     `);
 
     const result = stmt.run(
       name.trim(),
       cleanEmail,
       passHash,
+      pin_code ? pin_code.trim() : null,
       user.pharmacy_name,
       user.phone || '',
       user.address || '',
@@ -671,7 +674,7 @@ app.put('/api/organization/staff/:id', (req, res) => {
     const target = db.prepare('SELECT * FROM users WHERE id = ? AND organization_id = ?').get(staffId, orgId);
     if (!target) return res.status(404).json({ error: 'Staff member not found in your organization' });
 
-    const { name, staff_title, role, allowed_departments, permissions, is_active, password } = req.body;
+    const { name, staff_title, role, allowed_departments, permissions, is_active, password, pin_code } = req.body;
     const updates = [];
     const params = [];
 
@@ -682,6 +685,7 @@ app.put('/api/organization/staff/:id', (req, res) => {
     if (permissions) { updates.push('permissions = ?'); params.push(JSON.stringify(permissions)); }
     if (typeof is_active === 'boolean') { updates.push('is_active = ?'); params.push(is_active ? 1 : 0); }
     if (password && password.length >= 6) { updates.push('password_hash = ?'); params.push(hashPassword(password)); }
+    if (pin_code !== undefined) { updates.push('pin_code = ?'); params.push(pin_code ? pin_code.trim() : null); }
 
     if (updates.length > 0) {
       params.push(staffId);
@@ -1490,10 +1494,10 @@ app.post('/api/depot/staff', (req, res) => {
     if (!user || user.account_type !== 'wholesale') return res.status(403).json({ error: 'Wholesale access required' });
     const depot = db.prepare('SELECT id FROM wholesale_depots WHERE user_id = ?').get(user.id);
     if (!depot) return res.status(404).json({ error: 'Depot not found' });
-    const { name, email, phone, role, custom_permissions } = req.body;
+    const { name, email, phone, role, custom_permissions, pin_code } = req.body;
     const nowStr = new Date().toISOString().replace('T', ' ').slice(0, 19);
-    const result = db.prepare('INSERT INTO depot_staff (depot_id, name, email, phone, role, custom_permissions, is_active, created_at) VALUES (?,?,?,?,?,?,1,?)')
-      .run(depot.id, name, email||'', phone||'', role||'teleseller', custom_permissions ? JSON.stringify(custom_permissions) : null, nowStr);
+    const result = db.prepare('INSERT INTO depot_staff (depot_id, name, email, phone, role, custom_permissions, pin_code, is_active, created_at) VALUES (?,?,?,?,?,?,?,1,?)')
+      .run(depot.id, name, email||'', phone||'', role||'teleseller', custom_permissions ? JSON.stringify(custom_permissions) : null, pin_code ? pin_code.trim() : null, nowStr);
     res.json({ success: true, id: Number(result.lastInsertRowid) });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -1504,9 +1508,9 @@ app.put('/api/depot/staff/:id', (req, res) => {
     if (!user || user.account_type !== 'wholesale') return res.status(403).json({ error: 'Wholesale access required' });
     const depot = db.prepare('SELECT id FROM wholesale_depots WHERE user_id = ?').get(user.id);
     const staffId = parseInt(req.params.id, 10);
-    const { name, email, phone, role, custom_permissions, is_active } = req.body;
-    db.prepare('UPDATE depot_staff SET name=COALESCE(?,name), email=COALESCE(?,email), phone=COALESCE(?,phone), role=COALESCE(?,role), custom_permissions=COALESCE(?,custom_permissions), is_active=COALESCE(?,is_active) WHERE id=? AND depot_id=?')
-      .run(name||null, email||null, phone||null, role||null, custom_permissions ? JSON.stringify(custom_permissions) : null, is_active !== undefined ? is_active : null, staffId, depot.id);
+    const { name, email, phone, role, custom_permissions, is_active, pin_code } = req.body;
+    db.prepare('UPDATE depot_staff SET name=COALESCE(?,name), email=COALESCE(?,email), phone=COALESCE(?,phone), role=COALESCE(?,role), custom_permissions=COALESCE(?,custom_permissions), is_active=COALESCE(?,is_active), pin_code=COALESCE(?,pin_code) WHERE id=? AND depot_id=?')
+      .run(name||null, email||null, phone||null, role||null, custom_permissions ? JSON.stringify(custom_permissions) : null, is_active !== undefined ? is_active : null, pin_code ? pin_code.trim() : null, staffId, depot.id);
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -1519,6 +1523,121 @@ app.delete('/api/depot/staff/:id', (req, res) => {
     db.prepare('DELETE FROM depot_staff WHERE id = ? AND depot_id = ?').run(parseInt(req.params.id, 10), depot.id);
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- STATION OPERATOR AUTHENTICATION & SWITCH ---
+app.post('/api/auth/station-switch', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ error: 'Authentication required' });
+    const { target_staff_id, pin, admin_password } = req.body;
+    const orgId = user.organization_id || user.id;
+
+    // Switch to Primary Administrator
+    if (target_staff_id === 'admin' || target_staff_id === orgId) {
+      const adminUser = db.prepare('SELECT * FROM users WHERE id = ?').get(orgId);
+      if (admin_password) {
+        if (!verifyPassword(admin_password, adminUser.password_hash)) {
+          return res.status(401).json({ error: 'Incorrect administrator password' });
+        }
+      } else if (adminUser.pin_code) {
+        if (adminUser.pin_code !== pin) {
+          return res.status(401).json({ error: 'Incorrect administrator PIN' });
+        }
+      }
+      return res.json({
+        success: true,
+        operator: {
+          id: adminUser.id,
+          name: adminUser.name,
+          role: 'admin',
+          staff_title: 'Primary Administrator',
+          permissions: ['all'],
+          allowed_departments: ['All']
+        }
+      });
+    }
+
+    // Switch to staff member
+    const staffId = parseInt(target_staff_id, 10);
+    const target = db.prepare('SELECT * FROM users WHERE id = ? AND (organization_id = ? OR id = ?)').get(staffId, orgId, orgId);
+    if (!target) return res.status(404).json({ error: 'Staff member not found' });
+    if (target.is_active === 0) return res.status(403).json({ error: 'This staff account is deactivated' });
+
+    if (target.pin_code && target.pin_code !== pin) {
+      return res.status(401).json({ error: 'Incorrect station PIN' });
+    }
+
+    let perms = ['pos'];
+    let deps = ['All'];
+    try { perms = JSON.parse(target.permissions || '[]'); } catch (e) {}
+    try { deps = JSON.parse(target.allowed_departments || '[]'); } catch (e) {}
+
+    return res.json({
+      success: true,
+      operator: {
+        id: target.id,
+        name: target.name,
+        role: target.role,
+        staff_title: target.staff_title || target.role,
+        permissions: perms,
+        allowed_departments: deps
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/depot/station-switch', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user || user.account_type !== 'wholesale') return res.status(403).json({ error: 'Wholesale access required' });
+    const depot = db.prepare('SELECT id FROM wholesale_depots WHERE user_id = ?').get(user.id);
+    if (!depot) return res.status(404).json({ error: 'Depot not found' });
+    const { target_staff_id, pin, admin_password } = req.body;
+
+    // Switch to Depot Admin
+    if (target_staff_id === 'admin' || target_staff_id === user.id) {
+      if (admin_password && !verifyPassword(admin_password, user.password_hash)) {
+        return res.status(401).json({ error: 'Incorrect depot administrator password' });
+      }
+      return res.json({
+        success: true,
+        operator: {
+          id: 'admin',
+          name: user.name,
+          role: 'depot_admin',
+          permissions: ['all']
+        }
+      });
+    }
+
+    const staff = db.prepare('SELECT * FROM depot_staff WHERE id = ? AND depot_id = ?').get(parseInt(target_staff_id, 10), depot.id);
+    if (!staff) return res.status(404).json({ error: 'Depot staff member not found' });
+    if (staff.is_active === 0) return res.status(403).json({ error: 'This staff account is deactivated' });
+
+    if (staff.pin_code && staff.pin_code !== pin) {
+      return res.status(401).json({ error: 'Incorrect station PIN' });
+    }
+
+    let perms = [];
+    try { perms = JSON.parse(staff.custom_permissions || '[]'); } catch (e) {}
+
+    return res.json({
+      success: true,
+      operator: {
+        id: staff.id,
+        name: staff.name,
+        email: staff.email,
+        phone: staff.phone,
+        role: staff.role,
+        permissions: perms
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // --- DEPOT ANALYTICS (Dashboard KPIs) ---

@@ -321,6 +321,7 @@ export default function App() {
     name: '',
     email: '',
     password: '',
+    pin_code: '',
     role: 'staff',
     staff_title: 'Staff Pharmacist',
     allowed_departments: ['All'],
@@ -329,18 +330,26 @@ export default function App() {
   const [editingStaffMember, setEditingStaffMember] = useState(null);
   const [selectedRolePreset, setSelectedRolePreset] = useState('pharmacist');
 
-  // Granular Role & Permission Access Gatekeeper
+  // Granular Role & Permission Access Gatekeeper (Station Operator Aware)
   const canAccess = (perm) => {
     if (!currentUser) return false;
-    if (currentUser.role === 'admin' || currentUser.role === 'superadmin' || currentUser.account_type === 'solo') return true;
+    if (currentUser.account_type === 'solo') return true;
+
+    // Use active station operator if set on this device, otherwise fall back to authenticated company user
+    const effectiveRole = activeOperator ? activeOperator.role : currentUser.role;
+    const effectivePerms = activeOperator ? activeOperator.permissions : currentUser.permissions;
+
+    if (effectiveRole === 'admin' || effectiveRole === 'superadmin') return true;
     let perms = [];
-    if (Array.isArray(currentUser.permissions)) perms = currentUser.permissions;
-    else if (typeof currentUser.permissions === 'string') {
-      try { perms = JSON.parse(currentUser.permissions); } catch (e) { perms = []; }
+    if (Array.isArray(effectivePerms)) perms = effectivePerms;
+    else if (typeof effectivePerms === 'string') {
+      try { perms = JSON.parse(effectivePerms); } catch (e) { perms = []; }
     }
     if (perms.includes('all') || perms.includes('*')) return true;
     return perms.includes(perm);
   };
+
+  const isCurrentAdmin = currentUser?.account_type === 'solo' || (activeOperator ? (activeOperator.role === 'admin' || activeOperator.role === 'superadmin') : (currentUser?.role === 'admin' || currentUser?.role === 'superadmin'));
 
   // Wholesalers & Live Restock Directory State
   const [wholesalersList, setWholesalersList] = useState([]);
@@ -493,9 +502,18 @@ export default function App() {
     items_summary: ''
   });
 
-  // Standalone Market Price Checker Search
+  // Standalone Market Price Checker Search & Dismissibility
   const [marketSearchQuery, setMarketSearchQuery] = useState('');
   const [standaloneMarketData, setStandaloneMarketData] = useState(null);
+  const [showMarketIntelligence, setShowMarketIntelligence] = useState(false);
+
+  // Multi-Staff Station Operator System (Kiosk/Workstation Sign-In)
+  const [activeOperator, setActiveOperator] = useState(null);
+  const [showOperatorModal, setShowOperatorModal] = useState(false);
+  const [operatorSearchText, setOperatorSearchText] = useState('');
+  const [selectedOperatorForPin, setSelectedOperatorForPin] = useState(null);
+  const [operatorPinInput, setOperatorPinInput] = useState('');
+  const [operatorAdminPassword, setOperatorAdminPassword] = useState('');
 
   // Department Category Filter (for both POS and Medicines views)
   const [selectedFormCategory, setSelectedFormCategory] = useState('All');
@@ -637,7 +655,7 @@ export default function App() {
   };
 
   const fetchStaffList = async () => {
-    if (!currentUser || currentUser.role !== 'admin') return;
+    if (!currentUser || currentUser.account_type === 'solo') return;
     setStaffLoading(true);
     try {
       const res = await authFetch('/api/organization/staff');
@@ -682,6 +700,7 @@ export default function App() {
       name: member.name || '',
       email: member.email || '',
       password: '',
+      pin_code: member.pin_code || '',
       role: member.role || 'staff',
       staff_title: member.staff_title || '',
       allowed_departments: Array.isArray(member.allowed_departments) ? member.allowed_departments : ['All'],
@@ -720,7 +739,8 @@ export default function App() {
           staff_title: newStaffForm.staff_title,
           role: newStaffForm.role,
           allowed_departments: newStaffForm.allowed_departments,
-          permissions: newStaffForm.permissions
+          permissions: newStaffForm.permissions,
+          pin_code: newStaffForm.pin_code ? newStaffForm.pin_code.trim() : null
         };
         if (newStaffForm.password && newStaffForm.password.trim().length >= 6) {
           payload.password = newStaffForm.password.trim();
@@ -932,24 +952,76 @@ export default function App() {
     document.body.removeChild(link);
   };
 
+  // Initialize Active Station Operator from local storage for multi-staff stations
   useEffect(() => {
-    if (activeTab === 'staff' && currentUser?.role === 'admin') {
+    if (!currentUser) return;
+    if (currentUser.account_type === 'solo') {
+      setActiveOperator({
+        id: currentUser.id,
+        name: currentUser.name,
+        role: 'admin',
+        staff_title: 'Solo Pharmacist',
+        permissions: ['all'],
+        allowed_departments: ['All']
+      });
+      return;
+    }
+
+    const orgKey = 'pharma_operator_' + (currentUser.organization_id || currentUser.id);
+    const saved = localStorage.getItem(orgKey);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        setActiveOperator(parsed);
+      } catch (e) {
+        setActiveOperator({
+          id: currentUser.id,
+          name: currentUser.name,
+          role: currentUser.role || 'admin',
+          staff_title: currentUser.staff_title || 'Administrator',
+          permissions: ['all'],
+          allowed_departments: ['All']
+        });
+      }
+    } else {
+      setActiveOperator({
+        id: currentUser.id,
+        name: currentUser.name,
+        role: currentUser.role || 'admin',
+        staff_title: currentUser.staff_title || 'Administrator',
+        permissions: ['all'],
+        allowed_departments: ['All']
+      });
+    }
+
+    // Always pre-load organization staff list for the operator switcher
+    if (currentUser.account_type === 'organization') {
       fetchStaffList();
     }
-  }, [activeTab, currentUser]);
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (activeTab === 'staff') {
+      fetchStaffList();
+    }
+  }, [activeTab]);
 
   // Route staff without POS access to their allowed working workspace (e.g. Accountant to Sales/P&L)
   useEffect(() => {
-    if (currentUser && currentUser.role !== 'admin' && currentUser.account_type !== 'solo') {
+    if (!currentUser || currentUser.account_type === 'solo') return;
+    const effectiveRole = activeOperator ? activeOperator.role : currentUser.role;
+    if (effectiveRole !== 'admin') {
       if (activeTab === 'pos' && !canAccess('pos')) {
         if (canAccess('sales_view')) setActiveTab('sales');
         else if (canAccess('stock_view')) setActiveTab('inventory');
         else if (canAccess('batch_view')) setActiveTab('batches');
         else if (canAccess('loans_view')) setActiveTab('loans');
         else setActiveTab('dashboard');
+      } else if (activeTab === 'staff' || activeTab === 'settings') {
+        setActiveTab('dashboard');
       }
     }
-  }, [currentUser, activeTab]);
+  }, [currentUser, activeOperator, activeTab]);
 
   useEffect(() => {
     if (activeTab === 'sales' && salesSubView === 'accounting') {
@@ -1211,6 +1283,7 @@ export default function App() {
     e?.preventDefault();
     if (!marketSearchQuery.trim()) return;
     try {
+      setShowMarketIntelligence(true);
       setBenchmarkLoading(true);
       const res = await authFetch(`/api/market-prices?q=${encodeURIComponent(marketSearchQuery.trim())}`).then(r => r.json());
       setStandaloneMarketData(res);
@@ -1218,6 +1291,78 @@ export default function App() {
       showToast('Market search failed', 'error');
     } finally {
       setBenchmarkLoading(false);
+    }
+  };
+
+  // Station Operator Selection & Multi-Device Shift Switching
+  const handleSelectOperator = async (staffMember) => {
+    if (!staffMember) return;
+    const isTargetAdmin = staffMember.id === 'admin' || staffMember.role === 'admin' || staffMember.id === (currentUser.organization_id || currentUser.id);
+
+    // If target is Admin or requires a PIN, prompt for PIN/Password modal
+    if (isTargetAdmin) {
+      setSelectedOperatorForPin(staffMember);
+      setOperatorPinInput('');
+      setOperatorAdminPassword('');
+      return;
+    }
+
+    if (staffMember.has_pin) {
+      setSelectedOperatorForPin(staffMember);
+      setOperatorPinInput('');
+      return;
+    }
+
+    // Direct switch if no PIN is configured on this staff profile
+    try {
+      const res = await authFetch('/api/auth/station-switch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target_staff_id: staffMember.id })
+      });
+      const data = await res.json();
+      if (res.ok && data.operator) {
+        const orgKey = 'pharma_operator_' + (currentUser.organization_id || currentUser.id);
+        localStorage.setItem(orgKey, JSON.stringify(data.operator));
+        setActiveOperator(data.operator);
+        setShowOperatorModal(false);
+        showToast(`Station active: ${data.operator.name} (${data.operator.staff_title || data.operator.role})`, 'success');
+      } else {
+        showToast(data.error || 'Failed to switch station operator', 'error');
+      }
+    } catch {
+      showToast('Error switching operator', 'error');
+    }
+  };
+
+  const handleVerifyOperatorPin = async (e) => {
+    e?.preventDefault();
+    if (!selectedOperatorForPin) return;
+    try {
+      const res = await authFetch('/api/auth/station-switch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          target_staff_id: selectedOperatorForPin.id,
+          pin: operatorPinInput.trim(),
+          admin_password: operatorAdminPassword.trim()
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.operator) {
+        const orgKey = 'pharma_operator_' + (currentUser.organization_id || currentUser.id);
+        localStorage.setItem(orgKey, JSON.stringify(data.operator));
+        setActiveOperator(data.operator);
+        setSelectedOperatorForPin(null);
+        setOperatorPinInput('');
+        setOperatorAdminPassword('');
+        setShowOperatorModal(false);
+        showToast(`Station operator verified: ${data.operator.name}`, 'success');
+      } else {
+        showToast(data.error || 'Invalid credentials or PIN', 'error');
+      }
+    } catch {
+      showToast('Station verification failed', 'error');
     }
   };
 
@@ -2699,6 +2844,24 @@ export default function App() {
               {isDarkMode ? <Sun className="w-4.5 h-4.5" /> : <Moon className="w-4.5 h-4.5" />}
             </button>
 
+            {/* Station Operator Pill (Organization / Multi-Staff) */}
+            {currentUser?.account_type === 'organization' && (
+              <button
+                type="button"
+                onClick={() => setShowOperatorModal(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-800 dark:text-emerald-300 text-xs font-bold hover:bg-emerald-500/20 transition apple-press"
+                title="Switch Station Operator"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold hidden sm:inline">Station:</span>
+                <span className="truncate max-w-[100px] sm:max-w-[140px] font-black">{activeOperator ? activeOperator.name : currentUser.name}</span>
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 font-bold uppercase">
+                  {activeOperator ? (activeOperator.staff_title || activeOperator.role) : 'Admin'}
+                </span>
+                <span className="text-xs text-slate-400 ml-0.5">⇄</span>
+              </button>
+            )}
+
             {/* Desktop: trial status chip */}
             {currentUser?.trial_days_remaining !== undefined && (
               <button
@@ -3232,88 +3395,138 @@ export default function App() {
           {/* ============================================================ */}
           {activeTab === 'inventory' && (
             <div className="space-y-5">
-              {/* Web Market Price Checker Bar — collapsible on mobile */}
-              <div className="bg-gradient-to-r from-blue-900 to-slate-900 text-white rounded-3xl p-4 shadow-sm space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <Globe className="w-5 h-5 text-blue-400" />
-                    <h3 className="font-bold text-base">Web Market Price Intelligence Engine</h3>
+              {/* Web Market Price Checker Bar — collapsible & dismissible with close 'X' */}
+              {showMarketIntelligence ? (
+                <div className="bg-gradient-to-r from-blue-900 to-slate-900 text-white rounded-3xl p-4 shadow-sm space-y-3 relative animate-fade-in">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <Globe className="w-5 h-5 text-blue-400" />
+                      <h3 className="font-bold text-base">Web Market Price Intelligence Engine</h3>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="hidden sm:inline text-xs text-blue-200 bg-blue-800/60 px-3 py-1 rounded-full">
+                        Sourced from National Drug Registries & Public Hospital Formularies
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => { setShowMarketIntelligence(false); setStandaloneMarketData(null); }}
+                        className="p-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white transition"
+                        title="Close Price Reference Panel"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
-                  <span className="text-xs text-blue-200 bg-blue-800/60 px-3 py-1 rounded-full">
-                    Sourced from National Drug Registries & Public Hospital Formularies
-                  </span>
+                  <form onSubmit={handleSearchMarket} className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="Search market benchmark for any medicine (e.g. Augmentin, Paracetamol, Metformin)..."
+                      value={marketSearchQuery}
+                      onChange={(e) => setMarketSearchQuery(e.target.value)}
+                      className="flex-1 px-4 py-2 bg-slate-800/90 border border-slate-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 text-white placeholder-slate-400"
+                    />
+                    <button
+                      type="submit"
+                      className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl text-xs transition"
+                    >
+                      Check Market Price
+                    </button>
+                  </form>
+
+                  {standaloneMarketData && (
+                    standaloneMarketData.found === false ? (
+                      <div className="mt-3 p-4 bg-amber-500/10 border border-amber-500/20 rounded-2xl text-xs space-y-1.5 text-amber-200 relative">
+                        <button
+                          type="button"
+                          onClick={() => setStandaloneMarketData(null)}
+                          className="absolute top-3 right-3 text-amber-300/70 hover:text-amber-200"
+                          title="Dismiss"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                        <div className="flex items-center gap-2 font-bold text-sm text-amber-300">
+                          <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                          <span>No Clinical Benchmark Found for "{standaloneMarketData.medicine}"</span>
+                        </div>
+                        <p className="text-slate-300 text-xs">{standaloneMarketData.message}</p>
+                      </div>
+                    ) : (
+                      <div className="mt-3 p-4 bg-slate-800/80 rounded-2xl border border-slate-700/80 text-xs space-y-3 relative">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <h4 className="font-bold text-white text-sm">{standaloneMarketData.medicine}</h4>
+                            <p className="text-blue-300">{standaloneMarketData.therapeutic_class} • {standaloneMarketData.country}</p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] text-slate-400">{standaloneMarketData.prescription_status}</span>
+                            <button
+                              type="button"
+                              onClick={() => setStandaloneMarketData(null)}
+                              className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-white/10"
+                              title="Clear search results"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          <div className="p-3 bg-purple-900/30 border border-purple-500/30 rounded-xl">
+                            <span className="text-[10px] font-bold text-purple-300 uppercase">Originator Brand</span>
+                            <p className="font-bold text-white text-sm mt-0.5">{standaloneMarketData.tiers?.originator?.brand}</p>
+                            <p className="text-amber-300 font-extrabold text-base mt-1">
+                              {curr}{standaloneMarketData.tiers?.originator?.market_average?.toFixed(2)}
+                            </p>
+                            <p className="text-[10px] text-slate-400">Range: {curr}{standaloneMarketData.tiers?.originator?.market_low} - {curr}{standaloneMarketData.tiers?.originator?.market_high}</p>
+                          </div>
+
+                          <div className="p-3 bg-blue-900/30 border border-blue-500/30 rounded-xl">
+                            <span className="text-[10px] font-bold text-blue-300 uppercase">Branded Generic</span>
+                            <p className="font-bold text-white text-sm mt-0.5">{standaloneMarketData.tiers?.branded_generic?.brand}</p>
+                            <p className="text-teal-300 font-extrabold text-base mt-1">
+                              {curr}{standaloneMarketData.tiers?.branded_generic?.market_average?.toFixed(2)}
+                            </p>
+                            <p className="text-[10px] text-slate-400">Range: {curr}{standaloneMarketData.tiers?.branded_generic?.market_low} - {curr}{standaloneMarketData.tiers?.branded_generic?.market_high}</p>
+                          </div>
+
+                          <div className="p-3 bg-emerald-900/30 border border-emerald-500/30 rounded-xl">
+                            <span className="text-[10px] font-bold text-emerald-300 uppercase">Pure Generic</span>
+                            <p className="font-bold text-white text-sm mt-0.5">{standaloneMarketData.tiers?.pure_generic?.brand}</p>
+                            <p className="text-emerald-300 font-extrabold text-base mt-1">
+                              {curr}{standaloneMarketData.tiers?.pure_generic?.market_average?.toFixed(2)}
+                            </p>
+                            <p className="text-[10px] text-slate-400">Range: {curr}{standaloneMarketData.tiers?.pure_generic?.market_low} - {curr}{standaloneMarketData.tiers?.pure_generic?.market_high}</p>
+                          </div>
+                        </div>
+
+                        <p className="text-[11px] text-slate-400 italic">
+                          ℹ️ {standaloneMarketData.notes}
+                        </p>
+                      </div>
+                    )
+                  )}
                 </div>
-                <form onSubmit={handleSearchMarket} className="flex gap-2">
-                  <input
-                    type="text"
-                    placeholder="Search market benchmark for any medicine (e.g. Augmentin, Paracetamol, Metformin)..."
-                    value={marketSearchQuery}
-                    onChange={(e) => setMarketSearchQuery(e.target.value)}
-                    className="flex-1 px-4 py-2 bg-slate-800/90 border border-slate-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 text-white placeholder-slate-400"
-                  />
+              ) : (
+                <div className="flex items-center justify-between p-3.5 bg-gradient-to-r from-blue-950/70 via-slate-900 to-blue-950/70 border border-blue-500/20 rounded-2xl shadow-sm">
+                  <div className="flex items-center space-x-2.5">
+                    <div className="p-2 rounded-xl bg-blue-500/10 border border-blue-500/30">
+                      <Globe className="w-4 h-4 text-blue-400" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-bold text-white">Web Market Price Intelligence Engine</h4>
+                      <p className="text-[11px] text-slate-400">Search Kenya National Formularies & public hospital benchmarks for any drug</p>
+                    </div>
+                  </div>
                   <button
-                    type="submit"
-                    className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl text-xs transition"
+                    type="button"
+                    onClick={() => setShowMarketIntelligence(true)}
+                    className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl transition shadow-xs flex items-center gap-1.5 apple-press"
                   >
-                    Check Market Price
+                    <Search className="w-3.5 h-3.5" />
+                    <span>Check Market Price</span>
                   </button>
-                </form>
-
-                {standaloneMarketData && (
-                  standaloneMarketData.found === false ? (
-                    <div className="mt-3 p-4 bg-amber-500/10 border border-amber-500/20 rounded-2xl text-xs space-y-1.5 text-amber-200">
-                      <div className="flex items-center gap-2 font-bold text-sm text-amber-300">
-                        <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
-                        <span>No Clinical Benchmark Found for "{standaloneMarketData.medicine}"</span>
-                      </div>
-                      <p className="text-slate-300 text-xs">{standaloneMarketData.message}</p>
-                    </div>
-                  ) : (
-                    <div className="mt-3 p-4 bg-slate-800/80 rounded-2xl border border-slate-700/80 text-xs space-y-3">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <h4 className="font-bold text-white text-sm">{standaloneMarketData.medicine}</h4>
-                          <p className="text-blue-300">{standaloneMarketData.therapeutic_class} • {standaloneMarketData.country}</p>
-                        </div>
-                        <span className="text-[10px] text-slate-400">{standaloneMarketData.prescription_status}</span>
-                      </div>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                        <div className="p-3 bg-purple-900/30 border border-purple-500/30 rounded-xl">
-                          <span className="text-[10px] font-bold text-purple-300 uppercase">Originator Brand</span>
-                          <p className="font-bold text-white text-sm mt-0.5">{standaloneMarketData.tiers?.originator?.brand}</p>
-                          <p className="text-amber-300 font-extrabold text-base mt-1">
-                            {curr}{standaloneMarketData.tiers?.originator?.market_average?.toFixed(2)}
-                          </p>
-                          <p className="text-[10px] text-slate-400">Range: {curr}{standaloneMarketData.tiers?.originator?.market_low} - {curr}{standaloneMarketData.tiers?.originator?.market_high}</p>
-                        </div>
-
-                        <div className="p-3 bg-blue-900/30 border border-blue-500/30 rounded-xl">
-                          <span className="text-[10px] font-bold text-blue-300 uppercase">Branded Generic</span>
-                          <p className="font-bold text-white text-sm mt-0.5">{standaloneMarketData.tiers?.branded_generic?.brand}</p>
-                          <p className="text-teal-300 font-extrabold text-base mt-1">
-                            {curr}{standaloneMarketData.tiers?.branded_generic?.market_average?.toFixed(2)}
-                          </p>
-                          <p className="text-[10px] text-slate-400">Range: {curr}{standaloneMarketData.tiers?.branded_generic?.market_low} - {curr}{standaloneMarketData.tiers?.branded_generic?.market_high}</p>
-                        </div>
-
-                        <div className="p-3 bg-emerald-900/30 border border-emerald-500/30 rounded-xl">
-                          <span className="text-[10px] font-bold text-emerald-300 uppercase">Pure Generic</span>
-                          <p className="font-bold text-white text-sm mt-0.5">{standaloneMarketData.tiers?.pure_generic?.brand}</p>
-                          <p className="text-emerald-300 font-extrabold text-base mt-1">
-                            {curr}{standaloneMarketData.tiers?.pure_generic?.market_average?.toFixed(2)}
-                          </p>
-                          <p className="text-[10px] text-slate-400">Range: {curr}{standaloneMarketData.tiers?.pure_generic?.market_low} - {curr}{standaloneMarketData.tiers?.pure_generic?.market_high}</p>
-                        </div>
-                      </div>
-
-                      <p className="text-[11px] text-slate-400 italic">
-                        ℹ️ {standaloneMarketData.notes}
-                      </p>
-                    </div>
-                  )
-                )}
-              </div>
+                </div>
+              )}
 
               {/* Drug Catalog — clean card list */}
               <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-white/10 shadow-sm p-5 space-y-4">
@@ -4679,7 +4892,10 @@ export default function App() {
       {/* BRAND VS GENERIC & WEB MARKET BENCHMARK COMPARISON MODAL     */}
       {/* ============================================================ */}
       {showAlternativeModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
+        <div
+          onClick={(e) => { if (e.target === e.currentTarget) setShowAlternativeModal(false); }}
+          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4"
+        >
           <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh]">
             <div className="p-5 bg-gradient-to-r from-emerald-600 to-teal-700 text-white flex items-center justify-between">
               <div>
@@ -4867,7 +5083,10 @@ export default function App() {
       {/* RECORD REPAYMENT MODAL                                       */}
       {/* ============================================================ */}
       {showRepaymentModal && selectedLoanForRepayment && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
+        <div
+          onClick={(e) => { if (e.target === e.currentTarget) setShowRepaymentModal(false); }}
+          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4"
+        >
           <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col">
             <div className="p-5 border-b border-slate-100 flex items-center justify-between">
               <div>
@@ -4939,7 +5158,10 @@ export default function App() {
       {/* ADD MEDICINE MODAL                                           */}
       {/* ============================================================ */}
       {showAddMedicineModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
+        <div
+          onClick={(e) => { if (e.target === e.currentTarget) setShowAddMedicineModal(false); }}
+          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4"
+        >
           <div className="bg-white w-full max-w-xl rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh]">
             <div className="p-5 border-b border-slate-100 flex items-center justify-between">
               <h3 className="font-bold text-slate-900 text-base">Register New Medicine Formulation</h3>
@@ -5105,7 +5327,10 @@ export default function App() {
       {/* ADD BATCH / SMART RESTOCK MODAL                             */}
       {/* ============================================================ */}
       {showAddBatchModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto animate-fade-in">
+        <div
+          onClick={(e) => { if (e.target === e.currentTarget) setShowAddBatchModal(false); }}
+          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto animate-fade-in"
+        >
           <div className="bg-white dark:bg-slate-900 w-full max-w-xl rounded-3xl shadow-2xl border border-slate-200 dark:border-white/10 overflow-hidden flex flex-col my-8">
             
             {/* Header */}
@@ -5783,7 +6008,10 @@ export default function App() {
       {/* ADD / EDIT STAFF MODAL WITH GRANULAR RBAC & PRESETS         */}
       {/* ============================================================ */}
       {showStaffModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
+        <div
+          onClick={(e) => { if (e.target === e.currentTarget) { setShowStaffModal(false); setEditingStaffMember(null); } }}
+          className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4"
+        >
           <div className="bg-white dark:bg-slate-900 w-full max-w-xl max-h-[90vh] rounded-3xl shadow-2xl border border-slate-200/80 dark:border-white/10 flex flex-col overflow-hidden">
             <div className="flex items-center justify-between p-5 border-b border-slate-200 dark:border-white/10 shrink-0">
               <div>
@@ -5859,6 +6087,24 @@ export default function App() {
                     onChange={e => setNewStaffForm(f => ({ ...f, password: e.target.value }))}
                     className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-xs dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none" />
                 </div>
+              </div>
+
+              {/* Station PIN for Quick Operator Sign-In on shared devices */}
+              <div className="p-3 rounded-2xl bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200/60 dark:border-emerald-800/30">
+                <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-1">
+                  Quick Station Operator PIN (Optional 4-digit passcode for counter sign-in)
+                </label>
+                <input
+                  type="password"
+                  maxLength={6}
+                  placeholder="e.g. 1234 (optional for rapid counter shift sign-in)"
+                  value={newStaffForm.pin_code || ''}
+                  onChange={e => setNewStaffForm(f => ({ ...f, pin_code: e.target.value }))}
+                  className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl text-xs dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none font-mono"
+                />
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">
+                  When this staff member operates this or another device, they enter this PIN to activate their privileges.
+                </p>
               </div>
 
               {/* Module Permissions Matrix */}
@@ -5945,10 +6191,240 @@ export default function App() {
       )}
 
       {/* ============================================================ */}
+      {/* STATION OPERATOR SIGN-IN & SHIFT SWITCHER MODAL             */}
+      {/* ============================================================ */}
+      {showOperatorModal && (
+        <div
+          onClick={(e) => { if (e.target === e.currentTarget) { setShowOperatorModal(false); setSelectedOperatorForPin(null); } }}
+          className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto animate-fade-in"
+        >
+          <div className="bg-white dark:bg-[#12131a] w-full max-w-lg rounded-3xl shadow-2xl border border-slate-200 dark:border-white/10 p-6 space-y-5 animate-scale-up">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-white/10">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center text-white font-black shadow-md">
+                  <UserCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base text-slate-900 dark:text-white">Station Operator Sign-In</h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    {settings.pharmacy_name || 'PharmaHub'} • Who is operating this workstation?
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setShowOperatorModal(false); setSelectedOperatorForPin(null); }}
+                className="w-8 h-8 rounded-full bg-slate-100 dark:bg-white/10 hover:bg-slate-200 dark:hover:bg-white/20 flex items-center justify-center text-slate-500 dark:text-slate-300 transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* If verifying PIN or Admin Password */}
+            {selectedOperatorForPin ? (
+              <form onSubmit={handleVerifyOperatorPin} className="space-y-4">
+                <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/40 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Signing into profile:</span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedOperatorForPin(null)}
+                      className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 hover:underline"
+                    >
+                      ← Choose different person
+                    </button>
+                  </div>
+                  <h4 className="text-base font-extrabold text-emerald-800 dark:text-emerald-300">
+                    {selectedOperatorForPin.name}
+                  </h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Role: <strong className="capitalize">{selectedOperatorForPin.staff_title || selectedOperatorForPin.role}</strong>
+                  </p>
+                </div>
+
+                {selectedOperatorForPin.role === 'admin' ? (
+                  <div className="space-y-2">
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                      Enter Administrator Account Password:
+                    </label>
+                    <input
+                      type="password"
+                      autoFocus
+                      required
+                      placeholder="Enter administrator password..."
+                      value={operatorAdminPassword}
+                      onChange={(e) => setOperatorAdminPassword(e.target.value)}
+                      className="w-full px-4 py-3 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/10 text-sm font-semibold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                    <p className="text-[11px] text-slate-400">
+                      Required to unlock primary administrative controls and staff management.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                      Enter 4-Digit Station PIN:
+                    </label>
+                    <input
+                      type="password"
+                      autoFocus
+                      maxLength={8}
+                      placeholder="••••"
+                      value={operatorPinInput}
+                      onChange={(e) => setOperatorPinInput(e.target.value)}
+                      className="w-full px-4 py-3 text-center tracking-widest text-lg font-mono font-black rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/10 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                  </div>
+                )}
+
+                <div className="flex gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedOperatorForPin(null)}
+                    className="flex-1 py-2.5 rounded-2xl border border-slate-200 dark:border-white/10 font-bold text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/5 transition"
+                  >
+                    Back
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs shadow-lg shadow-emerald-600/30 transition apple-press"
+                  >
+                    Confirm & Activate Station
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <div className="space-y-4">
+                {/* Search / Filter input */}
+                <div className="relative">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder="Search your name or role..."
+                    value={operatorSearchText}
+                    onChange={(e) => setOperatorSearchText(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2.5 rounded-2xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-white/10 text-xs font-semibold outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900 dark:text-white"
+                  />
+                </div>
+
+                {/* Staff Selection List */}
+                <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
+                  {/* Primary Admin Option */}
+                  {(!operatorSearchText || 'administrator admin owner'.includes(operatorSearchText.toLowerCase()) || currentUser?.name?.toLowerCase().includes(operatorSearchText.toLowerCase())) && (
+                    <button
+                      type="button"
+                      onClick={() => handleSelectOperator({
+                        id: currentUser.id,
+                        name: currentUser.name,
+                        role: 'admin',
+                        staff_title: 'Primary Administrator',
+                        permissions: ['all']
+                      })}
+                      className={`w-full p-3.5 rounded-2xl border text-left transition apple-press flex items-center justify-between ${
+                        activeOperator?.role === 'admin'
+                          ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-500 text-emerald-900 dark:text-white'
+                          : 'bg-slate-50 dark:bg-white/[0.03] border-slate-200 dark:border-white/10 hover:border-emerald-500/50'
+                      }`}
+                    >
+                      <div className="flex items-center space-x-3">
+                        <div className="w-9 h-9 rounded-xl bg-purple-500/20 text-purple-600 dark:text-purple-400 flex items-center justify-center font-black text-sm">
+                          👑
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-extrabold text-xs text-slate-900 dark:text-white">{currentUser?.name}</span>
+                            <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-700 dark:text-purple-300">
+                              Admin / Owner
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400">Full system access, staff settings & configuration</p>
+                        </div>
+                      </div>
+                      <span className="text-xs font-bold text-slate-400">🔒 Password Required</span>
+                    </button>
+                  )}
+
+                  {/* Registered Staff Members */}
+                  {staffList
+                    .filter(s => s.id !== currentUser.id && s.role !== 'admin')
+                    .filter(s => {
+                      if (!operatorSearchText) return true;
+                      const q = operatorSearchText.toLowerCase();
+                      return s.name.toLowerCase().includes(q) || (s.staff_title || s.role).toLowerCase().includes(q);
+                    })
+                    .map(staff => (
+                      <button
+                        key={staff.id}
+                        type="button"
+                        onClick={() => handleSelectOperator(staff)}
+                        className={`w-full p-3.5 rounded-2xl border text-left transition apple-press flex items-center justify-between ${
+                          activeOperator?.id === staff.id
+                            ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-500 text-emerald-900 dark:text-white'
+                            : 'bg-slate-50 dark:bg-white/[0.03] border-slate-200 dark:border-white/10 hover:border-emerald-500/50'
+                        }`}
+                      >
+                        <div className="flex items-center space-x-3">
+                          <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-black text-sm ${
+                            staff.role === 'accountant' ? 'bg-blue-500/20 text-blue-600 dark:text-blue-400' :
+                            staff.role === 'cashier' ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400' :
+                            staff.role === 'storekeeper' ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400' :
+                            'bg-teal-500/20 text-teal-600 dark:text-teal-400'
+                          }`}>
+                            {staff.name?.[0]?.toUpperCase() || 'S'}
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-extrabold text-xs text-slate-900 dark:text-white">{staff.name}</span>
+                              <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-slate-200 dark:bg-white/10 text-slate-700 dark:text-slate-300 capitalize">
+                                {staff.staff_title || staff.role}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                              Departments: {Array.isArray(staff.allowed_departments) ? staff.allowed_departments.join(', ') : 'All'}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">Select →</span>
+                          {staff.has_pin && (
+                            <p className="text-[10px] text-slate-400">PIN Protected</p>
+                          )}
+                        </div>
+                      </button>
+                    ))}
+
+                  {staffList.filter(s => s.id !== currentUser.id && s.role !== 'admin').length === 0 && (
+                    <div className="p-4 rounded-2xl bg-slate-50 dark:bg-white/[0.02] border border-dashed border-slate-200 dark:border-white/10 text-center space-y-1.5 text-xs text-slate-500">
+                      <p className="font-bold text-slate-700 dark:text-slate-300">No additional staff members added yet.</p>
+                      <p>Go to <strong>Staff & Roles</strong> to add your cashiers, accountants, and storekeepers with customized privileges.</p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="pt-2 border-t border-slate-100 dark:border-white/10 flex items-center justify-between text-xs text-slate-400">
+                  <span>📱 Each device saves its own operator</span>
+                  <button
+                    type="button"
+                    onClick={() => setShowOperatorModal(false)}
+                    className="font-bold text-slate-600 dark:text-slate-300 hover:underline"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================ */}
       {/* THERMAL RECEIPT MODAL                                        */}
       {/* ============================================================ */}
       {showReceiptModal && currentReceipt && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
+        <div
+          onClick={(e) => { if (e.target === e.currentTarget) setShowReceiptModal(false); }}
+          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4"
+        >
           <div className="bg-white w-full max-w-sm rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col">
             <div className="p-4 bg-slate-900 text-white flex items-center justify-between">
               <span className="text-xs font-bold uppercase tracking-wider">Thermal Receipt Preview</span>
@@ -6294,7 +6770,10 @@ export default function App() {
 
       {/* Quick Price & Wholesale Cost Edit Modal */}
       {showPriceEditModal && editingPriceMed && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto animate-fade-in">
+        <div
+          onClick={(e) => { if (e.target === e.currentTarget) setShowPriceEditModal(false); }}
+          className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto animate-fade-in"
+        >
           <div className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-2xl border border-slate-200/80 dark:border-white/10 rounded-3xl p-6 max-w-lg w-full shadow-2xl space-y-5 animate-scale-up">
             
             {/* Modal Header */}

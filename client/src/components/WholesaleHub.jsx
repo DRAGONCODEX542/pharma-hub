@@ -235,26 +235,62 @@ export default function WholesaleHub({
     email: '',
     phone: '',
     role: 'teleseller',
+    pin_code: '',
     custom_permissions: ['orders_view', 'orders_create', 'teleseller', 'catalog_view', 'connections']
   });
   const [editingDepotStaff, setEditingDepotStaff] = useState(null);
   const [selectedDepotRolePreset, setSelectedDepotRolePreset] = useState('teleseller');
 
-  // Check if current user is depot admin/owner
-  const isDepotAdmin = currentUser?.role === 'admin' || currentUser?.role === 'depot_admin' || currentUser?.role === 'superadmin' || currentUser?.account_type === 'wholesale_admin' || !currentUser?.role;
+  // Station Operator State for Wholesale Depot Workstations
+  const [activeDepotOperator, setActiveDepotOperator] = useState(null);
+  const [showDepotOperatorModal, setShowDepotOperatorModal] = useState(false);
+  const [depotOperatorSearch, setDepotOperatorSearch] = useState('');
+  const [selectedDepotOperatorForPin, setSelectedDepotOperatorForPin] = useState(null);
+  const [depotOperatorPinInput, setDepotOperatorPinInput] = useState('');
+  const [depotAdminPassword, setDepotAdminPassword] = useState('');
+
+  // Check if current user or active operator is depot admin/owner
+  const isDepotAdmin = (activeDepotOperator ? (activeDepotOperator.role === 'depot_admin' || activeDepotOperator.role === 'admin') : (currentUser?.role === 'admin' || currentUser?.role === 'depot_admin' || currentUser?.role === 'superadmin' || !currentUser?.role));
 
   // Helper to check if wholesale user has permission
   const canWholesaleAccess = (perm) => {
     if (!currentUser) return false;
     if (isDepotAdmin) return true;
+    const effectivePerms = activeDepotOperator ? activeDepotOperator.permissions : currentUser.permissions;
     let perms = [];
-    if (Array.isArray(currentUser.permissions)) perms = currentUser.permissions;
-    else if (typeof currentUser.permissions === 'string') {
-      try { perms = JSON.parse(currentUser.permissions); } catch (e) { perms = []; }
+    if (Array.isArray(effectivePerms)) perms = effectivePerms;
+    else if (typeof effectivePerms === 'string') {
+      try { perms = JSON.parse(effectivePerms); } catch (e) { perms = []; }
     }
     if (perms.includes('all') || perms.includes('*')) return true;
     return perms.includes(perm);
   };
+
+  // Initialize Station Operator for Depot from local storage
+  useEffect(() => {
+    if (!currentUser) return;
+    const depotKey = 'depot_operator_' + (currentUser.id || 'wholesale');
+    const saved = localStorage.getItem(depotKey);
+    if (saved) {
+      try {
+        setActiveDepotOperator(JSON.parse(saved));
+      } catch (e) {
+        setActiveDepotOperator({
+          id: 'admin',
+          name: currentUser.name || 'Depot Admin',
+          role: 'depot_admin',
+          permissions: ['all']
+        });
+      }
+    } else {
+      setActiveDepotOperator({
+        id: 'admin',
+        name: currentUser.name || 'Depot Admin',
+        role: 'depot_admin',
+        permissions: ['all']
+      });
+    }
+  }, [currentUser]);
 
   // Auto-redirect if active tab is restricted by depot staff role
   useEffect(() => {
@@ -279,7 +315,76 @@ export default function WholesaleHub({
       else if (canWholesaleAccess('orders_view')) setActiveTab('orders');
       else setActiveTab('dashboard');
     }
-  }, [currentUser, activeTab]);
+  }, [currentUser, activeDepotOperator, activeTab]);
+
+  const handleSelectDepotOperator = async (staffMember) => {
+    if (!staffMember) return;
+    const isTargetAdmin = staffMember.id === 'admin' || staffMember.role === 'depot_admin' || staffMember.role === 'admin';
+
+    if (isTargetAdmin) {
+      setSelectedDepotOperatorForPin(staffMember);
+      setDepotOperatorPinInput('');
+      setDepotAdminPassword('');
+      return;
+    }
+
+    if (staffMember.pin_code) {
+      setSelectedDepotOperatorForPin(staffMember);
+      setDepotOperatorPinInput('');
+      return;
+    }
+
+    try {
+      const res = await authFetch('/api/depot/station-switch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target_staff_id: staffMember.id })
+      });
+      const data = await res.json();
+      if (res.ok && data.operator) {
+        const depotKey = 'depot_operator_' + (currentUser.id || 'wholesale');
+        localStorage.setItem(depotKey, JSON.stringify(data.operator));
+        setActiveDepotOperator(data.operator);
+        setShowDepotOperatorModal(false);
+        showToast(`Signed into depot station: ${data.operator.name} (${data.operator.role})`, 'success');
+      } else {
+        showToast(data.error || 'Failed to switch depot operator', 'error');
+      }
+    } catch {
+      showToast('Error switching depot operator', 'error');
+    }
+  };
+
+  const handleVerifyDepotOperatorPin = async (e) => {
+    e?.preventDefault();
+    if (!selectedDepotOperatorForPin) return;
+    try {
+      const res = await authFetch('/api/depot/station-switch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          target_staff_id: selectedDepotOperatorForPin.id,
+          pin: depotOperatorPinInput.trim(),
+          admin_password: depotAdminPassword.trim()
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.operator) {
+        const depotKey = 'depot_operator_' + (currentUser.id || 'wholesale');
+        localStorage.setItem(depotKey, JSON.stringify(data.operator));
+        setActiveDepotOperator(data.operator);
+        setSelectedDepotOperatorForPin(null);
+        setDepotOperatorPinInput('');
+        setDepotAdminPassword('');
+        setShowDepotOperatorModal(false);
+        showToast(`Depot station active: ${data.operator.name}`, 'success');
+      } else {
+        showToast(data.error || 'Invalid credentials or PIN', 'error');
+      }
+    } catch {
+      showToast('Verification failed', 'error');
+    }
+  };
 
   const [connectionForm, setConnectionForm] = useState({
     pharmacy_name: '',
@@ -612,6 +717,7 @@ export default function WholesaleHub({
       email: s.email || '',
       phone: s.phone || '',
       role: s.role || 'teleseller',
+      pin_code: s.pin_code || '',
       custom_permissions: Array.isArray(perms) ? perms : ['catalog_view']
     });
     setShowAddStaffModal(true);
@@ -891,6 +997,26 @@ export default function WholesaleHub({
           </div>
 
           <div className="flex items-center space-x-3">
+            {/* Depot Station Operator Pill */}
+            <button
+              type="button"
+              onClick={() => setShowDepotOperatorModal(true)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition apple-press ${
+                isDarkMode
+                  ? 'bg-amber-500/10 text-amber-300 border border-amber-500/30 hover:bg-amber-500/20'
+                  : 'bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100 shadow-xs'
+              }`}
+              title="Switch Station Operator"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+              <span className="text-[10px] text-slate-400 font-semibold hidden sm:inline">Station:</span>
+              <span className="truncate max-w-[100px] sm:max-w-[140px] font-black">{activeDepotOperator ? activeDepotOperator.name : (currentUser?.name || 'Admin')}</span>
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-700 dark:text-amber-300 font-bold uppercase">
+                {activeDepotOperator ? activeDepotOperator.role : 'Admin'}
+              </span>
+              <span className="text-xs text-slate-400 ml-0.5">⇄</span>
+            </button>
+
             {/* Theme Toggle Button (Light/Dark) */}
             <button
               onClick={() => setIsDarkMode(!isDarkMode)}
@@ -1800,7 +1926,10 @@ export default function WholesaleHub({
       {/* 3. MULTI-WORKSPACE LICENSING MODAL (Anti-Theft Guard)        */}
       {/* ════════════════════════════════════════════════════════════ */}
       {showWorkspaceModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div
+          onClick={(e) => { if (e.target === e.currentTarget) setShowWorkspaceModal(false); }}
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+        >
           <div className={`border rounded-3xl w-full max-w-2xl p-6 space-y-5 shadow-2xl transition-colors ${
             isDarkMode ? 'bg-[#10111a] border-amber-500/30 text-white' : 'bg-white border-slate-200 text-slate-900'
           }`}>
@@ -2035,7 +2164,10 @@ export default function WholesaleHub({
 
       {/* Modal: Add New SKU */}
       {showAddProductModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div
+          onClick={(e) => { if (e.target === e.currentTarget) setShowAddProductModal(false); }}
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+        >
           <div className={`border rounded-3xl w-full max-w-lg p-6 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto ${
             isDarkMode ? 'bg-[#10111a] border-amber-500/30 text-white' : 'bg-white border-slate-200 text-slate-900'
           }`}>
@@ -2153,7 +2285,10 @@ export default function WholesaleHub({
 
       {/* Modal: Schedule Dispatch */}
       {showDeliveryModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div
+          onClick={(e) => { if (e.target === e.currentTarget) setShowDeliveryModal(false); }}
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+        >
           <div className={`border rounded-3xl w-full max-w-md p-6 space-y-4 shadow-2xl ${
             isDarkMode ? 'bg-[#10111a] border-blue-500/30 text-white' : 'bg-white border-slate-200 text-slate-900'
           }`}>
@@ -2233,7 +2368,10 @@ export default function WholesaleHub({
 
       {/* Modal: Record Invoice Payment */}
       {showPaymentModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div
+          onClick={(e) => { if (e.target === e.currentTarget) setShowPaymentModal(false); }}
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+        >
           <div className={`border rounded-3xl w-full max-w-md p-6 space-y-4 shadow-2xl ${
             isDarkMode ? 'bg-[#10111a] border-emerald-500/30 text-white' : 'bg-white border-slate-200 text-slate-900'
           }`}>
@@ -2301,7 +2439,10 @@ export default function WholesaleHub({
 
       {/* Modal: Bulk Receive Inbound Stock */}
       {showBulkRestockModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div
+          onClick={(e) => { if (e.target === e.currentTarget) setShowBulkRestockModal(false); }}
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+        >
           <div className={`border rounded-3xl w-full max-w-xl p-6 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto ${
             isDarkMode ? 'bg-[#10111a] border-amber-500/30 text-white' : 'bg-white border-slate-200 text-slate-900'
           }`}>
@@ -2429,7 +2570,10 @@ export default function WholesaleHub({
 
       {/* Modal: Log Teleseller Call */}
       {showCallLogModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div
+          onClick={(e) => { if (e.target === e.currentTarget) setShowCallLogModal(false); }}
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+        >
           <div className={`border rounded-3xl w-full max-w-md p-6 space-y-4 shadow-2xl ${
             isDarkMode ? 'bg-[#10111a] border-amber-500/30 text-white' : 'bg-white border-slate-200 text-slate-900'
           }`}>
@@ -2524,7 +2668,10 @@ export default function WholesaleHub({
 
       {/* Modal: Add / Edit Wholesale Staff */}
       {showAddStaffModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div
+          onClick={(e) => { if (e.target === e.currentTarget) { setShowAddStaffModal(false); setEditingDepotStaff(null); } }}
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+        >
           <div className={`border rounded-3xl w-full max-w-xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl ${
             isDarkMode ? 'bg-[#10111a] border-amber-500/30 text-white' : 'bg-white border-slate-200 text-slate-900'
           }`}>
@@ -2614,6 +2761,20 @@ export default function WholesaleHub({
                 />
               </div>
 
+              <div>
+                <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">Station Operator PIN (4-digit passcode for counter sign-in)</label>
+                <input
+                  type="password"
+                  maxLength={6}
+                  placeholder="e.g. 1234 (optional for quick station sign-in)"
+                  value={staffForm.pin_code || ''}
+                  onChange={e => setStaffForm({ ...staffForm, pin_code: e.target.value })}
+                  className={`w-full px-3 py-2 rounded-xl outline-none font-mono border ${
+                    isDarkMode ? 'bg-slate-900 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                  }`}
+                />
+              </div>
+
               {/* Permissions Matrix */}
               <div>
                 <div className="flex items-center justify-between mb-2">
@@ -2689,9 +2850,231 @@ export default function WholesaleHub({
         </div>
       )}
 
+      {/* ============================================================ */}
+      {/* DEPOT STATION OPERATOR SIGN-IN & SHIFT SWITCHER MODAL        */}
+      {/* ============================================================ */}
+      {showDepotOperatorModal && (
+        <div
+          onClick={(e) => { if (e.target === e.currentTarget) { setShowDepotOperatorModal(false); setSelectedDepotOperatorForPin(null); } }}
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in"
+        >
+          <div className={`border rounded-3xl w-full max-w-lg p-6 space-y-5 shadow-2xl transition-colors ${
+            isDarkMode ? 'bg-[#10111a] border-amber-500/30 text-white' : 'bg-white border-slate-200 text-slate-900'
+          }`}>
+            <div className="flex justify-between items-center pb-2 border-b border-slate-200 dark:border-white/10">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-2xl bg-amber-500 flex items-center justify-center text-slate-950 font-black shadow-md">
+                  <UserCheck className="w-5 h-5 text-slate-950" />
+                </div>
+                <div>
+                  <h3 className="font-black text-base">{depot?.depot_name || 'Wholesale Depot'}</h3>
+                  <p className="text-xs text-slate-400">Station Operator Sign-In</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setShowDepotOperatorModal(false); setSelectedDepotOperatorForPin(null); }}
+                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-slate-400 hover:text-white transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {selectedDepotOperatorForPin ? (
+              <form onSubmit={handleVerifyDepotOperatorPin} className="space-y-4 text-xs">
+                <div className={`p-4 rounded-2xl border space-y-1 ${
+                  isDarkMode ? 'bg-amber-500/10 border-amber-500/30 text-amber-300' : 'bg-amber-50 border-amber-200 text-amber-900'
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold">Signing into depot profile:</span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedDepotOperatorForPin(null)}
+                      className="font-bold text-amber-600 dark:text-amber-400 hover:underline"
+                    >
+                      ← Change person
+                    </button>
+                  </div>
+                  <h4 className="text-base font-black">{selectedDepotOperatorForPin.name}</h4>
+                  <p className="text-xs opacity-75 capitalize">Role: {selectedDepotOperatorForPin.role}</p>
+                </div>
+
+                {(selectedDepotOperatorForPin.role === 'admin' || selectedDepotOperatorForPin.role === 'depot_admin') ? (
+                  <div className="space-y-2">
+                    <label className="block font-bold">Enter Depot Admin Account Password:</label>
+                    <input
+                      type="password"
+                      autoFocus
+                      required
+                      placeholder="Enter depot administrator password..."
+                      value={depotAdminPassword}
+                      onChange={(e) => setDepotAdminPassword(e.target.value)}
+                      className={`w-full px-4 py-3 rounded-2xl border text-sm font-semibold outline-none focus:ring-2 focus:ring-amber-500 ${
+                        isDarkMode ? 'bg-slate-900 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                      }`}
+                    />
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <label className="block font-bold">Enter 4-Digit Station PIN:</label>
+                    <input
+                      type="password"
+                      autoFocus
+                      maxLength={8}
+                      placeholder="••••"
+                      value={depotOperatorPinInput}
+                      onChange={(e) => setDepotOperatorPinInput(e.target.value)}
+                      className={`w-full px-4 py-3 text-center tracking-widest text-lg font-mono font-black rounded-2xl border outline-none focus:ring-2 focus:ring-amber-500 ${
+                        isDarkMode ? 'bg-slate-900 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                      }`}
+                    />
+                  </div>
+                )}
+
+                <div className="flex gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedDepotOperatorForPin(null)}
+                    className="flex-1 py-2.5 rounded-2xl border border-white/10 font-bold hover:bg-white/5 transition"
+                  >
+                    Back
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black shadow-lg transition apple-press"
+                  >
+                    Confirm & Activate Station
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <div className="space-y-4 text-xs">
+                <div className="relative">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder="Search depot staff by name or role..."
+                    value={depotOperatorSearch}
+                    onChange={(e) => setDepotOperatorSearch(e.target.value)}
+                    className={`w-full pl-10 pr-4 py-2.5 rounded-2xl border text-xs font-semibold outline-none focus:ring-2 focus:ring-amber-500 ${
+                      isDarkMode ? 'bg-slate-900 border-white/10 text-white' : 'bg-slate-100 border-slate-200 text-slate-900'
+                    }`}
+                  />
+                </div>
+
+                <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
+                  {/* Primary Depot Admin */}
+                  {(!depotOperatorSearch || 'admin owner depot_admin'.includes(depotOperatorSearch.toLowerCase()) || (currentUser?.name || '').toLowerCase().includes(depotOperatorSearch.toLowerCase())) && (
+                    <button
+                      type="button"
+                      onClick={() => handleSelectDepotOperator({
+                        id: 'admin',
+                        name: currentUser?.name || 'Depot Owner',
+                        role: 'depot_admin',
+                        permissions: ['all']
+                      })}
+                      className={`w-full p-3.5 rounded-2xl border text-left transition apple-press flex items-center justify-between ${
+                        isDepotAdmin
+                          ? 'bg-amber-500/10 border-amber-500 text-amber-300'
+                          : isDarkMode ? 'bg-white/[0.03] border-white/10 hover:border-amber-500/40' : 'bg-slate-50 border-slate-200 hover:border-amber-500/50'
+                      }`}
+                    >
+                      <div className="flex items-center space-x-3">
+                        <div className="w-9 h-9 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center font-black text-sm">
+                          👑
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-black text-xs">{currentUser?.name || 'Depot Owner'}</span>
+                            <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-400">
+                              Depot Admin
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-400">Unrestricted fleet, financial & catalog controls</p>
+                        </div>
+                      </div>
+                      <span className="text-xs font-bold text-slate-400">🔒 Password Required</span>
+                    </button>
+                  )}
+
+                  {/* Registered Depot Staff */}
+                  {staffList
+                    .filter(s => {
+                      if (!depotOperatorSearch) return true;
+                      const q = depotOperatorSearch.toLowerCase();
+                      return s.name.toLowerCase().includes(q) || s.role.toLowerCase().includes(q);
+                    })
+                    .map(staff => (
+                      <button
+                        key={staff.id}
+                        type="button"
+                        onClick={() => handleSelectDepotOperator(staff)}
+                        className={`w-full p-3.5 rounded-2xl border text-left transition apple-press flex items-center justify-between ${
+                          activeDepotOperator?.id === staff.id
+                            ? 'bg-amber-500/10 border-amber-500 text-amber-300'
+                            : isDarkMode ? 'bg-white/[0.03] border-white/10 hover:border-amber-500/40' : 'bg-slate-50 border-slate-200 hover:border-amber-500/50'
+                        }`}
+                      >
+                        <div className="flex items-center space-x-3">
+                          <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-black text-sm ${
+                            staff.role === 'accountant' ? 'bg-blue-500/20 text-blue-400' :
+                            staff.role === 'teleseller' ? 'bg-amber-500/20 text-amber-400' :
+                            staff.role === 'warehouse' ? 'bg-purple-500/20 text-purple-400' :
+                            'bg-emerald-500/20 text-emerald-400'
+                          }`}>
+                            {staff.name?.[0]?.toUpperCase() || 'S'}
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-black text-xs">{staff.name}</span>
+                              <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-white/10 text-slate-300 capitalize">
+                                {staff.role}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-slate-400">
+                              {staff.email || staff.phone || 'Depot Team Member'}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-xs font-bold text-amber-500">Select →</span>
+                          {staff.pin_code && (
+                            <p className="text-[10px] text-slate-400">PIN Protected</p>
+                          )}
+                        </div>
+                      </button>
+                    ))}
+
+                  {staffList.length === 0 && (
+                    <div className="p-4 rounded-2xl bg-white/[0.02] border border-dashed border-white/10 text-center space-y-1.5 text-xs text-slate-400">
+                      <p className="font-bold text-white">No depot staff added yet.</p>
+                      <p>Go to <strong>Depot Staff</strong> tab to add telesellers, accountants, and warehouse personnel.</p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="pt-2 border-t border-slate-200 dark:border-white/10 flex items-center justify-between text-xs text-slate-400">
+                  <span>📱 Workstation operator saved per device</span>
+                  <button
+                    type="button"
+                    onClick={() => setShowDepotOperatorModal(false)}
+                    className="font-bold text-amber-500 hover:underline"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Modal: Link Pharmacy */}
       {showNewConnectionModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div
+          onClick={(e) => { if (e.target === e.currentTarget) setShowNewConnectionModal(false); }}
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+        >
           <div className={`border rounded-3xl w-full max-w-md p-6 space-y-4 shadow-2xl ${
             isDarkMode ? 'bg-[#10111a] border-amber-500/30 text-white' : 'bg-white border-slate-200 text-slate-900'
           }`}>

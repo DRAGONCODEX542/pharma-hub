@@ -223,6 +223,8 @@ export function initDatabase() {
   try { db.exec("ALTER TABLE users ADD COLUMN staff_title TEXT DEFAULT 'Administrator';"); } catch (e) {}
   try { db.exec("ALTER TABLE users ADD COLUMN is_active INTEGER DEFAULT 1;"); } catch (e) {}
   try { db.exec("ALTER TABLE users ADD COLUMN work_domain TEXT;"); } catch (e) {}
+  try { db.exec("ALTER TABLE users ADD COLUMN pin_code TEXT;"); } catch (e) {}
+  try { db.exec("ALTER TABLE depot_staff ADD COLUMN pin_code TEXT;"); } catch (e) {}
 
   // Backfill existing users with 30-day trial and self-organization id
   try {
