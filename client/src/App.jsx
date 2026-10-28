@@ -211,6 +211,100 @@ const SUBSCRIPTION_PLANS = {
   ]
 };
 
+// Granular Role-Based Permissions & Capability Matrix
+export const PERMISSION_MODULES = [
+  {
+    category: '📈 Sales & Financial Accounting',
+    items: [
+      { id: 'sales_view', label: 'View Sales, Receipts & Monthly P&L Ledger', desc: 'Can inspect transaction receipts, daily revenue, margin analysis, and accounting ledger' }
+    ]
+  },
+  {
+    category: '🤝 Customer Loans & Credit',
+    items: [
+      { id: 'loans_view', label: 'View Customer Credit Ledger', desc: 'Can view customer loan balances, credit history, and overdue statements' },
+      { id: 'loans_manage', label: 'Record Repayments & Settle Credit', desc: 'Can receive cash/M-Pesa repayments and settle patient balances' }
+    ]
+  },
+  {
+    category: '📦 Stock & Pricing',
+    items: [
+      { id: 'stock_view', label: 'Browse Inventory & Prices (View-Only)', desc: 'Can search and inspect stock levels, valuations, and retail prices' },
+      { id: 'stock_edit', label: 'Edit Medicines, Pricing & Adjust Stock', desc: 'Can modify prices, edit drug info, and make manual stock adjustments' }
+    ]
+  },
+  {
+    category: '🗂️ Batch & FEFO Tracking',
+    items: [
+      { id: 'batch_view', label: 'View Batches & Expiry Dates (View-Only)', desc: 'Can view batch numbers, expiry dates, and shelf-life monitoring' },
+      { id: 'batch_receive', label: 'Receive Inbound Stock & Add Batches', desc: 'Can intake new supplier deliveries, assign batch numbers, and increase stock' }
+    ]
+  },
+  {
+    category: '💊 Point of Sale (POS)',
+    items: [
+      { id: 'pos', label: 'Dispense at POS Counter', desc: 'Can operate POS register, dispense medicines, and process checkout payments' }
+    ]
+  },
+  {
+    category: '🏭 Wholesale B2B',
+    items: [
+      { id: 'wholesalers', label: 'Access Wholesale Hub', desc: 'Can browse wholesale catalog and create restock orders' }
+    ]
+  }
+];
+
+export const ROLE_PRESETS = [
+  {
+    id: 'accountant',
+    label: '📊 Accountant / Financial Auditor',
+    title: 'Accountant & Financial Auditor',
+    role: 'staff',
+    permissions: ['sales_view', 'loans_view', 'loans_manage', 'stock_view', 'batch_view'],
+    desc: 'Full sales & financial P&L, loan audit, view-only stock & batch ledger (cannot modify stock or accept batches)'
+  },
+  {
+    id: 'cashier',
+    label: '💳 Cashier / Dispenser',
+    title: 'Cashier & Dispenser',
+    role: 'cashier',
+    permissions: ['pos', 'stock_view', 'loans_view'],
+    desc: 'Fast POS checkout, stock availability lookup, and patient loan verification'
+  },
+  {
+    id: 'storekeeper',
+    label: '📦 Storekeeper / Inventory Officer',
+    title: 'Storekeeper & Inventory Clerk',
+    role: 'staff',
+    permissions: ['stock_view', 'stock_edit', 'batch_view', 'batch_receive', 'wholesalers'],
+    desc: 'Intake supplier batches, adjust stock counts, edit medicine pricing & FEFO reorders'
+  },
+  {
+    id: 'pharmacist',
+    label: '💊 Staff Pharmacist',
+    title: 'Staff Pharmacist',
+    role: 'pharmacist',
+    permissions: ['pos', 'stock_view', 'stock_edit', 'batch_view', 'batch_receive', 'loans_view', 'loans_manage', 'sales_view'],
+    desc: 'Complete operational dispensing, batch intake, and patient management'
+  },
+  {
+    id: 'admin',
+    label: '👑 Branch Admin',
+    title: 'Branch Administrator',
+    role: 'admin',
+    permissions: ['pos', 'stock_view', 'stock_edit', 'batch_view', 'batch_receive', 'loans_view', 'loans_manage', 'sales_view', 'wholesalers'],
+    desc: 'Unrestricted administrator access to all pharmacy modules and settings'
+  },
+  {
+    id: 'custom',
+    label: '🛠️ Custom Access',
+    title: 'Custom Staff Role',
+    role: 'staff',
+    permissions: ['stock_view'],
+    desc: 'Manually select specific module permissions and department restrictions'
+  }
+];
+
 export default function App() {
   const [activeTab, setActiveTab] = useState('pos'); // 'pos', 'dashboard', 'inventory', 'batches', 'loans', 'sales', 'settings', 'staff', 'accounting'
   const [showProfileMenu, setShowProfileMenu] = useState(false);
@@ -230,8 +324,23 @@ export default function App() {
     role: 'staff',
     staff_title: 'Staff Pharmacist',
     allowed_departments: ['All'],
-    permissions: ['pos', 'inventory_read']
+    permissions: ['pos', 'stock_view', 'stock_edit', 'batch_view', 'batch_receive', 'loans_view', 'loans_manage', 'sales_view']
   });
+  const [editingStaffMember, setEditingStaffMember] = useState(null);
+  const [selectedRolePreset, setSelectedRolePreset] = useState('pharmacist');
+
+  // Granular Role & Permission Access Gatekeeper
+  const canAccess = (perm) => {
+    if (!currentUser) return false;
+    if (currentUser.role === 'admin' || currentUser.role === 'superadmin' || currentUser.account_type === 'solo') return true;
+    let perms = [];
+    if (Array.isArray(currentUser.permissions)) perms = currentUser.permissions;
+    else if (typeof currentUser.permissions === 'string') {
+      try { perms = JSON.parse(currentUser.permissions); } catch (e) { perms = []; }
+    }
+    if (perms.includes('all') || perms.includes('*')) return true;
+    return perms.includes(perm);
+  };
 
   // Wholesalers & Live Restock Directory State
   const [wholesalersList, setWholesalersList] = useState([]);
@@ -545,33 +654,108 @@ export default function App() {
     }
   };
 
-  const handleCreateStaff = async (e) => {
+  const handleOpenAddStaff = () => {
+    setEditingStaffMember(null);
+    setSelectedRolePreset('pharmacist');
+    setNewStaffForm({
+      name: '',
+      email: '',
+      password: '',
+      role: 'pharmacist',
+      staff_title: 'Staff Pharmacist',
+      allowed_departments: ['All'],
+      permissions: ['pos', 'stock_view', 'stock_edit', 'batch_view', 'batch_receive', 'loans_view', 'loans_manage', 'sales_view']
+    });
+    setShowStaffModal(true);
+  };
+
+  const handleOpenEditStaff = (member) => {
+    setEditingStaffMember(member);
+    let perms = member.permissions || [];
+    if (typeof perms === 'string') {
+      try { perms = JSON.parse(perms); } catch (e) { perms = []; }
+    }
+    const matchedPreset = ROLE_PRESETS.find(p => p.id === member.role) || { id: 'custom' };
+    setSelectedRolePreset(matchedPreset.id);
+
+    setNewStaffForm({
+      name: member.name || '',
+      email: member.email || '',
+      password: '',
+      role: member.role || 'staff',
+      staff_title: member.staff_title || '',
+      allowed_departments: Array.isArray(member.allowed_departments) ? member.allowed_departments : ['All'],
+      permissions: Array.isArray(perms) ? perms : ['stock_view']
+    });
+    setShowStaffModal(true);
+  };
+
+  const handleApplyRolePreset = (presetId) => {
+    setSelectedRolePreset(presetId);
+    const preset = ROLE_PRESETS.find(p => p.id === presetId);
+    if (!preset) return;
+    setNewStaffForm(prev => ({
+      ...prev,
+      role: preset.role,
+      staff_title: preset.title,
+      permissions: [...preset.permissions]
+    }));
+  };
+
+  const handleTogglePermission = (permId) => {
+    setNewStaffForm(prev => {
+      const exists = prev.permissions.includes(permId);
+      const next = exists ? prev.permissions.filter(p => p !== permId) : [...prev.permissions, permId];
+      setSelectedRolePreset('custom');
+      return { ...prev, permissions: next };
+    });
+  };
+
+  const handleSaveStaff = async (e) => {
     e.preventDefault();
     try {
-      const res = await authFetch('/api/organization/staff', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newStaffForm)
-      });
-      const data = await res.json();
-      if (res.ok) {
-        showToast('Staff member added successfully!', 'success');
-        setShowStaffModal(false);
-        setNewStaffForm({
-          name: '',
-          email: '',
-          password: '',
-          role: 'staff',
-          staff_title: 'Staff Pharmacist',
-          allowed_departments: ['All'],
-          permissions: ['pos', 'inventory_read']
+      if (editingStaffMember) {
+        const payload = {
+          name: newStaffForm.name,
+          staff_title: newStaffForm.staff_title,
+          role: newStaffForm.role,
+          allowed_departments: newStaffForm.allowed_departments,
+          permissions: newStaffForm.permissions
+        };
+        if (newStaffForm.password && newStaffForm.password.trim().length >= 6) {
+          payload.password = newStaffForm.password.trim();
+        }
+        const res = await authFetch(`/api/organization/staff/${editingStaffMember.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
         });
-        fetchStaffList();
+        const data = await res.json();
+        if (res.ok) {
+          showToast('Staff permissions updated successfully!', 'success');
+          setShowStaffModal(false);
+          setEditingStaffMember(null);
+          fetchStaffList();
+        } else {
+          showToast(data.error || 'Failed to update staff', 'error');
+        }
       } else {
-        showToast(data.error || 'Failed to add staff', 'error');
+        const res = await authFetch('/api/organization/staff', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(newStaffForm)
+        });
+        const data = await res.json();
+        if (res.ok) {
+          showToast('Staff member added successfully!', 'success');
+          setShowStaffModal(false);
+          fetchStaffList();
+        } else {
+          showToast(data.error || 'Failed to add staff', 'error');
+        }
       }
     } catch {
-      showToast('Failed to submit staff form', 'error');
+      showToast('Failed to save staff record', 'error');
     }
   };
 
@@ -753,6 +937,19 @@ export default function App() {
       fetchStaffList();
     }
   }, [activeTab, currentUser]);
+
+  // Route staff without POS access to their allowed working workspace (e.g. Accountant to Sales/P&L)
+  useEffect(() => {
+    if (currentUser && currentUser.role !== 'admin' && currentUser.account_type !== 'solo') {
+      if (activeTab === 'pos' && !canAccess('pos')) {
+        if (canAccess('sales_view')) setActiveTab('sales');
+        else if (canAccess('stock_view')) setActiveTab('inventory');
+        else if (canAccess('batch_view')) setActiveTab('batches');
+        else if (canAccess('loans_view')) setActiveTab('loans');
+        else setActiveTab('dashboard');
+      }
+    }
+  }, [currentUser, activeTab]);
 
   useEffect(() => {
     if (activeTab === 'sales' && salesSubView === 'accounting') {
@@ -2388,16 +2585,21 @@ export default function App() {
         {/* Nav Items */}
         <nav className="flex-1 px-3 py-4 space-y-0.5">
           {[
-            { id: 'pos',         label: 'Dispense (POS)',   icon: ShoppingCart, color: 'emerald' },
-            { id: 'dashboard',   label: 'Dashboard',        icon: LayoutDashboard, color: 'emerald' },
-            { id: 'inventory',   label: 'Stock & Pricing',  icon: Pill, color: 'emerald' },
-            { id: 'batches',     label: 'Batch / FEFO',     icon: Boxes, color: 'emerald' },
-            { id: 'loans',       label: 'Customer Loans',   icon: HandCoins, color: 'amber', badge: overdueLoansCount },
-            { id: 'sales',       label: 'Sales & P&L',      icon: BarChart3, color: 'blue' },
-            { id: 'wholesalers', label: 'Wholesale Hub',    icon: Building2, color: 'amber' },
-            ...(currentUser?.role === 'admin' && currentUser?.account_type !== 'solo' ? [{ id: 'staff', label: 'Staff & Roles', icon: Users, color: 'teal' }] : []),
-            { id: 'settings',    label: 'Settings',         icon: Settings, color: 'purple' },
-          ].map(({ id, label, icon: Icon, color, badge }) => (
+            { id: 'pos',         label: 'Dispense (POS)',   icon: ShoppingCart, color: 'emerald', perm: 'pos' },
+            { id: 'dashboard',   label: 'Dashboard',        icon: LayoutDashboard, color: 'emerald', perm: 'dashboard' },
+            { id: 'inventory',   label: 'Stock & Pricing',  icon: Pill, color: 'emerald', perm: 'stock_view' },
+            { id: 'batches',     label: 'Batch / FEFO',     icon: Boxes, color: 'emerald', perm: 'batch_view' },
+            { id: 'loans',       label: 'Customer Loans',   icon: HandCoins, color: 'amber', badge: overdueLoansCount, perm: 'loans_view' },
+            { id: 'sales',       label: 'Sales & P&L',      icon: BarChart3, color: 'blue', perm: 'sales_view' },
+            { id: 'wholesalers', label: 'Wholesale Hub',    icon: Building2, color: 'amber', perm: 'wholesalers' },
+            ...(currentUser?.role === 'admin' && currentUser?.account_type !== 'solo' ? [{ id: 'staff', label: 'Staff & Roles', icon: Users, color: 'teal', perm: 'admin' }] : []),
+            { id: 'settings',    label: 'Settings',         icon: Settings, color: 'purple', perm: 'settings' },
+          ].filter(item => {
+            if (currentUser?.role === 'admin' || currentUser?.account_type === 'solo') return true;
+            if (item.perm === 'settings' || item.perm === 'admin') return currentUser?.role === 'admin';
+            if (item.perm === 'dashboard') return true;
+            return canAccess(item.perm);
+          }).map(({ id, label, icon: Icon, color, badge }) => (
             <button
               key={id}
               onClick={() => setActiveTab(id)}
@@ -3594,7 +3796,7 @@ export default function App() {
                       <p className="text-xs text-slate-500 dark:text-slate-400">Invite staff, assign departments, and control access permissions</p>
                     </div>
                     <button
-                      onClick={() => setShowStaffModal(true)}
+                      onClick={handleOpenAddStaff}
                       className="flex items-center space-x-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition apple-spring"
                     >
                       <Plus className="w-3.5 h-3.5" />
@@ -3625,7 +3827,8 @@ export default function App() {
                             <th className="px-5 py-3">Name</th>
                             <th className="px-5 py-3">Role / Title</th>
                             <th className="px-5 py-3 hidden md:table-cell">Departments</th>
-                            <th className="px-5 py-3 hidden lg:table-cell">Email</th>
+                            <th className="px-5 py-3 hidden lg:table-cell">Module Permissions</th>
+                            <th className="px-5 py-3 hidden xl:table-cell">Email</th>
                             <th className="px-5 py-3 text-right">Actions</th>
                           </tr>
                         </thead>
@@ -3646,7 +3849,7 @@ export default function App() {
                                 }`}>
                                   {member.role?.toUpperCase()}
                                 </span>
-                                <span className="ml-2 text-slate-500 dark:text-slate-400">{member.staff_title}</span>
+                                <span className="ml-2 text-slate-500 dark:text-slate-400 font-medium">{member.staff_title}</span>
                               </td>
                               <td className="px-5 py-3 hidden md:table-cell">
                                 <div className="flex flex-wrap gap-1">
@@ -3657,8 +3860,31 @@ export default function App() {
                                   ))}
                                 </div>
                               </td>
-                              <td className="px-5 py-3 text-slate-500 dark:text-slate-400 hidden lg:table-cell">{member.email}</td>
-                              <td className="px-5 py-3 text-right">
+                              <td className="px-5 py-3 hidden lg:table-cell">
+                                <div className="flex flex-wrap gap-1 max-w-xs">
+                                  {(member.permissions || []).map(p => (
+                                    <span key={p} className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded text-[9px] font-semibold border border-slate-200 dark:border-white/5">
+                                      {p === 'sales_view' ? '📊 Sales P&L' :
+                                       p === 'stock_view' ? '📦 Stock (View)' :
+                                       p === 'stock_edit' ? '✏️ Stock (Edit)' :
+                                       p === 'batch_view' ? '🗂️ Batches (View)' :
+                                       p === 'batch_receive' ? '📥 Batches (Intake)' :
+                                       p === 'pos' ? '💊 POS' :
+                                       p === 'loans_view' ? '🤝 Loans' :
+                                       p === 'loans_manage' ? '💰 Settle Loans' :
+                                       p === 'wholesalers' ? '🏭 Wholesale' : p}
+                                    </span>
+                                  ))}
+                                </div>
+                              </td>
+                              <td className="px-5 py-3 text-slate-500 dark:text-slate-400 hidden xl:table-cell">{member.email}</td>
+                              <td className="px-5 py-3 text-right space-x-1.5">
+                                <button
+                                  onClick={() => handleOpenEditStaff(member)}
+                                  className="px-2.5 py-1 bg-emerald-50 dark:bg-emerald-900/20 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 rounded-lg text-xs font-semibold transition"
+                                >
+                                  Edit Access
+                                </button>
                                 <button
                                   onClick={() => handleDeleteStaff(member.id)}
                                   className="px-2.5 py-1 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/40 text-red-600 dark:text-red-400 rounded-lg text-xs font-semibold transition"
@@ -4167,11 +4393,14 @@ export default function App() {
         {/* Mobile Navigation Bar — Solid, High-Contrast Apple Dock (5 tabs) */}
         <nav className="md:hidden fixed bottom-0 inset-x-0 bg-white/95 dark:bg-[#101016]/95 backdrop-blur-2xl border-t border-slate-200/90 dark:border-white/10 px-2 pt-1.5 pb-safe flex justify-around items-center z-40 shadow-[0_-8px_24px_rgba(0,0,0,0.08)]">
           {[
-            { id: 'pos',       icon: ShoppingCart, label: 'Dispense',  color: 'emerald' },
-            { id: 'inventory', icon: Pill,          label: 'Stock',     color: 'emerald' },
-            { id: 'loans',     icon: HandCoins,     label: 'Loans',     color: 'amber' },
-            { id: 'sales',     icon: BarChart3,     label: 'Sales',     color: 'blue' },
-          ].map(({ id, icon: Icon, label, color }) => (
+            { id: 'pos',       icon: ShoppingCart, label: 'Dispense',  color: 'emerald', perm: 'pos' },
+            { id: 'inventory', icon: Pill,          label: 'Stock',     color: 'emerald', perm: 'stock_view' },
+            { id: 'loans',     icon: HandCoins,     label: 'Loans',     color: 'amber', perm: 'loans_view' },
+            { id: 'sales',     icon: BarChart3,     label: 'Sales',     color: 'blue', perm: 'sales_view' },
+          ].filter(item => {
+            if (currentUser?.role === 'admin' || currentUser?.account_type === 'solo') return true;
+            return canAccess(item.perm);
+          }).map(({ id, icon: Icon, label, color }) => (
             <button
               key={id}
               type="button"
@@ -5551,60 +5780,137 @@ export default function App() {
       )}
 
       {/* ============================================================ */}
-      {/* ADD STAFF MODAL                                              */}
+      {/* ADD / EDIT STAFF MODAL WITH GRANULAR RBAC & PRESETS         */}
       {/* ============================================================ */}
       {showStaffModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl shadow-2xl border border-slate-200/80 dark:border-white/10">
-            <div className="flex items-center justify-between p-5 border-b border-slate-200 dark:border-white/10">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-xl max-h-[90vh] rounded-3xl shadow-2xl border border-slate-200/80 dark:border-white/10 flex flex-col overflow-hidden">
+            <div className="flex items-center justify-between p-5 border-b border-slate-200 dark:border-white/10 shrink-0">
               <div>
-                <h2 className="font-bold text-slate-900 dark:text-white text-base">Add Staff Member</h2>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Invite a team member with specific department access</p>
+                <h2 className="font-bold text-slate-900 dark:text-white text-base">
+                  {editingStaffMember ? 'Edit Staff Member & Permissions' : 'Add Staff Member'}
+                </h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  Select a role preset or custom-tailor module and department capabilities
+                </p>
               </div>
-              <button onClick={() => setShowStaffModal(false)} className="text-slate-400 hover:text-slate-900 dark:hover:text-white p-1">
+              <button onClick={() => { setShowStaffModal(false); setEditingStaffMember(null); }} className="text-slate-400 hover:text-slate-900 dark:hover:text-white p-1">
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <form onSubmit={handleCreateStaff} className="p-5 space-y-3.5">
-              <div className="grid grid-cols-2 gap-3">
+
+            <form onSubmit={handleSaveStaff} className="p-5 space-y-4 overflow-y-auto flex-1 text-xs">
+              {/* Preset Selector */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                  Choose Role Template (One-Click Setup)
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {ROLE_PRESETS.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => handleApplyRolePreset(p.id)}
+                      className={`p-2.5 rounded-2xl text-left border transition-all apple-press ${
+                        selectedRolePreset === p.id
+                          ? 'bg-emerald-500/10 border-emerald-500 text-emerald-800 dark:text-emerald-300 font-bold shadow-xs'
+                          : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-white/5 text-slate-700 dark:text-slate-300 hover:border-slate-300 dark:hover:border-white/20'
+                      }`}
+                    >
+                      <div className="text-xs font-bold">{p.label}</div>
+                      <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 line-clamp-2 leading-tight">
+                        {p.desc}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Basic Info */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Full Name</label>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Full Name *</label>
                   <input type="text" required placeholder="Dr. Jane Kamau" value={newStaffForm.name}
                     onChange={e => setNewStaffForm(f => ({ ...f, name: e.target.value }))}
                     className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-xs dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none" />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Role</label>
-                  <select value={newStaffForm.role} onChange={e => setNewStaffForm(f => ({ ...f, role: e.target.value }))}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-xs dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none">
-                    <option value="staff">Staff</option>
-                    <option value="pharmacist">Pharmacist</option>
-                    <option value="cashier">Cashier</option>
-                    <option value="admin">Admin</option>
-                  </select>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Job Title / Designation *</label>
+                  <input type="text" required placeholder="Senior Accountant" value={newStaffForm.staff_title}
+                    onChange={e => setNewStaffForm(f => ({ ...f, staff_title: e.target.value }))}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-xs dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none" />
                 </div>
               </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Work Email</label>
-                <input type="email" required placeholder="jane@yourhospital.com" value={newStaffForm.email}
-                  onChange={e => setNewStaffForm(f => ({ ...f, email: e.target.value }))}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-xs dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none" />
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Work Email *</label>
+                  <input type="email" required placeholder="accountant@yourhospital.com" value={newStaffForm.email}
+                    disabled={!!editingStaffMember}
+                    onChange={e => setNewStaffForm(f => ({ ...f, email: e.target.value }))}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-xs dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none disabled:opacity-60" />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    {editingStaffMember ? 'New Password (leave blank to keep current)' : 'Temporary Password *'}
+                  </label>
+                  <input type="password" minLength={6} placeholder={editingStaffMember ? '••••••••' : 'Min 6 characters'} value={newStaffForm.password}
+                    required={!editingStaffMember}
+                    onChange={e => setNewStaffForm(f => ({ ...f, password: e.target.value }))}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-xs dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none" />
+                </div>
               </div>
+
+              {/* Module Permissions Matrix */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Temporary Password</label>
-                <input type="password" required minLength={6} placeholder="Min 6 characters" value={newStaffForm.password}
-                  onChange={e => setNewStaffForm(f => ({ ...f, password: e.target.value }))}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-xs dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none" />
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                      Module & Action Capabilities
+                    </label>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      Toggle exact reading, dispensing, accounting, and modifying permissions
+                    </p>
+                  </div>
+                  <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                    {newStaffForm.permissions.length} Active
+                  </span>
+                </div>
+
+                <div className="space-y-2.5">
+                  {PERMISSION_MODULES.map((mod, idx) => (
+                    <div key={idx} className="bg-slate-50 dark:bg-slate-800/40 p-3 rounded-2xl border border-slate-200/80 dark:border-white/5 space-y-2">
+                      <span className="text-[11px] font-bold text-slate-800 dark:text-slate-200">{mod.category}</span>
+                      <div className="space-y-1.5">
+                        {mod.items.map((item) => {
+                          const isChecked = newStaffForm.permissions.includes(item.id);
+                          return (
+                            <label key={item.id} className="flex items-start space-x-2.5 cursor-pointer p-1.5 rounded-xl hover:bg-white dark:hover:bg-slate-800/80 transition">
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={() => handleTogglePermission(item.id)}
+                                className="w-4 h-4 mt-0.5 accent-emerald-500 shrink-0"
+                              />
+                              <div className="min-w-0 flex-1">
+                                <p className="text-xs font-bold text-slate-900 dark:text-white">{item.label}</p>
+                                <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight">{item.desc}</p>
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
+
+              {/* Department Restrictions */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Job Title</label>
-                <input type="text" placeholder="Staff Pharmacist" value={newStaffForm.staff_title}
-                  onChange={e => setNewStaffForm(f => ({ ...f, staff_title: e.target.value }))}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-xs dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none" />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">Department Access</label>
-                <div className="grid grid-cols-2 gap-1.5">
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                  Medicine Department Restrictions
+                </label>
+                <div className="grid grid-cols-2 gap-1.5 max-h-32 overflow-y-auto pr-1">
                   {[{ id: 'All', label: '🌐 All Departments' }, ...DEPARTMENTS].map(dept => (
                     <label key={dept.id} className="flex items-center space-x-2 p-2 rounded-xl cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition">
                       <input type="checkbox"
@@ -5621,14 +5927,16 @@ export default function App() {
                   ))}
                 </div>
               </div>
-              <div className="flex space-x-2 pt-1">
-                <button type="button" onClick={() => setShowStaffModal(false)}
+
+              {/* Action Buttons */}
+              <div className="flex space-x-2 pt-2 border-t border-slate-200 dark:border-white/10 shrink-0">
+                <button type="button" onClick={() => { setShowStaffModal(false); setEditingStaffMember(null); }}
                   className="flex-1 py-2.5 border border-slate-200 dark:border-white/10 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-semibold transition hover:bg-slate-50 dark:hover:bg-slate-800">
                   Cancel
                 </button>
                 <button type="submit"
-                  className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition apple-spring">
-                  Add Staff Member
+                  className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition apple-spring shadow-md shadow-emerald-600/20">
+                  {editingStaffMember ? 'Update Staff Permissions' : 'Add Staff Member'}
                 </button>
               </div>
             </form>

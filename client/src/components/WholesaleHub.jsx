@@ -38,6 +38,100 @@ import {
   LogOut
 } from 'lucide-react';
 
+// Wholesale Granular Permissions & Operational Role Presets
+export const WHOLESALE_PERMISSION_MODULES = [
+  {
+    category: '💰 Invoices & Financial Accounting',
+    items: [
+      { id: 'finance_view', label: 'View Invoices, Debt & Financial Ledger', desc: 'Can inspect pharmacy balances, debt statements, and payment receipts' },
+      { id: 'finance_manage', label: 'Record Payments & Settle Invoices', desc: 'Can record cash, M-Pesa, bank transfers, and issue credit notes' }
+    ]
+  },
+  {
+    category: '📦 Depot Catalog & Pricing',
+    items: [
+      { id: 'catalog_view', label: 'Browse Wholesale Catalog (View-Only)', desc: 'Can search and inspect wholesale products, carton prices, and stock counts' },
+      { id: 'catalog_edit', label: 'Edit Catalog & Carton Prices', desc: 'Can add new catalog items, change carton pricing, and adjust stock counts' }
+    ]
+  },
+  {
+    category: '📥 Inbound Stock Receiving',
+    items: [
+      { id: 'stock_receipt', label: 'Receive Inbound Stock & Bulk Shipments', desc: 'Can intake consignments from manufacturers and increase warehouse stock' }
+    ]
+  },
+  {
+    category: '📋 Orders & Packing',
+    items: [
+      { id: 'orders_view', label: 'View Pharmacy Retailer Orders', desc: 'Can inspect purchase orders placed by connected pharmacies' },
+      { id: 'orders_create', label: 'Create & Edit Bulk Orders', desc: 'Can draft manual orders, apply discounts, and dispatch shipments' }
+    ]
+  },
+  {
+    category: '🚚 Fleet & Delivery Dispatch',
+    items: [
+      { id: 'deliveries', label: 'Delivery Route & Fleet Dispatch', desc: 'Can assign drivers, schedule dispatch times, and record delivery notes' }
+    ]
+  },
+  {
+    category: '📞 CRM & Telesales',
+    items: [
+      { id: 'teleseller', label: 'Pharmacy Call Logs & Sales Follow-ups', desc: 'Can log telesales calls, interested orders, and customer queries' }
+    ]
+  },
+  {
+    category: '🤝 Connected Retailers',
+    items: [
+      { id: 'connections', label: 'Link Pharmacies & Credit Limits', desc: 'Can approve and onboard new pharmacy retailers' }
+    ]
+  }
+];
+
+export const WHOLESALE_ROLE_PRESETS = [
+  {
+    id: 'accountant',
+    label: '📊 Depot Accountant / Finance',
+    role: 'accountant',
+    permissions: ['finance_view', 'finance_manage', 'catalog_view', 'orders_view'],
+    desc: 'Full financial, invoice, and payment ledger management with view-only catalog inspection (cannot modify catalog or intake shipments)'
+  },
+  {
+    id: 'teleseller',
+    label: '📞 Teleseller / Sales Rep',
+    role: 'teleseller',
+    permissions: ['orders_view', 'orders_create', 'teleseller', 'catalog_view', 'connections'],
+    desc: 'Take orders from pharmacies, log calls, follow-ups, and manage retailer relationships'
+  },
+  {
+    id: 'warehouse',
+    label: '📦 Warehouse Manager / Store Clerk',
+    role: 'warehouse',
+    permissions: ['catalog_view', 'catalog_edit', 'stock_receipt', 'orders_view'],
+    desc: 'Catalog management, receiving supplier consignments, and packing order shipments'
+  },
+  {
+    id: 'driver',
+    label: '🚚 Delivery Driver / Courier',
+    role: 'driver',
+    permissions: ['deliveries', 'orders_view'],
+    desc: 'Manage delivery schedule, update dispatch/delivered status, and record proof notes'
+  },
+  {
+    id: 'admin',
+    label: '👑 Depot Administrator',
+    role: 'admin',
+    permissions: ['finance_view', 'finance_manage', 'catalog_view', 'catalog_edit', 'stock_receipt', 'orders_view', 'orders_create', 'deliveries', 'teleseller', 'connections'],
+    desc: 'Unrestricted administration across all wholesale operations and staff'
+  },
+  {
+    id: 'custom',
+    label: '🛠️ Custom Depot Role',
+    role: 'custom',
+    permissions: ['catalog_view'],
+    desc: 'Manually select specific operational capabilities'
+  }
+];
+
 export default function WholesaleHub({
   currentUser,
   authFetch,
@@ -141,8 +235,51 @@ export default function WholesaleHub({
     email: '',
     phone: '',
     role: 'teleseller',
-    custom_permissions: ['orders', 'teleseller']
+    custom_permissions: ['orders_view', 'orders_create', 'teleseller', 'catalog_view', 'connections']
   });
+  const [editingDepotStaff, setEditingDepotStaff] = useState(null);
+  const [selectedDepotRolePreset, setSelectedDepotRolePreset] = useState('teleseller');
+
+  // Check if current user is depot admin/owner
+  const isDepotAdmin = currentUser?.role === 'admin' || currentUser?.role === 'depot_admin' || currentUser?.role === 'superadmin' || currentUser?.account_type === 'wholesale_admin' || !currentUser?.role;
+
+  // Helper to check if wholesale user has permission
+  const canWholesaleAccess = (perm) => {
+    if (!currentUser) return false;
+    if (isDepotAdmin) return true;
+    let perms = [];
+    if (Array.isArray(currentUser.permissions)) perms = currentUser.permissions;
+    else if (typeof currentUser.permissions === 'string') {
+      try { perms = JSON.parse(currentUser.permissions); } catch (e) { perms = []; }
+    }
+    if (perms.includes('all') || perms.includes('*')) return true;
+    return perms.includes(perm);
+  };
+
+  // Auto-redirect if active tab is restricted by depot staff role
+  useEffect(() => {
+    if (!currentUser) return;
+    if (activeTab === 'staff' && !isDepotAdmin) {
+      setActiveTab('dashboard');
+      return;
+    }
+    const tabPermMap = {
+      catalog: 'catalog_view',
+      orders: 'orders_view',
+      deliveries: 'deliveries',
+      finance: 'finance_view',
+      teleseller: 'teleseller',
+      connections: 'connections',
+      returns: 'orders_view'
+    };
+    const requiredPerm = tabPermMap[activeTab];
+    if (requiredPerm && !canWholesaleAccess(requiredPerm)) {
+      if (canWholesaleAccess('finance_view')) setActiveTab('finance');
+      else if (canWholesaleAccess('catalog_view')) setActiveTab('catalog');
+      else if (canWholesaleAccess('orders_view')) setActiveTab('orders');
+      else setActiveTab('dashboard');
+    }
+  }, [currentUser, activeTab]);
 
   const [connectionForm, setConnectionForm] = useState({
     pharmacy_name: '',
@@ -449,23 +586,104 @@ export default function WholesaleHub({
     }
   };
 
-  // Add Wholesale Staff Member
-  const handleAddStaff = async (e) => {
+  const handleOpenAddDepotStaff = () => {
+    setEditingDepotStaff(null);
+    setSelectedDepotRolePreset('teleseller');
+    setStaffForm({
+      name: '',
+      email: '',
+      phone: '',
+      role: 'teleseller',
+      custom_permissions: ['orders_view', 'orders_create', 'teleseller', 'catalog_view', 'connections']
+    });
+    setShowAddStaffModal(true);
+  };
+
+  const handleOpenEditDepotStaff = (s) => {
+    setEditingDepotStaff(s);
+    let perms = s.custom_permissions || [];
+    if (typeof perms === 'string') {
+      try { perms = JSON.parse(perms); } catch (e) { perms = []; }
+    }
+    const matched = WHOLESALE_ROLE_PRESETS.find(p => p.id === s.role) || { id: 'custom' };
+    setSelectedDepotRolePreset(matched.id);
+    setStaffForm({
+      name: s.name || '',
+      email: s.email || '',
+      phone: s.phone || '',
+      role: s.role || 'teleseller',
+      custom_permissions: Array.isArray(perms) ? perms : ['catalog_view']
+    });
+    setShowAddStaffModal(true);
+  };
+
+  const handleApplyDepotRolePreset = (presetId) => {
+    setSelectedDepotRolePreset(presetId);
+    const p = WHOLESALE_ROLE_PRESETS.find(x => x.id === presetId);
+    if (!p) return;
+    setStaffForm(prev => ({
+      ...prev,
+      role: p.role,
+      custom_permissions: [...p.permissions]
+    }));
+  };
+
+  const handleToggleDepotPermission = (permId) => {
+    setStaffForm(prev => {
+      const exists = prev.custom_permissions.includes(permId);
+      const next = exists ? prev.custom_permissions.filter(p => p !== permId) : [...prev.custom_permissions, permId];
+      setSelectedDepotRolePreset('custom');
+      return { ...prev, custom_permissions: next };
+    });
+  };
+
+  const handleSaveDepotStaff = async (e) => {
     e.preventDefault();
     try {
-      const res = await authFetch('/api/depot/staff', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(staffForm)
-      });
+      if (editingDepotStaff) {
+        const res = await authFetch(`/api/depot/staff/${editingDepotStaff.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(staffForm)
+        });
+        if (res.ok) {
+          showToast('Wholesale staff updated successfully', 'success');
+          setShowAddStaffModal(false);
+          setEditingDepotStaff(null);
+          fetchTabData();
+        } else {
+          showToast('Failed to update staff member', 'error');
+        }
+      } else {
+        const res = await authFetch('/api/depot/staff', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(staffForm)
+        });
+        if (res.ok) {
+          showToast('Wholesale staff member added', 'success');
+          setShowAddStaffModal(false);
+          setStaffForm({ name: '', email: '', phone: '', role: 'teleseller', custom_permissions: ['orders_view', 'teleseller'] });
+          fetchTabData();
+        } else {
+          showToast('Failed to add staff member', 'error');
+        }
+      }
+    } catch {
+      showToast('Error saving staff record', 'error');
+    }
+  };
+
+  const handleDeleteDepotStaff = async (id) => {
+    if (!window.confirm('Are you sure you want to remove this staff member from the depot?')) return;
+    try {
+      const res = await authFetch(`/api/depot/staff/${id}`, { method: 'DELETE' });
       if (res.ok) {
-        showToast('Wholesale staff member added', 'success');
-        setShowAddStaffModal(false);
-        setStaffForm({ name: '', email: '', phone: '', role: 'teleseller', custom_permissions: ['orders'] });
+        showToast('Staff member removed', 'success');
         fetchTabData();
       }
     } catch {
-      showToast('Error adding staff', 'error');
+      showToast('Failed to remove staff', 'error');
     }
   };
 
@@ -558,16 +776,20 @@ export default function WholesaleHub({
         {/* Navigation Links */}
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
           {[
-            { id: 'dashboard',   label: 'Operations Hub',   icon: TrendingUp,  badge: analytics?.pending_orders },
-            { id: 'catalog',     label: 'Bulk Catalog',      icon: Package,     badge: analytics?.low_stock_count, badgeColor: 'rose' },
-            { id: 'orders',      label: 'Pharmacy Orders',  icon: ShoppingCart,badge: analytics?.pending_orders, badgeColor: 'amber' },
-            { id: 'deliveries',  label: 'Fleet & Dispatch',  icon: Truck },
-            { id: 'finance',     label: 'Invoices & P&L',    icon: DollarSign,  badge: analytics?.overdue_count, badgeColor: 'rose' },
-            { id: 'teleseller',  label: 'Teleseller CRM',   icon: PhoneCall },
-            { id: 'connections', label: 'Connected Pharmacies', icon: Users2, badge: analytics?.active_connections },
-            { id: 'returns',     label: 'Returns & Credit',  icon: RefreshCw },
-            { id: 'staff',       label: 'Depot Staff',      icon: UserCheck },
-          ].map(({ id, label, icon: Icon, badge, badgeColor }) => (
+            { id: 'dashboard',   label: 'Operations Hub',   icon: TrendingUp,  badge: analytics?.pending_orders, perm: null },
+            { id: 'catalog',     label: 'Bulk Catalog',      icon: Package,     badge: analytics?.low_stock_count, badgeColor: 'rose', perm: 'catalog_view' },
+            { id: 'orders',      label: 'Pharmacy Orders',  icon: ShoppingCart,badge: analytics?.pending_orders, badgeColor: 'amber', perm: 'orders_view' },
+            { id: 'deliveries',  label: 'Fleet & Dispatch',  icon: Truck, perm: 'deliveries' },
+            { id: 'finance',     label: 'Invoices & P&L',    icon: DollarSign,  badge: analytics?.overdue_count, badgeColor: 'rose', perm: 'finance_view' },
+            { id: 'teleseller',  label: 'Teleseller CRM',   icon: PhoneCall, perm: 'teleseller' },
+            { id: 'connections', label: 'Connected Pharmacies', icon: Users2, badge: analytics?.active_connections, perm: 'connections' },
+            { id: 'returns',     label: 'Returns & Credit',  icon: RefreshCw, perm: 'orders_view' },
+            { id: 'staff',       label: 'Depot Staff',      icon: UserCheck, adminOnly: true },
+          ].filter(item => {
+            if (item.adminOnly) return isDepotAdmin;
+            if (item.perm) return canWholesaleAccess(item.perm);
+            return true;
+          }).map(({ id, label, icon: Icon, badge, badgeColor }) => (
             <button
               key={id}
               onClick={() => setActiveTab(id)}
@@ -707,24 +929,28 @@ export default function WholesaleHub({
                   <Download className="w-3.5 h-3.5" />
                   <span className="hidden sm:inline">Export Price List</span>
                 </button>
-                <button
-                  onClick={() => setShowBulkRestockModal(true)}
-                  className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center space-x-1.5 transition apple-press ${
-                    isDarkMode
-                      ? 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30'
-                      : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300'
-                  }`}
-                >
-                  <Boxes className="w-3.5 h-3.5" />
-                  <span>Receive Stock</span>
-                </button>
-                <button
-                  onClick={() => setShowAddProductModal(true)}
-                  className="px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs flex items-center space-x-1.5 transition shadow-lg shadow-amber-500/20 apple-press"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Add SKU</span>
-                </button>
+                {canWholesaleAccess('stock_receipt') && (
+                  <button
+                    onClick={() => setShowBulkRestockModal(true)}
+                    className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center space-x-1.5 transition apple-press ${
+                      isDarkMode
+                        ? 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30'
+                        : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300'
+                    }`}
+                  >
+                    <Boxes className="w-3.5 h-3.5" />
+                    <span>Receive Stock</span>
+                  </button>
+                )}
+                {canWholesaleAccess('catalog_edit') && (
+                  <button
+                    onClick={() => setShowAddProductModal(true)}
+                    className="px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs flex items-center space-x-1.5 transition shadow-lg shadow-amber-500/20 apple-press"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Add SKU</span>
+                  </button>
+                )}
               </div>
             )}
 
@@ -761,7 +987,7 @@ export default function WholesaleHub({
         </header>
 
         {/* Content Body */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+        <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 pb-24 md:pb-6">
           {/* ============================================================ */}
           {/* TAB 1: OPERATIONS DASHBOARD (KPIs & High-Impact Alerts)      */}
           {/* ============================================================ */}
@@ -934,6 +1160,15 @@ export default function WholesaleHub({
           {/* ============================================================ */}
           {activeTab === 'catalog' && (
             <div className="space-y-4">
+              {!canWholesaleAccess('catalog_edit') && (
+                <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-between text-xs text-amber-700 dark:text-amber-300 font-semibold shadow-xs">
+                  <div className="flex items-center space-x-2.5">
+                    <Shield className="w-4 h-4 text-amber-500 shrink-0" />
+                    <span>Audit View-Only Mode: You have read-only access to browse wholesale product stock and carton pricing. Editing products and restocking bulk inventory is restricted.</span>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-800 dark:text-amber-200 text-[10px] font-black uppercase">Read-Only</span>
+                </div>
+              )}
               {/* Search & Filter Bar */}
               <div className="flex flex-col sm:flex-row gap-3">
                 <div className="relative flex-1">
@@ -1053,6 +1288,14 @@ export default function WholesaleHub({
           {/* ============================================================ */}
           {activeTab === 'orders' && (
             <div className="space-y-4">
+              {!canWholesaleAccess('orders_create') && (
+                <div className={`p-3.5 rounded-2xl flex items-center gap-2.5 text-xs font-bold ${
+                  isDarkMode ? 'bg-amber-500/10 border border-amber-500/20 text-amber-300' : 'bg-amber-50 border border-amber-200 text-amber-800'
+                }`}>
+                  <Lock className="w-4 h-4 text-amber-500 shrink-0" />
+                  <span>🔒 Pipeline Inspection Mode: You have read-only access to monitor order queues, stock allocation, and dispatch progress. Confirming orders and managing shipments require Sales / Logistics permissions.</span>
+                </div>
+              )}
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 {['pending', 'confirmed', 'packed', 'dispatched'].map(statusKey => {
                   const statusOrders = orders.filter(o => o.status === statusKey);
@@ -1102,9 +1345,9 @@ export default function WholesaleHub({
                               <span className="text-[10px] font-bold uppercase text-slate-500">{o.payment_method}</span>
                             </div>
 
-                            {/* Action Buttons depending on current state */}
+                            {/* Action Buttons depending on current state & user capabilities */}
                             <div className="pt-2 border-t border-slate-200 dark:border-white/5 flex gap-1.5">
-                              {statusKey === 'pending' && (
+                              {statusKey === 'pending' && canWholesaleAccess('orders_create') && (
                                 <button
                                   onClick={() => handleOrderStatusUpdate(o.id, 'confirmed')}
                                   className="w-full py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs transition apple-press"
@@ -1113,7 +1356,7 @@ export default function WholesaleHub({
                                 </button>
                               )}
 
-                              {statusKey === 'confirmed' && (
+                              {statusKey === 'confirmed' && canWholesaleAccess('deliveries') && (
                                 <button
                                   onClick={() => {
                                     setSelectedOrderForDelivery(o);
@@ -1125,7 +1368,7 @@ export default function WholesaleHub({
                                 </button>
                               )}
 
-                              {statusKey === 'dispatched' && (
+                              {statusKey === 'dispatched' && canWholesaleAccess('deliveries') && (
                                 <button
                                   onClick={() => handleOrderStatusUpdate(o.id, 'delivered')}
                                   className="w-full py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition apple-press"
@@ -1239,6 +1482,15 @@ export default function WholesaleHub({
                   </h3>
                 </div>
 
+                {!canWholesaleAccess('finance_manage') && (
+                  <div className={`p-3.5 rounded-2xl flex items-center gap-2.5 text-xs font-bold ${
+                    isDarkMode ? 'bg-amber-500/10 border border-amber-500/20 text-amber-300' : 'bg-amber-50 border border-amber-200 text-amber-800'
+                  }`}>
+                    <Lock className="w-4 h-4 text-amber-500 shrink-0" />
+                    <span>🔒 Audit View-Only Mode: You have full inspection access to all invoices, balances, and financial health. Recording payments and adjusting customer balances require Finance Manager permissions.</span>
+                  </div>
+                )}
+
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-xs">
                     <thead>
@@ -1280,7 +1532,7 @@ export default function WholesaleHub({
                             </span>
                           </td>
                           <td className="py-3 px-4 text-right">
-                            {inv.status !== 'paid' && (
+                            {inv.status !== 'paid' && canWholesaleAccess('finance_manage') && (
                               <button
                                 onClick={() => {
                                   setSelectedInvoiceForPayment(inv);
@@ -1437,24 +1689,62 @@ export default function WholesaleHub({
                         <th className="py-3 px-4">Staff Name</th>
                         <th className="py-3 px-4">Role</th>
                         <th className="py-3 px-4">Contact</th>
-                        <th className="py-3 px-4">Status</th>
+                        <th className="py-3 px-4">Module Capabilities</th>
+                        <th className="py-3 px-4 text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody className={`divide-y ${isDarkMode ? 'divide-white/5' : 'divide-slate-100'}`}>
-                      {staffList.map(s => (
-                        <tr key={s.id} className={isDarkMode ? 'hover:bg-white/[0.02]' : 'hover:bg-slate-50'}>
-                          <td className={`py-3 px-4 font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{s.name}</td>
-                          <td className="py-3 px-4">
-                            <span className="text-[10px] uppercase font-black px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30">
-                              {s.role}
-                            </span>
-                          </td>
-                          <td className="py-3 px-4 text-slate-500">{s.email || s.phone || 'No direct contact'}</td>
-                          <td className="py-3 px-4">
-                            <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">Active</span>
-                          </td>
-                        </tr>
-                      ))}
+                      {staffList.map(s => {
+                        let perms = [];
+                        try {
+                          perms = typeof s.custom_permissions === 'string' ? JSON.parse(s.custom_permissions) : (s.custom_permissions || []);
+                        } catch (e) { perms = []; }
+                        return (
+                          <tr key={s.id} className={isDarkMode ? 'hover:bg-white/[0.02]' : 'hover:bg-slate-50'}>
+                            <td className={`py-3 px-4 font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{s.name}</td>
+                            <td className="py-3 px-4">
+                              <span className="text-[10px] uppercase font-black px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30">
+                                {s.role}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 text-slate-500">{s.email || s.phone || 'No direct contact'}</td>
+                            <td className="py-3 px-4">
+                              <div className="flex flex-wrap gap-1 max-w-xs">
+                                {perms.map(p => (
+                                  <span key={p} className={`px-1.5 py-0.5 rounded text-[9px] font-bold border ${
+                                    isDarkMode ? 'bg-slate-800 text-slate-300 border-white/5' : 'bg-slate-100 text-slate-700 border-slate-200'
+                                  }`}>
+                                    {p === 'finance_view' ? '💰 Finance (View)' :
+                                     p === 'finance_manage' ? '💳 Settle Invoices' :
+                                     p === 'catalog_view' ? '📦 Catalog (View)' :
+                                     p === 'catalog_edit' ? '✏️ Catalog (Edit)' :
+                                     p === 'stock_receipt' ? '📥 Bulk Intake' :
+                                     p === 'orders_view' ? '📋 Orders (View)' :
+                                     p === 'orders_create' ? '📝 Orders (Create)' :
+                                     p === 'deliveries' ? '🚚 Deliveries' :
+                                     p === 'teleseller' ? '📞 Telesales CRM' :
+                                     p === 'connections' ? '🤝 Link Chemists' : p}
+                                  </span>
+                                ))}
+                              </div>
+                            </td>
+                            <td className="py-3 px-4 text-right space-x-1.5">
+                              <button
+                                onClick={() => handleOpenEditDepotStaff(s)}
+                                className="px-2.5 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-700 dark:text-amber-300 rounded-lg text-xs font-bold transition"
+                              >
+                                Edit Access
+                              </button>
+                              <button
+                                onClick={() => handleDeleteDepotStaff(s.id)}
+                                className="px-2.5 py-1 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/40 text-red-600 dark:text-red-400 rounded-lg text-xs font-bold transition"
+                              >
+                                Remove
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -2232,56 +2522,76 @@ export default function WholesaleHub({
         </div>
       )}
 
-      {/* Modal: Add Staff */}
+      {/* Modal: Add / Edit Wholesale Staff */}
       {showAddStaffModal && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className={`border rounded-3xl w-full max-w-md p-6 space-y-4 shadow-2xl ${
+          <div className={`border rounded-3xl w-full max-w-xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl ${
             isDarkMode ? 'bg-[#10111a] border-amber-500/30 text-white' : 'bg-white border-slate-200 text-slate-900'
           }`}>
-            <div className="flex justify-between items-center pb-2 border-b border-slate-200 dark:border-white/10">
-              <h3 className="font-black text-base">Add Depot Team Member</h3>
-              <button onClick={() => setShowAddStaffModal(false)} className="text-slate-400 hover:text-white">
+            <div className="flex justify-between items-center p-5 border-b border-slate-200 dark:border-white/10 shrink-0">
+              <div>
+                <h3 className="font-black text-base">
+                  {editingDepotStaff ? 'Edit Wholesale Staff & Capabilities' : 'Add Depot Team Member'}
+                </h3>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                  Assign wholesale role templates and fine-tune operational capabilities
+                </p>
+              </div>
+              <button onClick={() => { setShowAddStaffModal(false); setEditingDepotStaff(null); }} className="text-slate-400 hover:text-white p-1">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleAddStaff} className="space-y-3 text-xs">
+            <form onSubmit={handleSaveDepotStaff} className="p-5 space-y-4 overflow-y-auto flex-1 text-xs">
+              {/* Role Presets */}
               <div>
-                <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">Full Name *</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Peter Ochieng"
-                  value={staffForm.name}
-                  onChange={e => setStaffForm({ ...staffForm, name: e.target.value })}
-                  className={`w-full px-3 py-2 rounded-xl outline-none border ${
-                    isDarkMode ? 'bg-slate-900 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
-                  }`}
-                />
+                <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1.5">
+                  Select Wholesale Role Template (One-Click Setup)
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {WHOLESALE_ROLE_PRESETS.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => handleApplyDepotRolePreset(p.id)}
+                      className={`p-2.5 rounded-2xl text-left border transition-all apple-press ${
+                        selectedDepotRolePreset === p.id
+                          ? 'bg-amber-500/10 border-amber-500 text-amber-600 dark:text-amber-400 font-black shadow-xs'
+                          : isDarkMode
+                            ? 'bg-slate-900/60 border-white/5 text-slate-300 hover:border-white/20'
+                            : 'bg-slate-50 border-slate-200 text-slate-700 hover:border-slate-300'
+                      }`}
+                    >
+                      <div className="text-xs font-bold">{p.label}</div>
+                      <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 line-clamp-2 leading-tight">
+                        {p.desc}
+                      </div>
+                    </button>
+                  ))}
+                </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              {/* Basic Fields */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">Role in Wholesale</label>
-                  <select
-                    value={staffForm.role}
-                    onChange={e => setStaffForm({ ...staffForm, role: e.target.value })}
-                    className={`w-full px-3 py-2 rounded-xl outline-none font-bold border ${
-                      isDarkMode ? 'bg-slate-900 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
-                    }`}
-                  >
-                    <option value="teleseller">Teleseller / Sales Rep</option>
-                    <option value="warehouse">Warehouse Manager</option>
-                    <option value="driver">Delivery Driver</option>
-                    <option value="accountant">Accountant / Finance</option>
-                    <option value="admin">Depot Administrator</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">Contact Phone</label>
+                  <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">Full Name *</label>
                   <input
                     type="text"
-                    placeholder="07..."
+                    required
+                    placeholder="e.g. Peter Ochieng"
+                    value={staffForm.name}
+                    onChange={e => setStaffForm({ ...staffForm, name: e.target.value })}
+                    className={`w-full px-3 py-2 rounded-xl outline-none border ${
+                      isDarkMode ? 'bg-slate-900 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                    }`}
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">Contact Phone *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="07XX XXX XXX"
                     value={staffForm.phone}
                     onChange={e => setStaffForm({ ...staffForm, phone: e.target.value })}
                     className={`w-full px-3 py-2 rounded-xl outline-none border ${
@@ -2292,7 +2602,7 @@ export default function WholesaleHub({
               </div>
 
               <div>
-                <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">Email</label>
+                <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">Work Email (Optional for Drivers / Staff)</label>
                 <input
                   type="email"
                   placeholder="staff@depot.co.ke"
@@ -2304,12 +2614,76 @@ export default function WholesaleHub({
                 />
               </div>
 
-              <button
-                type="submit"
-                className="w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs transition mt-2 shadow-lg"
-              >
-                Create Staff Account
-              </button>
+              {/* Permissions Matrix */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <label className="block text-slate-700 dark:text-slate-300 font-bold">
+                      Depot Operational Permissions
+                    </label>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      Decide what sections this staff member can access or modify
+                    </p>
+                  </div>
+                  <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
+                    {staffForm.custom_permissions.length} Enabled
+                  </span>
+                </div>
+
+                <div className="space-y-2.5">
+                  {WHOLESALE_PERMISSION_MODULES.map((mod, idx) => (
+                    <div key={idx} className={`p-3 rounded-2xl border space-y-2 ${
+                      isDarkMode ? 'bg-white/[0.02] border-white/5' : 'bg-slate-50 border-slate-200'
+                    }`}>
+                      <span className={`text-[11px] font-black ${isDarkMode ? 'text-amber-400' : 'text-slate-800'}`}>
+                        {mod.category}
+                      </span>
+                      <div className="space-y-1.5">
+                        {mod.items.map((item) => {
+                          const isChecked = staffForm.custom_permissions.includes(item.id);
+                          return (
+                            <label key={item.id} className="flex items-start space-x-2.5 cursor-pointer p-1.5 rounded-xl hover:bg-black/5 dark:hover:bg-white/[0.04] transition">
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={() => handleToggleDepotPermission(item.id)}
+                                className="w-4 h-4 mt-0.5 accent-amber-500 shrink-0"
+                              />
+                              <div className="min-w-0 flex-1">
+                                <p className={`text-xs font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+                                  {item.label}
+                                </p>
+                                <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight">
+                                  {item.desc}
+                                </p>
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Submit Buttons */}
+              <div className="flex space-x-2 pt-2 border-t border-slate-200 dark:border-white/10 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => { setShowAddStaffModal(false); setEditingDepotStaff(null); }}
+                  className={`flex-1 py-2.5 rounded-xl border font-bold text-xs transition ${
+                    isDarkMode ? 'border-white/10 text-slate-300 hover:bg-slate-800' : 'border-slate-200 text-slate-700 hover:bg-slate-50'
+                  }`}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs transition shadow-lg shadow-amber-500/20"
+                >
+                  {editingDepotStaff ? 'Update Staff Permissions' : 'Create Staff Account'}
+                </button>
+              </div>
             </form>
           </div>
         </div>
@@ -2409,6 +2783,40 @@ export default function WholesaleHub({
           </div>
         </div>
       )}
+
+      {/* Mobile Navigation Dock - Solid, High-Contrast Apple Dock */}
+      <nav className={`md:hidden fixed bottom-0 inset-x-0 backdrop-blur-2xl border-t px-2 pt-1.5 pb-safe flex justify-around items-center z-40 shadow-[0_-8px_24px_rgba(0,0,0,0.15)] ${
+        isDarkMode ? 'bg-[#0c0d12]/95 border-amber-500/20' : 'bg-white/95 border-slate-200'
+      }`}>
+        {[
+          { id: 'dashboard',   label: 'Ops',       icon: TrendingUp,  perm: null },
+          { id: 'catalog',     label: 'Catalog',   icon: Package,     perm: 'catalog_view' },
+          { id: 'orders',      label: 'Orders',    icon: ShoppingCart,perm: 'orders_view' },
+          { id: 'deliveries',  label: 'Fleet',     icon: Truck,        perm: 'deliveries' },
+          { id: 'finance',     label: 'Finance',   icon: DollarSign,   perm: 'finance_view' },
+          { id: 'teleseller',  label: 'CRM',       icon: PhoneCall,    perm: 'teleseller' },
+        ].filter(item => {
+          if (item.perm) return canWholesaleAccess(item.perm);
+          return true;
+        }).map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            onClick={() => setActiveTab(id)}
+            className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-xl transition apple-press ${
+              activeTab === id
+                ? 'text-amber-500 font-black'
+                : isDarkMode ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <div className={`p-1.5 rounded-xl transition ${
+              activeTab === id ? 'bg-amber-500/15' : ''
+            }`}>
+              <Icon className={`w-4 h-4 ${activeTab === id ? 'text-amber-500' : 'currentColor'}`} />
+            </div>
+            <span className="text-[10px] mt-0.5 font-bold tracking-tight">{label}</span>
+          </button>
+        ))}
+      </nav>
     </div>
   );
 }

@@ -144,6 +144,34 @@ function requireActiveSubscription(req, res, next) {
   next();
 }
 
+// Granular Role & Module Permission Check
+function hasPermission(user, perm) {
+  if (!user) return false;
+  if (user.role === 'admin' || user.role === 'superadmin' || user.role === 'depot_admin' || user.account_type === 'solo' || (user.account_type === 'wholesale' && (!user.role || user.role === 'admin'))) return true;
+  let perms = [];
+  try {
+    perms = typeof user.permissions === 'string' ? JSON.parse(user.permissions) : (user.permissions || []);
+  } catch (e) {
+    perms = [];
+  }
+  if (perms.includes('all') || perms.includes('*')) return true;
+  return perms.includes(perm);
+}
+
+function requirePermission(perm) {
+  return (req, res, next) => {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ error: 'Authentication required' });
+    if (!hasPermission(user, perm)) {
+      return res.status(403).json({
+        error: `Permission denied: access to '${perm}' is required for this action. Contact your pharmacy administrator.`,
+        required_permission: perm
+      });
+    }
+    next();
+  };
+}
+
 // --- AUTHENTICATION ENDPOINTS ---
 app.post('/api/auth/register', authRateLimiter, (req, res) => {
   try {
