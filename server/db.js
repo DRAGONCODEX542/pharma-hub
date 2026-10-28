@@ -16,6 +16,26 @@ try {
   db.exec('PRAGMA foreign_keys = ON;');
 } catch (e) {}
 
+// Ensure critical system licensing table is ready immediately on module load
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS user_system_licenses (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      system_type TEXT NOT NULL,
+      status TEXT DEFAULT 'locked',
+      subscription_tier TEXT DEFAULT 'none',
+      trial_started_at TEXT,
+      trial_ends_at TEXT,
+      subscription_ends_at TEXT,
+      created_at TEXT NOT NULL,
+      UNIQUE(user_id, system_type)
+    );
+  `);
+} catch (e) {
+  console.error('Immediate user_system_licenses init error:', e.message);
+}
+
 export function hashPassword(password) {
   const salt = crypto.randomBytes(16).toString('hex');
   const iterations = 100000;

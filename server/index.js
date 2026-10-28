@@ -716,6 +716,14 @@ app.get('/api/subscription/status', (req, res) => {
   }
 });
 
+app.get('/api/version', (req, res) => {
+  res.json({
+    version: '2.5.0',
+    status: 'online',
+    timestamp: new Date().toISOString()
+  });
+});
+
 // --- WORKSPACE LICENSING & ANTI-THEFT ACCESS CONTROL ---
 // Ensures 1 company email can own multiple systems, but must hold an active license/trial for each
 function ensureUserSystemLicenses(userId, defaultAccountType = 'solo') {
@@ -895,11 +903,15 @@ app.post('/api/subscription/upgrade', (req, res) => {
     // Activate the paid subscription license for this specific system
     const now = new Date();
     const thirtyDaysLater = new Date(now.getTime() + 30 * 86400000).toISOString().replace('T', ' ').slice(0, 19);
-    db.prepare(`
-      UPDATE user_system_licenses
-      SET status = 'active', subscription_tier = ?, subscription_ends_at = ?
-      WHERE user_id = ? AND system_type = ?
-    `).run(tier, thirtyDaysLater, orgId, targetAccountType);
+    try {
+      db.prepare(`
+        UPDATE user_system_licenses
+        SET status = 'active', subscription_tier = ?, subscription_ends_at = ?
+        WHERE user_id = ? AND system_type = ?
+      `).run(tier, thirtyDaysLater, orgId, targetAccountType);
+    } catch (licErr) {
+      console.warn('user_system_licenses update fallback:', licErr.message);
+    }
 
     db.prepare('UPDATE users SET subscription_tier = ?, account_type = ? WHERE id = ? OR organization_id = ?').run(tier, targetAccountType, orgId, orgId);
 
