@@ -69,14 +69,14 @@ export default function PharmaGuide({ currentStep = 1, onStepChange, isSolo = tr
 
   return (
     <>
-      {/* Floating Summon Pill (Always available in bottom-left/right) */}
+      {/* Floating Summon Pill (Always available in bottom-right so it never covers the desktop sidebar) */}
       <button
         onClick={() => {
           setActiveStep(1);
           setIsOpen(true);
         }}
-        className={`fixed z-40 bottom-24 sm:bottom-6 left-4 sm:left-6 flex items-center gap-2.5 px-3.5 py-2 rounded-full 
-          bg-white/85 dark:bg-slate-900/85 backdrop-blur-xl border border-white/60 dark:border-white/15 
+        className={`fixed z-40 bottom-20 md:bottom-6 right-4 sm:right-6 flex items-center gap-2.5 px-3.5 py-2 rounded-full 
+          bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border border-slate-200/80 dark:border-white/15 
           shadow-[0_8px_24px_rgba(0,0,0,0.12)] text-slate-800 dark:text-slate-200 
           hover:scale-105 active:scale-95 transition-all duration-300 group cursor-pointer`}
         title="Interactive 3-Step Guide"

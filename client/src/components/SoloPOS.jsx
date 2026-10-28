@@ -30,6 +30,7 @@ export default function SoloPOS({
 }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
+  const [selectedSupplier, setSelectedSupplier] = useState('All');
   const [cart, setCart] = useState([]);
   const [paymentMode, setPaymentMode] = useState('cash'); // 'cash', 'mpesa', 'credit'
   const [customerName, setCustomerName] = useState('');
@@ -40,6 +41,23 @@ export default function SoloPOS({
 
   // Categories
   const categories = ['All', 'OTC', 'Prescription', 'Pain Relief', 'Antibiotics', 'Vitamins', 'Cough & Cold'];
+
+  // Extract distinct suppliers from drugs
+  const suppliers = useMemo(() => {
+    const map = new Map();
+    drugs.forEach(d => {
+      const tags = d.supplier_tags || d.manufacturer || d.supplier || '';
+      tags.split(/[,/]/).forEach(s => {
+        const clean = s.trim();
+        if (clean && clean.length > 2 && !clean.toLowerCase().includes('general') && !clean.toLowerCase().includes('direct')) {
+          map.set(clean, (map.get(clean) || 0) + 1);
+        }
+      });
+    });
+    // Sort suppliers by frequency
+    const sorted = Array.from(map.entries()).sort((a, b) => b[1] - a[1]).map(e => e[0]).slice(0, 8);
+    return ['All', ...sorted];
+  }, [drugs]);
 
   // Filtered Drugs with robust property fallbacks
   const filteredDrugs = useMemo(() => {
@@ -58,9 +76,13 @@ export default function SoloPOS({
         (selectedCategory === 'OTC' && (cat === 'otc' || !drug.is_prescription_required)) ||
         (selectedCategory === 'Prescription' && (cat === 'prescription' || drug.is_prescription_required));
 
-      return matchesSearch && matchesCat;
+      const tags = `${drug.supplier_tags || ''} ${drug.manufacturer || ''} ${drug.supplier || ''}`.toLowerCase();
+      const matchesSupplier =
+        selectedSupplier === 'All' || tags.includes(selectedSupplier.toLowerCase());
+
+      return matchesSearch && matchesCat && matchesSupplier;
     });
-  }, [drugs, searchQuery, selectedCategory]);
+  }, [drugs, searchQuery, selectedCategory, selectedSupplier]);
 
   // Cart Calculations
   const cartTotal = useMemo(() => {
@@ -274,32 +296,58 @@ export default function SoloPOS({
             )}
           </div>
 
-          {/* iOS Category Filter Pills */}
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-            {categories.map((cat) => (
-              <button
-                key={cat}
-                onClick={() => setSelectedCategory(cat)}
-                className={`px-3.5 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap cursor-pointer transition-all duration-200 ${
-                  selectedCategory === cat
-                    ? 'bg-emerald-600 text-white shadow-xs scale-102'
-                    : 'bg-white/70 dark:bg-slate-900/60 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-black/[0.04] dark:border-white/[0.06]'
-                }`}
-              >
-                {cat}
-              </button>
-            ))}
+          {/* iOS Category & Supplier Filter Section */}
+          <div className="space-y-2">
+            {/* Category Filter Pills */}
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+              <span className="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider shrink-0 mr-1">Category:</span>
+              {categories.map((cat) => (
+                <button
+                  key={cat}
+                  onClick={() => setSelectedCategory(cat)}
+                  className={`px-3.5 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap cursor-pointer transition-all duration-200 apple-press ${
+                    selectedCategory === cat
+                      ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-xs font-bold scale-102'
+                      : 'bg-white/80 dark:bg-slate-900/70 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200/80 dark:border-white/10'
+                  }`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+
+            {/* Supplier / Distributor Filter Tag Pills */}
+            {suppliers.length > 2 && (
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                <span className="text-[11px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider shrink-0 mr-1 flex items-center gap-1">
+                  <span>🏢</span> Supplier:
+                </span>
+                {suppliers.map((sup) => (
+                  <button
+                    key={sup}
+                    onClick={() => setSelectedSupplier(sup)}
+                    className={`px-3 py-1 rounded-full text-[11px] font-semibold whitespace-nowrap cursor-pointer transition-all duration-200 apple-press ${
+                      selectedSupplier === sup
+                        ? 'bg-gradient-to-r from-amber-600 to-orange-500 text-white shadow-xs font-bold scale-102'
+                        : 'bg-white/80 dark:bg-slate-900/70 text-slate-600 dark:text-slate-300 hover:bg-amber-50 dark:hover:bg-amber-950/40 border border-slate-200/80 dark:border-white/10'
+                    }`}
+                  >
+                    {sup === 'All' ? 'All Suppliers' : sup}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Apple iOS Drug Bento Cards Grid */}
           {filteredDrugs.length === 0 ? (
-            <div className="p-12 text-center rounded-3xl bg-white/60 dark:bg-slate-900/40 backdrop-blur-2xl border border-black/[0.05] dark:border-white/[0.06]">
+            <div className="p-12 text-center rounded-3xl bg-white/80 dark:bg-slate-900/60 backdrop-blur-2xl border border-slate-200/80 dark:border-white/10 shadow-sm">
               <div className="w-12 h-12 mx-auto mb-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/50 flex items-center justify-center text-emerald-600 dark:text-emerald-400 text-2xl">
                 🔍
               </div>
               <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200">No medicines found</h4>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                Try searching for another medicine or generic formula.
+                Try searching for another medicine, molecule formula, or supplier name.
               </p>
             </div>
           ) : (
@@ -314,77 +362,95 @@ export default function SoloPOS({
                 const isLowStock = stockAvailable > 0 && stockAvailable <= 5;
                 const isJustAdded = justAddedId === drug.id;
                 const price = drug.pack_price || drug.box_price || drug.unit_price || 0;
+                
+                // Extract primary supplier tag
+                const rawSuppliers = drug.supplier_tags || drug.manufacturer || drug.supplier || '';
+                const primarySupplier = rawSuppliers.split(/[,/]/)?.[0]?.trim() || '';
 
                 return (
                   <div
                     key={drug.id}
-                    onClick={() => !isOutOfStock && handleAddToCart(drug, 'pack')}
-                    className={`group relative rounded-3xl p-4.5 cursor-pointer select-none transition-all duration-200 
-                      bg-white/80 dark:bg-slate-900/80 backdrop-blur-2xl
-                      border border-black/[0.06] dark:border-white/[0.08]
-                      hover:-translate-y-1 hover:shadow-lg hover:border-emerald-500/40 dark:hover:border-emerald-500/40
-                      active:scale-[0.98] ${
-                        isJustAdded ? 'ring-2 ring-emerald-500 bg-emerald-50/50 dark:bg-emerald-950/30' : ''
-                      } ${isOutOfStock ? 'opacity-65 cursor-not-allowed' : ''}`}
+                    onClick={() => handleAddToCart(drug, 'pack')}
+                    className={`group relative rounded-2xl p-4 cursor-pointer select-none transition-all duration-200 flex flex-col justify-between
+                      bg-gradient-to-br from-white via-white/95 to-slate-50/90 dark:from-[#181822] dark:via-[#14141d] dark:to-[#0f0f16]
+                      border border-slate-200/90 dark:border-white/10
+                      shadow-[0_4px_16px_rgba(0,0,0,0.04)] hover:shadow-[0_12px_28px_-6px_rgba(16,185,129,0.18)]
+                      hover:border-emerald-500/60 dark:hover:border-emerald-500/50
+                      hover:-translate-y-0.5 active:scale-[0.98] ${
+                        isJustAdded ? 'ring-2 ring-emerald-500 bg-emerald-50/70 dark:bg-emerald-950/40 shadow-emerald-500/20' : ''
+                      }`}
                   >
-                    {/* Top Pill Tags (iOS Style) */}
-                    <div className="flex items-center justify-between gap-2 mb-2.5">
-                      <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                        drug.category === 'Prescription' || drug.is_prescription_required
-                          ? 'bg-purple-100 text-purple-800 dark:bg-purple-950/50 dark:text-purple-300'
-                          : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300'
-                      }`}>
-                        {drug.category || (drug.is_prescription_required ? 'Prescription' : 'OTC')}
-                      </span>
+                    <div>
+                      {/* Top Pill Badges: Category + Supplier + Stock State */}
+                      <div className="flex items-center justify-between gap-1.5 mb-2.5">
+                        <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
+                          <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider shrink-0 ${
+                            drug.category === 'Prescription' || drug.is_prescription_required
+                              ? 'bg-purple-100 text-purple-800 dark:bg-purple-950/50 dark:text-purple-300'
+                              : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300'
+                          }`}>
+                            {drug.category || (drug.is_prescription_required ? 'Rx' : 'OTC')}
+                          </span>
 
-                      <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                        isOutOfStock
-                          ? 'bg-red-50 text-red-600 dark:bg-red-950/40 dark:text-red-400'
-                          : isLowStock
-                          ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300'
-                          : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300'
-                      }`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${
-                          isOutOfStock ? 'bg-red-500' : isLowStock ? 'bg-amber-500' : 'bg-emerald-500'
-                        }`} />
-                        {isOutOfStock ? 'Out of stock' : `${stockAvailable} in stock`}
-                      </span>
+                          {primarySupplier && (
+                            <span
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200/60 dark:border-amber-800/40 max-w-[130px] truncate shrink-0"
+                              title={`Supplier: ${primarySupplier}`}
+                            >
+                              <span>🏢</span>
+                              <span className="truncate">{primarySupplier}</span>
+                            </span>
+                          )}
+                        </div>
+
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${
+                          isOutOfStock
+                            ? 'bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400'
+                            : isLowStock
+                            ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300'
+                            : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300'
+                        }`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${
+                            isOutOfStock ? 'bg-rose-500' : isLowStock ? 'bg-amber-500' : 'bg-emerald-500'
+                          }`} />
+                          <span>{isOutOfStock ? '0 in stock' : `${stockAvailable} in stock`}</span>
+                        </span>
+                      </div>
+
+                      {/* Drug Name & Strength */}
+                      <h3 className="text-sm font-bold text-slate-900 dark:text-white leading-snug line-clamp-1 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">
+                        {displayName}
+                      </h3>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-1 mt-0.5 mb-3 font-medium">
+                        {genericFormula ? `${genericFormula}${dosage ? ` • ${dosage}` : ''}` : dosage || 'Standard Unit'}
+                      </p>
                     </div>
 
-                    {/* Drug Name & Dosage */}
-                    <h3 className="text-sm font-bold text-slate-900 dark:text-white leading-snug line-clamp-1 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">
-                      {displayName}
-                    </h3>
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-1 mt-0.5 mb-3 font-medium">
-                      {genericFormula ? `${genericFormula}${dosage ? ` • ${dosage}` : ''}` : dosage || 'Standard Pack'}
-                    </p>
-
-                    {/* Price & Add Button */}
-                    <div className="flex items-end justify-between pt-2.5 border-t border-slate-100 dark:border-slate-800">
+                    {/* Price & Fluid Liquid Button Bar */}
+                    <div className="flex items-center justify-between pt-2.5 border-t border-slate-100 dark:border-white/5 mt-1">
                       <div>
-                        <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-tight block">
-                          Price
+                        <span className="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block">
+                          Retail Price
                         </span>
-                        <span className="text-base font-extrabold text-emerald-700 dark:text-emerald-400">
+                        <span className="text-base font-black text-emerald-700 dark:text-emerald-400 tracking-tight">
                           {currency} {Number(price).toLocaleString()}
                         </span>
                       </div>
 
                       <button
                         type="button"
-                        disabled={isOutOfStock}
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (!isOutOfStock) handleAddToCart(drug, 'pack');
+                          handleAddToCart(drug, 'pack');
                         }}
-                        className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold transition shadow-xs ${
-                          isOutOfStock
-                            ? 'bg-slate-200 dark:bg-slate-800 text-slate-400 cursor-not-allowed'
-                            : 'bg-emerald-600 hover:bg-emerald-500 text-white active:scale-95'
+                        className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold text-white shadow-sm transition-all duration-150 apple-press ${
+                          isJustAdded
+                            ? 'bg-emerald-700 scale-95 shadow-emerald-500/30'
+                            : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 hover:shadow-md hover:shadow-emerald-500/25 active:scale-90'
                         }`}
                       >
-                        <Plus className="w-3.5 h-3.5" />
-                        <span>Add</span>
+                        {isJustAdded ? <Check className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
+                        <span>{isJustAdded ? 'Added' : 'Add'}</span>
                       </button>
                     </div>
                   </div>

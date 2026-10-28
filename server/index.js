@@ -1159,7 +1159,8 @@ app.get('/api/medicines', (req, res) => {
              COALESCE(SUM(b.packs_available), 0) as total_packs,
              COALESCE(SUM(b.loose_units_available), 0) as total_loose_units,
              MIN(CASE WHEN b.status = 'active' AND b.packs_available > 0 THEN b.expiry_date END) as nearest_expiry,
-             COALESCE(AVG(CASE WHEN b.status = 'active' THEN b.cost_price_per_pack END), COALESCE(pmp.wholesale_pack_price, m.wholesale_pack_price, 0)) as avg_cost_price
+             COALESCE(AVG(CASE WHEN b.status = 'active' THEN b.cost_price_per_pack END), COALESCE(pmp.wholesale_pack_price, m.wholesale_pack_price, 0)) as avg_cost_price,
+             COALESCE(NULLIF(GROUP_CONCAT(DISTINCT b.supplier), ''), m.manufacturer, 'Direct Distributor') as supplier_tags
       FROM medicines m
       JOIN molecules mol ON m.molecule_id = mol.id
       LEFT JOIN pharmacy_medicine_prices pmp ON pmp.medicine_id = m.id AND pmp.user_id = ?
@@ -1307,15 +1308,33 @@ app.get('/api/medicines/:id/alternatives', (req, res) => {
 app.post('/api/medicines', (req, res) => {
   try {
     const {
-      brand_name, molecule_id, brand_tier, manufacturer, strength, dosage_form,
+      brand_name, molecule_id, molecule_name, brand_tier, manufacturer, strength, dosage_form,
       barcode, category, is_prescription_required, unit_name, units_per_pack,
       units_per_strip, pack_price, strip_price, unit_price, insurance_pack_price,
       wholesale_pack_price, min_stock_alert, notes,
       initial_batch
     } = req.body;
 
-    if (!brand_name || !molecule_id || !pack_price) {
-      return res.status(400).json({ error: 'Brand name, molecule, and pack price are required' });
+    let finalMolId = molecule_id;
+    if (!finalMolId) {
+      const molSearch = (molecule_name || brand_name || '').trim();
+      if (molSearch) {
+        const existingMol = db.prepare('SELECT id FROM molecules WHERE name LIKE ?').get(molSearch);
+        if (existingMol) {
+          finalMolId = existingMol.id;
+        } else {
+          const ins = db.prepare('INSERT INTO molecules (name, description, therapeutic_class) VALUES (?, ?, ?)').run(
+            molSearch,
+            'Auto-registered during inventory intake',
+            category === 'Prescription' ? 'Prescription Pharmaceutical' : 'General Healthcare'
+          );
+          finalMolId = ins.lastInsertRowid;
+        }
+      }
+    }
+
+    if (!brand_name || !finalMolId || !pack_price) {
+      return res.status(400).json({ error: 'Brand name and pack price are required' });
     }
 
     const calcUnitPrice = unit_price || (pack_price / (units_per_pack || 1)).toFixed(2);
@@ -1336,7 +1355,7 @@ app.post('/api/medicines', (req, res) => {
     `);
 
     const result = stmt.run(
-      brand_name, molecule_id, brand_tier || 'generic', manufacturer || '', strength || '', dosage_form || 'Tablet',
+      brand_name, finalMolId, brand_tier || 'generic', manufacturer || '', strength || '', dosage_form || 'Tablet',
       barcode || null, category || 'OTC', is_prescription_required ? 1 : 0, unit_name || 'Pill',
       Number(units_per_pack) || 100, Number(units_per_strip) || 10,
       Number(pack_price), Number(calcStripPrice), Number(calcUnitPrice),

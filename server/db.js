@@ -1317,4 +1317,208 @@ function seedComprehensiveTemplates() {
     pack_price: 950, strip_price: 950, unit_price: 950, wholesale_pack_price: 700, min_stock_alert: 4,
     notes: 'Subcutaneous injection for cattle, sheep, and camels.'
   });
+
+  // ─── 8. Comprehensive Fast-Moving East African & Global Pharmacy Essentials ──
+  const metroMolId = 'Metronidazole';
+  addTemplateMed({
+    brand_name: 'Flagyl 200mg (Sanofi)',
+    mol_name: metroMolId, mol_desc: 'Originator nitroimidazole antimicrobial for anaerobic and protozoal infections (amoebiasis, giardiasis, trichomoniasis).', mol_class: 'Nitroimidazole Antibacterial / Antiprotozoal',
+    brand_tier: 'originator', manufacturer: 'Sanofi / Harleys', strength: '200mg', dosage_form: 'Tablet',
+    category: 'Prescription', form_category: 'Tablets & Capsules', is_prescription_required: 1,
+    unit_name: 'Tablet', units_per_pack: 21, units_per_strip: 21,
+    pack_price: 520, strip_price: 520, unit_price: 25, wholesale_pack_price: 360, min_stock_alert: 10,
+    notes: 'Take strictly with or after meals. Avoid alcohol during and 48h after therapy.'
+  });
+  addTemplateMed({
+    brand_name: 'Flagyl 400mg (Sanofi)',
+    mol_name: metroMolId, mol_desc: 'High strength originator metronidazole for dental, pelvic, and systemic anaerobic infections.', mol_class: 'Nitroimidazole Antibacterial / Antiprotozoal',
+    brand_tier: 'originator', manufacturer: 'Sanofi / Laborex', strength: '400mg', dosage_form: 'Tablet',
+    category: 'Prescription', form_category: 'Tablets & Capsules', is_prescription_required: 1,
+    unit_name: 'Tablet', units_per_pack: 14, units_per_strip: 14,
+    pack_price: 580, strip_price: 580, unit_price: 42, wholesale_pack_price: 410, min_stock_alert: 8,
+    notes: 'Take with food. Swallow whole with water.'
+  });
+  addTemplateMed({
+    brand_name: 'Metronidazole 200mg Generic (Dawa)',
+    mol_name: metroMolId, mol_desc: 'Bioequivalent generic metronidazole for gastrointestinal amoebiasis and dental abscesses.', mol_class: 'Nitroimidazole Antibacterial / Antiprotozoal',
+    brand_tier: 'generic', manufacturer: 'Dawa Ltd / Transchem', strength: '200mg', dosage_form: 'Tablet',
+    category: 'Prescription', form_category: 'Tablets & Capsules', is_prescription_required: 1,
+    unit_name: 'Tablet', units_per_pack: 100, units_per_strip: 10,
+    pack_price: 450, strip_price: 50, unit_price: 5, wholesale_pack_price: 260, min_stock_alert: 20,
+    notes: 'High-volume community dispensary pack.'
+  });
+  addTemplateMed({
+    brand_name: 'Metronidazole 400mg Generic (Elys)',
+    mol_name: metroMolId, mol_desc: 'Standard bioequivalent 400mg tablets for adult anaerobic infections.', mol_class: 'Nitroimidazole Antibacterial / Antiprotozoal',
+    brand_tier: 'generic', manufacturer: 'Elys Chemical / Crown Healthcare', strength: '400mg', dosage_form: 'Tablet',
+    category: 'Prescription', form_category: 'Tablets & Capsules', is_prescription_required: 1,
+    unit_name: 'Tablet', units_per_pack: 100, units_per_strip: 10,
+    pack_price: 650, strip_price: 75, unit_price: 7.50, wholesale_pack_price: 390, min_stock_alert: 15,
+    notes: 'Prescription dispensing bottles.'
+  });
+  addTemplateMed({
+    brand_name: 'Metronidazole Suspension 200mg/5ml (100ml)',
+    mol_name: metroMolId, mol_desc: 'Paediatric metronidazole benzoate oral liquid for amoebic dysentery and giardiasis.', mol_class: 'Nitroimidazole Antibacterial / Antiprotozoal',
+    brand_tier: 'branded_generic', manufacturer: 'Universal Corp / Harleys', strength: '200mg / 5ml (100ml)', dosage_form: 'Suspension',
+    category: 'Prescription', form_category: 'Syrups & Suspensions', is_prescription_required: 1,
+    unit_name: 'Bottle', units_per_pack: 1, units_per_strip: 1,
+    pack_price: 240, unit_price: 240, wholesale_pack_price: 150, min_stock_alert: 10,
+    notes: 'Shake well before measuring dose.'
+  });
+
+  // Cold, Flu, Headache & OTC Analgesics
+  const coldcapMolId = 'Paracetamol + Pseudoephedrine + Chlorpheniramine';
+  addTemplateMed({
+    brand_name: 'Coldcap Capsules (Pack of 20)',
+    mol_name: coldcapMolId, mol_desc: 'Multi-action cold and flu relief capsule with decongestant and antihistamine.', mol_class: 'Cold & Cough Combination',
+    brand_tier: 'branded_generic', manufacturer: 'GlaxoSmithKline / Harleys', strength: 'Standard Adult (Pack of 20)', dosage_form: 'Capsule',
+    category: 'OTC', form_category: 'Tablets & Capsules', is_prescription_required: 0,
+    unit_name: 'Pack', units_per_pack: 20, units_per_strip: 10,
+    pack_price: 450, strip_price: 230, unit_price: 23, wholesale_pack_price: 310, min_stock_alert: 15,
+    notes: 'Relieves blocked nose, fever, body aches and sneezing. May cause mild drowsiness.'
+  });
+  addTemplateMed({
+    brand_name: 'Fludrex Tablets (Pack of 24)',
+    mol_name: coldcapMolId, mol_desc: 'Popular day and night relief from cold, sinusitis, runny nose and fever.', mol_class: 'Cold & Cough Combination',
+    brand_tier: 'branded_generic', manufacturer: 'Kuwait Saudi Pharm / Laborex', strength: 'Paracetamol 500mg + Pseudoephedrine 30mg + CPM 2mg', dosage_form: 'Tablet',
+    category: 'OTC', form_category: 'Tablets & Capsules', is_prescription_required: 0,
+    unit_name: 'Pack', units_per_pack: 24, units_per_strip: 8,
+    pack_price: 380, strip_price: 130, unit_price: 16, wholesale_pack_price: 250, min_stock_alert: 12,
+    notes: 'Take 1-2 tablets every 6 hours with warm drink.'
+  });
+
+  const maraMolId = 'Paracetamol + Aspirin + Caffeine';
+  addTemplateMed({
+    brand_name: 'Mara Moja Pain Relief (Pack of 20)',
+    mol_name: maraMolId, mol_desc: 'Extra-strength fast-action triple combination for tension headaches, toothache, and acute pains.', mol_class: 'Combination Analgesic',
+    brand_tier: 'branded_generic', manufacturer: 'Elys Chemical / Transchem', strength: 'Paracetamol 250mg + Aspirin 250mg + Caffeine 50mg', dosage_form: 'Tablet',
+    category: 'OTC', form_category: 'Tablets & Capsules', is_prescription_required: 0,
+    unit_name: 'Pack', units_per_pack: 20, units_per_strip: 4,
+    pack_price: 280, strip_price: 60, unit_price: 14, wholesale_pack_price: 180, min_stock_alert: 25,
+    notes: 'Fast dispersible pain relief. Avoid taking late at night due to caffeine.'
+  });
+  addTemplateMed({
+    brand_name: 'Hedex Extra Tablets (Pack of 24)',
+    mol_name: 'Paracetamol + Caffeine', mol_desc: 'Potentiated analgesic for severe headaches and migraines.', mol_class: 'Combination Analgesic',
+    brand_tier: 'originator', manufacturer: 'GlaxoSmithKline / Harleys', strength: 'Paracetamol 500mg + Caffeine 65mg', dosage_form: 'Tablet',
+    category: 'OTC', form_category: 'Tablets & Capsules', is_prescription_required: 0,
+    unit_name: 'Pack', units_per_pack: 24, units_per_strip: 12,
+    pack_price: 360, strip_price: 180, unit_price: 15, wholesale_pack_price: 240, min_stock_alert: 15,
+    notes: 'Fast relief for throbbing headaches.'
+  });
+  addTemplateMed({
+    brand_name: 'Disprin 300mg Soluble Tablets (Pack of 24)',
+    mol_name: 'Aspirin (Acetylsalicylic Acid)', mol_desc: 'Soluble effervescent analgesic and antipyretic for fast absorption.', mol_class: 'Salicylate NSAID',
+    brand_tier: 'originator', manufacturer: 'Reckitt Benckiser / Surgipharm', strength: '300mg Soluble', dosage_form: 'Tablet',
+    category: 'OTC', form_category: 'Tablets & Capsules', is_prescription_required: 0,
+    unit_name: 'Pack', units_per_pack: 24, units_per_strip: 12,
+    pack_price: 320, strip_price: 160, unit_price: 14, wholesale_pack_price: 210, min_stock_alert: 10,
+    notes: 'Dissolve in water before swallowing. Do not give to children under 16.'
+  });
+
+  const cpmMolId = 'Chlorpheniramine Maleate';
+  addTemplateMed({
+    brand_name: 'Piriton 4mg Tablets',
+    mol_name: cpmMolId, mol_desc: 'First-generation antihistamine for acute allergic reactions, insect bites, hay fever, and urticaria.', mol_class: 'First-Generation Antihistamine',
+    brand_tier: 'originator', manufacturer: 'GlaxoSmithKline / Harleys', strength: '4mg', dosage_form: 'Tablet',
+    category: 'OTC', form_category: 'Tablets & Capsules', is_prescription_required: 0,
+    unit_name: 'Tablet', units_per_pack: 30, units_per_strip: 10,
+    pack_price: 420, strip_price: 145, unit_price: 14.50, wholesale_pack_price: 280, min_stock_alert: 15,
+    notes: 'Sedating antihistamine. Avoid driving or operating machinery.'
+  });
+
+  // Respiratory & Asthma Inhalers
+  const salbMolId = 'Salbutamol Sulfate';
+  addTemplateMed({
+    brand_name: 'Ventolin Evohaler 100mcg (GSK)',
+    mol_name: salbMolId, mol_desc: 'Short-acting beta-2 agonist (SABA) rescue inhaler for acute asthma bronchospasm relief.', mol_class: 'Bronchodilator SABA',
+    brand_tier: 'originator', manufacturer: 'GlaxoSmithKline / Harleys', strength: '100mcg / actuation (200 Doses)', dosage_form: 'Inhaler',
+    category: 'Prescription', form_category: 'Inhalers & Sprays', is_prescription_required: 1,
+    unit_name: 'Canister', units_per_pack: 1, units_per_strip: 1,
+    pack_price: 980, unit_price: 980, wholesale_pack_price: 780, min_stock_alert: 10,
+    notes: 'Innovator blue rescue inhaler. Rinse mouth after use.'
+  });
+  addTemplateMed({
+    brand_name: 'Ventolin Expectorant Syrup (100ml)',
+    mol_name: 'Salbutamol + Guaifenesin', mol_desc: 'Bronchodilator and expectorant cough syrup for productive wheezy coughs.', mol_class: 'Bronchodilator & Expectorant',
+    brand_tier: 'originator', manufacturer: 'GlaxoSmithKline / Laborex', strength: '2mg Salbutamol + 50mg Guaifenesin / 5ml (100ml)', dosage_form: 'Syrup',
+    category: 'Prescription', form_category: 'Syrups & Suspensions', is_prescription_required: 1,
+    unit_name: 'Bottle', units_per_pack: 1, units_per_strip: 1,
+    pack_price: 480, unit_price: 480, wholesale_pack_price: 340, min_stock_alert: 8,
+    notes: 'Loosens mucus and relieves chest tightness.'
+  });
+
+  // Gastrointestinal & Antacids
+  const gavisconMolId = 'Sodium Alginate + Sodium Bicarbonate';
+  addTemplateMed({
+    brand_name: 'Gaviscon Liquid Aniseed (200ml)',
+    mol_name: gavisconMolId, mol_desc: 'Alginate raft formula forming a protective barrier over stomach contents to stop acid reflux and heartburn.', mol_class: 'Alginate Antireflux Agent',
+    brand_tier: 'originator', manufacturer: 'Reckitt Benckiser / Surgipharm', strength: '250mg Sodium Alginate + 133.5mg Sodium Bicarb / 5ml', dosage_form: 'Syrup',
+    category: 'OTC', form_category: 'Syrups & Suspensions', is_prescription_required: 0,
+    unit_name: 'Bottle', units_per_pack: 1, units_per_strip: 1,
+    pack_price: 850, unit_price: 850, wholesale_pack_price: 640, min_stock_alert: 6,
+    notes: 'Take after meals and at bedtime for nocturnal acid reflux.'
+  });
+  addTemplateMed({
+    brand_name: 'Actal Plus Chewable Antacid Tablets (Pack of 20)',
+    mol_name: 'Alexitol Sodium + Magnesium Hydroxide', mol_desc: 'Fast soothing chewable tablets for hyperacidity, gas, and indigestion.', mol_class: 'Antacid & Antiflatulent',
+    brand_tier: 'branded_generic', manufacturer: 'Sanofi / Harleys', strength: 'Chewable (Pack of 20)', dosage_form: 'Tablet',
+    category: 'OTC', form_category: 'Tablets & Capsules', is_prescription_required: 0,
+    unit_name: 'Pack', units_per_pack: 20, units_per_strip: 10,
+    pack_price: 320, strip_price: 160, unit_price: 16, wholesale_pack_price: 210, min_stock_alert: 10,
+    notes: 'Chew thoroughly before swallowing for instant relief.'
+  });
+
+  // Chronic Care: Diabetes & Hypertension
+  const metfMolId = 'Metformin Hydrochloride';
+  addTemplateMed({
+    brand_name: 'Glucophage 500mg',
+    mol_name: metfMolId, mol_desc: 'First-line biguanide oral hypoglycaemic agent for Type 2 Diabetes Mellitus.', mol_class: 'Biguanide Antidiabetic',
+    brand_tier: 'originator', manufacturer: 'Merck Healthcare / Harleys', strength: '500mg', dosage_form: 'Tablet',
+    category: 'Prescription', form_category: 'Tablets & Capsules', is_prescription_required: 1,
+    unit_name: 'Tablet', units_per_pack: 50, units_per_strip: 10,
+    pack_price: 750, strip_price: 160, unit_price: 15, wholesale_pack_price: 520, min_stock_alert: 8,
+    notes: 'Take strictly with or after meals to minimize gastrointestinal discomfort.'
+  });
+  addTemplateMed({
+    brand_name: 'Metformin 500mg Generic (Micro Labs)',
+    mol_name: metfMolId, mol_desc: 'High-quality bioequivalent generic metformin for chronic diabetic glucose control.', mol_class: 'Biguanide Antidiabetic',
+    brand_tier: 'generic', manufacturer: 'Micro Labs / Transchem', strength: '500mg', dosage_form: 'Tablet',
+    category: 'Prescription', form_category: 'Tablets & Capsules', is_prescription_required: 1,
+    unit_name: 'Tablet', units_per_pack: 100, units_per_strip: 10,
+    pack_price: 450, strip_price: 50, unit_price: 4.50, wholesale_pack_price: 280, min_stock_alert: 15,
+    notes: 'Affordable monthly supply for diabetic patients.'
+  });
+
+  const losarMolId = 'Losartan Potassium';
+  addTemplateMed({
+    brand_name: 'Losartan 50mg Generic (Cipla)',
+    mol_name: losarMolId, mol_desc: 'Angiotensin II receptor blocker (ARB) for hypertension and renal protection in diabetic patients.', mol_class: 'Antihypertensive / ARB',
+    brand_tier: 'generic', manufacturer: 'Cipla Ltd / Laborex', strength: '50mg', dosage_form: 'Tablet',
+    category: 'Prescription', form_category: 'Tablets & Capsules', is_prescription_required: 1,
+    unit_name: 'Tablet', units_per_pack: 30, units_per_strip: 10,
+    pack_price: 480, strip_price: 170, unit_price: 16, wholesale_pack_price: 310, min_stock_alert: 10,
+    notes: 'Once daily blood pressure medication. Does not cause dry cough.'
+  });
+
+  // Broad-Spectrum Antimicrobial Staples
+  const septrinMolId = 'Cotrimoxazole (Sulfamethoxazole + Trimethoprim)';
+  addTemplateMed({
+    brand_name: 'Septrin 480mg (Aspen)',
+    mol_name: septrinMolId, mol_desc: 'Classic synergistic antifolate antibacterial combination for urinary, respiratory and GI infections.', mol_class: 'Sulfonamide & Antifolate Combination',
+    brand_tier: 'originator', manufacturer: 'Aspen Pharmacare / Laborex', strength: '400mg SMX + 80mg TMP (480mg)', dosage_form: 'Tablet',
+    category: 'Prescription', form_category: 'Tablets & Capsules', is_prescription_required: 1,
+    unit_name: 'Tablet', units_per_pack: 100, units_per_strip: 10,
+    pack_price: 780, strip_price: 85, unit_price: 8, wholesale_pack_price: 520, min_stock_alert: 15,
+    notes: 'Drink plenty of water throughout the day. Check for sulfa allergy.'
+  });
+  addTemplateMed({
+    brand_name: 'Doxycycline 100mg Capsules Generic',
+    mol_name: 'Doxycycline Hyclate', mol_desc: 'Broad-spectrum tetracycline antibiotic for acne, chlamydia, rickettsia, and chest infections.', mol_class: 'Tetracycline Antibiotic',
+    brand_tier: 'generic', manufacturer: 'MedPharma / Transchem', strength: '100mg', dosage_form: 'Capsule',
+    category: 'Prescription', form_category: 'Tablets & Capsules', is_prescription_required: 1,
+    unit_name: 'Capsule', units_per_pack: 100, units_per_strip: 10,
+    pack_price: 600, strip_price: 70, unit_price: 7, wholesale_pack_price: 380, min_stock_alert: 12,
+    notes: 'Swallow with full glass of water while standing. Do not lie down for 30 minutes.'
+  });
 }

@@ -350,6 +350,18 @@ export default function App() {
 
   const [showAddMedicineModal, setShowAddMedicineModal] = useState(false);
   const [showAddBatchModal, setShowAddBatchModal] = useState(false);
+  const [showQuickAddMedInBatch, setShowQuickAddMedInBatch] = useState(false);
+  const [quickMedForm, setQuickMedForm] = useState({
+    brand_name: '',
+    molecule_name: '',
+    strength: '',
+    dosage_form: 'Tablet',
+    category: 'Prescription',
+    pack_price: '',
+    wholesale_pack_price: '',
+    manufacturer: ''
+  });
+  const [quickMedSaving, setQuickMedSaving] = useState(false);
   const [showReceiptModal, setShowReceiptModal] = useState(false);
   const [currentReceipt, setCurrentReceipt] = useState(null);
 
@@ -1380,6 +1392,59 @@ export default function App() {
     }
   };
 
+  // Quick Inline Medicine Creation inside Batch Restock Modal
+  const handleQuickAddMedicine = async (e) => {
+    e.preventDefault();
+    if (!quickMedForm.brand_name.trim() || !quickMedForm.pack_price) {
+      showToast('Brand name and selling pack price are required', 'error');
+      return;
+    }
+    setQuickMedSaving(true);
+    try {
+      const res = await authFetch('/api/medicines', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          brand_name: quickMedForm.brand_name.trim(),
+          molecule_name: quickMedForm.molecule_name.trim() || quickMedForm.brand_name.trim(),
+          strength: quickMedForm.strength.trim() || 'Standard',
+          dosage_form: quickMedForm.dosage_form || 'Tablet',
+          category: quickMedForm.category || 'Prescription',
+          pack_price: Number(quickMedForm.pack_price),
+          wholesale_pack_price: Number(quickMedForm.wholesale_pack_price || 0),
+          manufacturer: quickMedForm.manufacturer.trim() || 'General Pharmaceuticals'
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to create medicine');
+
+      showToast(`✓ "${quickMedForm.brand_name}" registered! Now receiving batch...`, 'success');
+      await fetchAllData();
+      setNewBatchForm(prev => ({
+        ...prev,
+        medicine_id: String(data.id),
+        cost_price_per_pack: quickMedForm.wholesale_pack_price || prev.cost_price_per_pack,
+        pack_price: quickMedForm.pack_price || prev.pack_price,
+        supplier: quickMedForm.manufacturer || prev.supplier
+      }));
+      setShowQuickAddMedInBatch(false);
+      setQuickMedForm({
+        brand_name: '',
+        molecule_name: '',
+        strength: '',
+        dosage_form: 'Tablet',
+        category: 'Prescription',
+        pack_price: '',
+        wholesale_pack_price: '',
+        manufacturer: ''
+      });
+    } catch (err) {
+      showToast(err.message || 'Error registering medicine', 'error');
+    } finally {
+      setQuickMedSaving(false);
+    }
+  };
+
   // Add Batch Submit (with dual pricing and smart lot detection)
   const handleCreateBatch = async (e) => {
     e.preventDefault();
@@ -2240,7 +2305,7 @@ export default function App() {
             { id: 'loans',       label: 'Customer Loans',   icon: HandCoins, color: 'amber', badge: overdueLoansCount },
             { id: 'sales',       label: 'Sales & P&L',      icon: BarChart3, color: 'blue' },
             { id: 'wholesalers', label: 'Wholesale Hub',    icon: Building2, color: 'amber' },
-            ...(currentUser?.role === 'admin' ? [{ id: 'staff', label: 'Staff & Roles', icon: Users, color: 'teal' }] : []),
+            ...(currentUser?.role === 'admin' && currentUser?.account_type !== 'solo' ? [{ id: 'staff', label: 'Staff & Roles', icon: Users, color: 'teal' }] : []),
             { id: 'settings',    label: 'Settings',         icon: Settings, color: 'purple' },
           ].map(({ id, label, icon: Icon, color, badge }) => (
             <button
@@ -3351,11 +3416,33 @@ export default function App() {
           {/* ============================================================ */}
           {activeTab === 'staff' && (
             <div className="space-y-4">
-              {!currentUser || currentUser.role !== 'admin' ? (
+              {!currentUser || currentUser.role !== 'admin' || currentUser.account_type === 'solo' ? (
                 <div className="flex flex-col items-center justify-center py-16 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-white/10">
                   <Shield className="w-12 h-12 text-slate-300 dark:text-slate-600 mb-3" />
-                  <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">Admin Access Required</p>
-                  <p className="text-xs text-slate-400 mt-1">Only organization administrators can manage staff.</p>
+                  <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+                    {currentUser?.account_type === 'solo' ? 'Solo Chemist Account (Strict 1-Counter)' : 'Admin Access Required'}
+                  </p>
+                  <p className="text-xs text-slate-400 mt-1 max-w-md text-center">
+                    {currentUser?.account_type === 'solo'
+                      ? 'Solo pharmacies are designed for single-operator dispensing. Adding staff roles and shift management is exclusively available in the Organizational Hub.'
+                      : 'Only organization administrators can manage staff.'}
+                  </p>
+                  {currentUser?.account_type === 'solo' ? (
+                    <div className="mt-4 flex items-center gap-2">
+                      <button
+                        onClick={() => setActiveTab('pos')}
+                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition apple-press"
+                      >
+                        Return to Dispense (POS)
+                      </button>
+                      <button
+                        onClick={() => setShowSubscriptionModal(true)}
+                        className="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-semibold hover:bg-slate-200 dark:hover:bg-slate-700 transition"
+                      >
+                        Explore Organizational Hub
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
               ) : (
                 <>
@@ -4026,7 +4113,7 @@ export default function App() {
                   </div>
                 </button>
 
-                {currentUser?.role === 'admin' && (
+                {currentUser?.role === 'admin' && currentUser?.account_type !== 'solo' && (
                   <button
                     type="button"
                     onClick={() => { setActiveTab('staff'); setShowMobileMoreMenu(false); }}
@@ -4624,16 +4711,103 @@ export default function App() {
 
             <form onSubmit={handleCreateBatch} className="p-5 sm:p-6 space-y-4 text-xs overflow-y-auto max-h-[80vh]">
               
-              {/* Medicine Selector */}
+              {/* Medicine Selector Header with Inline Quick-Add Button */}
               <div>
-                <label className="block text-slate-700 dark:text-slate-200 font-semibold mb-1">Select Medicine / Product *</label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-slate-700 dark:text-slate-200 font-semibold">Select Medicine / Product *</label>
+                  <button
+                    type="button"
+                    onClick={() => setShowQuickAddMedInBatch(!showQuickAddMedInBatch)}
+                    className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 bg-emerald-50 dark:bg-emerald-950/40 px-2.5 py-1 rounded-lg border border-emerald-200/60 dark:border-emerald-800/40 transition apple-press"
+                  >
+                    <span>{showQuickAddMedInBatch ? '✕ Close Quick Add' : '＋ Add New Medicine'}</span>
+                  </button>
+                </div>
+
+                {/* Inline Quick Add Medicine Drawer */}
+                {showQuickAddMedInBatch && (
+                  <div className="mb-3 p-4 rounded-2xl bg-gradient-to-br from-emerald-50/80 to-teal-50/60 dark:from-emerald-950/40 dark:to-slate-900/60 border border-emerald-200/80 dark:border-emerald-800/50 shadow-sm space-y-3">
+                    <div className="flex items-center justify-between pb-1.5 border-b border-emerald-200/40 dark:border-emerald-800/40">
+                      <div>
+                        <p className="font-bold text-slate-900 dark:text-white text-xs">Quick Register Medicine Directly</p>
+                        <p className="text-[10px] text-slate-500">Save brand & price here without leaving the batch intake panel.</p>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-0.5">Brand / Drug Name *</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Flagyl 400mg"
+                          value={quickMedForm.brand_name}
+                          onChange={(e) => setQuickMedForm({ ...quickMedForm, brand_name: e.target.value })}
+                          className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-xs dark:text-white outline-none focus:ring-2 focus:ring-emerald-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-0.5">Generic Molecule / Formula</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Metronidazole"
+                          value={quickMedForm.molecule_name}
+                          onChange={(e) => setQuickMedForm({ ...quickMedForm, molecule_name: e.target.value })}
+                          className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-xs dark:text-white outline-none focus:ring-2 focus:ring-emerald-500"
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2.5">
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-0.5">Strength</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. 400mg"
+                          value={quickMedForm.strength}
+                          onChange={(e) => setQuickMedForm({ ...quickMedForm, strength: e.target.value })}
+                          className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-xs dark:text-white outline-none focus:ring-2 focus:ring-emerald-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-0.5">Retail Sell Price ({curr}) *</label>
+                        <input
+                          type="number"
+                          placeholder="e.g. 500"
+                          value={quickMedForm.pack_price}
+                          onChange={(e) => setQuickMedForm({ ...quickMedForm, pack_price: e.target.value })}
+                          className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-xs dark:text-white outline-none focus:ring-2 focus:ring-emerald-500 font-bold text-emerald-700 dark:text-emerald-400"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-0.5">Buying Cost ({curr})</label>
+                        <input
+                          type="number"
+                          placeholder="e.g. 350"
+                          value={quickMedForm.wholesale_pack_price}
+                          onChange={(e) => setQuickMedForm({ ...quickMedForm, wholesale_pack_price: e.target.value })}
+                          className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-xs dark:text-white outline-none focus:ring-2 focus:ring-emerald-500"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between pt-1">
+                      <span className="text-[10px] text-slate-500">Auto-selects once saved.</span>
+                      <button
+                        type="button"
+                        disabled={quickMedSaving}
+                        onClick={handleQuickAddMedicine}
+                        className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-xs transition apple-press disabled:opacity-50"
+                      >
+                        {quickMedSaving ? 'Registering...' : '✓ Save & Select'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 <select
                   required
                   value={newBatchForm.medicine_id}
                   onChange={(e) => handleBatchMedicineSelect(e.target.value)}
                   className="w-full px-3 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm dark:text-white font-medium"
                 >
-                  <option value="">-- Choose from Pharmacy Formulary (61 Templates) --</option>
+                  <option value="">-- Choose from Pharmacy Formulary ({medicines.length} Medicines) --</option>
                   {medicines.map(m => (
                     <option key={m.id} value={m.id}>
                       [{m.form_category || 'Formulary'}] {m.brand_name} ({m.strength}) - {m.manufacturer || m.molecule_name}
