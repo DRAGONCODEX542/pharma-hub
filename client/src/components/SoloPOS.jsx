@@ -6,6 +6,7 @@ import {
   Minus,
   Trash2,
   CheckCircle,
+  Check,
   AlertTriangle,
   Receipt,
   CreditCard,
@@ -651,29 +652,29 @@ export default function SoloPOS({
 
       </div>
 
-      {/* 3. MOBILE STICKY BOTTOM BAR */}
-      <div className="lg:hidden fixed bottom-4 left-4 right-4 z-40">
-        <button
-          onClick={() => setMobileCartOpen(true)}
-          className="w-full py-3.5 px-5 rounded-full flex items-center justify-between shadow-2xl
-            bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm
-            active:scale-[0.98] transition-all backdrop-blur-xl border border-white/20"
-        >
-          <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-full bg-white/20 flex items-center justify-center text-xs">
-              {totalItemsCount}
+      {/* 3. MOBILE STICKY BOTTOM BAR (Floats ABOVE bottom navigation, only when cart has items) */}
+      {cart.length > 0 && (
+        <div className="lg:hidden fixed bottom-18 inset-x-4 z-30 animate-slide-up">
+          <button
+            onClick={() => setMobileCartOpen(true)}
+            className="w-full py-3 px-4 rounded-2xl flex items-center justify-between shadow-2xl
+              bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs sm:text-sm
+              active:scale-[0.98] transition-all backdrop-blur-xl border border-white/25 shadow-emerald-600/30 apple-press"
+          >
+            <div className="flex items-center gap-2">
+              <div className="w-6 h-6 rounded-full bg-white/25 flex items-center justify-center text-xs font-black">
+                {totalItemsCount}
+              </div>
+              <span className="font-extrabold">Review Order & Pay</span>
             </div>
-            <span>Review Order</span>
-          </div>
 
-          <div className="flex items-center gap-2">
-            <span className="text-base font-black">
-              {currency} {cartTotal.toLocaleString()}
-            </span>
-            <ArrowRight className="w-4 h-4" />
-          </div>
-        </button>
-      </div>
+            <div className="flex items-center gap-1.5 font-black">
+              <span>{currency} {cartTotal.toLocaleString()}</span>
+              <ArrowRight className="w-4 h-4" />
+            </div>
+          </button>
+        </div>
+      )}
 
       {/* 4. MOBILE CART DRAWER */}
       {mobileCartOpen && (

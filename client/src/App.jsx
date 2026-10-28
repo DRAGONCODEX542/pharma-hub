@@ -602,16 +602,54 @@ export default function App() {
       const data = await res.json();
       if (res.ok) {
         showToast(`Upgraded to ${tierId.toUpperCase()}!`, 'success');
-        const updatedUser = { ...currentUser, subscription_tier: tierId };
+        let targetAccountType = data.account_type;
+        if (!targetAccountType) {
+          if (tierId.startsWith('org_')) targetAccountType = 'organization';
+          else if (tierId.startsWith('wholesale_')) targetAccountType = 'wholesale';
+          else targetAccountType = 'solo';
+        }
+        const updatedUser = {
+          ...currentUser,
+          subscription_tier: tierId,
+          account_type: targetAccountType
+        };
         setCurrentUser(updatedUser);
         localStorage.setItem('pharmahub_user', JSON.stringify(updatedUser));
         setShowSubscriptionModal(false);
         setMpesaCheckoutPlan(null);
+        if (targetAccountType === 'wholesale') setActiveTab('wholesalers');
+        else if (targetAccountType === 'organization') setActiveTab('dashboard');
       } else {
         showToast(data.error || 'Upgrade failed', 'error');
       }
     } catch {
       showToast('Upgrade request failed', 'error');
+    }
+  };
+
+  const handleSwitchAccountType = async (type) => {
+    try {
+      const res = await authFetch('/api/user/switch-portal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account_type: type })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        const updated = { ...currentUser, account_type: type };
+        setCurrentUser(updated);
+        localStorage.setItem('pharmahub_user', JSON.stringify(updated));
+        showToast(`Switched to ${type === 'wholesale' ? 'Wholesale Depot Hub' : type === 'organization' ? 'Enterprise Hospital Hub' : 'Solo Chemist Hub'}`, 'success');
+        if (type === 'wholesale') setActiveTab('wholesalers');
+        else if (type === 'organization') setActiveTab('dashboard');
+        else setActiveTab('pos');
+        setShowProfileMenu(false);
+        setShowMobileMoreMenu(false);
+      } else {
+        showToast(data.error || 'Failed to switch portal', 'error');
+      }
+    } catch {
+      showToast('Error switching portal', 'error');
     }
   };
 
@@ -2288,9 +2326,19 @@ export default function App() {
             <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-400 flex items-center justify-center text-white shrink-0 shadow-md shadow-emerald-600/30">
               <Pill className="w-4 h-4 transform -rotate-45" />
             </div>
-            <div>
-              <p className="text-xs font-black text-white leading-tight truncate max-w-[110px]">{settings.pharmacy_name || 'PharmaHub'}</p>
-              <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider">Solo Chemist</span>
+            <div className="min-w-0">
+              <p className="text-xs font-black text-white leading-tight truncate max-w-[120px]">{settings.pharmacy_name || 'PharmaHub'}</p>
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <span className={`text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-full ${
+                  currentUser?.account_type === 'wholesale'
+                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                    : currentUser?.account_type === 'organization'
+                    ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                    : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                }`}>
+                  {currentUser?.account_type === 'wholesale' ? 'Wholesale Depot' : currentUser?.account_type === 'organization' ? 'Hospital Hub' : 'Solo Chemist'}
+                </span>
+              </div>
             </div>
           </div>
         </div>
@@ -2477,6 +2525,48 @@ export default function App() {
                       <CreditCard className="w-4 h-4 text-emerald-600" />
                       <span>Subscription Plans</span>
                     </button>
+                  </div>
+
+                  {/* Quick System / Portal Switcher */}
+                  <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-1.5">
+                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500 px-1">
+                      Switch Active Portal
+                    </p>
+                    <div className="grid grid-cols-3 gap-1 bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl text-[11px] font-bold">
+                      <button
+                        type="button"
+                        onClick={() => handleSwitchAccountType('solo')}
+                        className={`py-1.5 rounded-lg text-center transition apple-press ${
+                          currentUser?.account_type === 'solo'
+                            ? 'bg-emerald-600 text-white shadow-xs'
+                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                        }`}
+                      >
+                        Solo
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSwitchAccountType('organization')}
+                        className={`py-1.5 rounded-lg text-center transition apple-press ${
+                          currentUser?.account_type === 'organization'
+                            ? 'bg-blue-600 text-white shadow-xs'
+                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                        }`}
+                      >
+                        Hospital
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSwitchAccountType('wholesale')}
+                        className={`py-1.5 rounded-lg text-center transition apple-press ${
+                          currentUser?.account_type === 'wholesale'
+                            ? 'bg-amber-600 text-white shadow-xs'
+                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                        }`}
+                      >
+                        Wholesale
+                      </button>
+                    </div>
                   </div>
 
                   <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
@@ -2926,48 +3016,58 @@ export default function App() {
                 </form>
 
                 {standaloneMarketData && (
-                  <div className="mt-3 p-4 bg-slate-800/80 rounded-2xl border border-slate-700/80 text-xs space-y-3">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <h4 className="font-bold text-white text-sm">{standaloneMarketData.medicine}</h4>
-                        <p className="text-blue-300">{standaloneMarketData.therapeutic_class} • {standaloneMarketData.country}</p>
+                  standaloneMarketData.found === false ? (
+                    <div className="mt-3 p-4 bg-amber-500/10 border border-amber-500/20 rounded-2xl text-xs space-y-1.5 text-amber-200">
+                      <div className="flex items-center gap-2 font-bold text-sm text-amber-300">
+                        <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                        <span>No Clinical Benchmark Found for "{standaloneMarketData.medicine}"</span>
                       </div>
-                      <span className="text-[10px] text-slate-400">{standaloneMarketData.prescription_status}</span>
+                      <p className="text-slate-300 text-xs">{standaloneMarketData.message}</p>
                     </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      <div className="p-3 bg-purple-900/30 border border-purple-500/30 rounded-xl">
-                        <span className="text-[10px] font-bold text-purple-300 uppercase">Originator Brand</span>
-                        <p className="font-bold text-white text-sm mt-0.5">{standaloneMarketData.tiers.originator.brand}</p>
-                        <p className="text-amber-300 font-extrabold text-base mt-1">
-                          {curr}{standaloneMarketData.tiers.originator.market_average.toFixed(2)}
-                        </p>
-                        <p className="text-[10px] text-slate-400">Range: {curr}{standaloneMarketData.tiers.originator.market_low} - {curr}{standaloneMarketData.tiers.originator.market_high}</p>
+                  ) : (
+                    <div className="mt-3 p-4 bg-slate-800/80 rounded-2xl border border-slate-700/80 text-xs space-y-3">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h4 className="font-bold text-white text-sm">{standaloneMarketData.medicine}</h4>
+                          <p className="text-blue-300">{standaloneMarketData.therapeutic_class} • {standaloneMarketData.country}</p>
+                        </div>
+                        <span className="text-[10px] text-slate-400">{standaloneMarketData.prescription_status}</span>
                       </div>
 
-                      <div className="p-3 bg-blue-900/30 border border-blue-500/30 rounded-xl">
-                        <span className="text-[10px] font-bold text-blue-300 uppercase">Branded Generic</span>
-                        <p className="font-bold text-white text-sm mt-0.5">{standaloneMarketData.tiers.branded_generic.brand}</p>
-                        <p className="text-teal-300 font-extrabold text-base mt-1">
-                          {curr}{standaloneMarketData.tiers.branded_generic.market_average.toFixed(2)}
-                        </p>
-                        <p className="text-[10px] text-slate-400">Range: {curr}{standaloneMarketData.tiers.branded_generic.market_low} - {curr}{standaloneMarketData.tiers.branded_generic.market_high}</p>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div className="p-3 bg-purple-900/30 border border-purple-500/30 rounded-xl">
+                          <span className="text-[10px] font-bold text-purple-300 uppercase">Originator Brand</span>
+                          <p className="font-bold text-white text-sm mt-0.5">{standaloneMarketData.tiers?.originator?.brand}</p>
+                          <p className="text-amber-300 font-extrabold text-base mt-1">
+                            {curr}{standaloneMarketData.tiers?.originator?.market_average?.toFixed(2)}
+                          </p>
+                          <p className="text-[10px] text-slate-400">Range: {curr}{standaloneMarketData.tiers?.originator?.market_low} - {curr}{standaloneMarketData.tiers?.originator?.market_high}</p>
+                        </div>
+
+                        <div className="p-3 bg-blue-900/30 border border-blue-500/30 rounded-xl">
+                          <span className="text-[10px] font-bold text-blue-300 uppercase">Branded Generic</span>
+                          <p className="font-bold text-white text-sm mt-0.5">{standaloneMarketData.tiers?.branded_generic?.brand}</p>
+                          <p className="text-teal-300 font-extrabold text-base mt-1">
+                            {curr}{standaloneMarketData.tiers?.branded_generic?.market_average?.toFixed(2)}
+                          </p>
+                          <p className="text-[10px] text-slate-400">Range: {curr}{standaloneMarketData.tiers?.branded_generic?.market_low} - {curr}{standaloneMarketData.tiers?.branded_generic?.market_high}</p>
+                        </div>
+
+                        <div className="p-3 bg-emerald-900/30 border border-emerald-500/30 rounded-xl">
+                          <span className="text-[10px] font-bold text-emerald-300 uppercase">Pure Generic</span>
+                          <p className="font-bold text-white text-sm mt-0.5">{standaloneMarketData.tiers?.pure_generic?.brand}</p>
+                          <p className="text-emerald-300 font-extrabold text-base mt-1">
+                            {curr}{standaloneMarketData.tiers?.pure_generic?.market_average?.toFixed(2)}
+                          </p>
+                          <p className="text-[10px] text-slate-400">Range: {curr}{standaloneMarketData.tiers?.pure_generic?.market_low} - {curr}{standaloneMarketData.tiers?.pure_generic?.market_high}</p>
+                        </div>
                       </div>
 
-                      <div className="p-3 bg-emerald-900/30 border border-emerald-500/30 rounded-xl">
-                        <span className="text-[10px] font-bold text-emerald-300 uppercase">Pure Generic</span>
-                        <p className="font-bold text-white text-sm mt-0.5">{standaloneMarketData.tiers.pure_generic.brand}</p>
-                        <p className="text-emerald-300 font-extrabold text-base mt-1">
-                          {curr}{standaloneMarketData.tiers.pure_generic.market_average.toFixed(2)}
-                        </p>
-                        <p className="text-[10px] text-slate-400">Range: {curr}{standaloneMarketData.tiers.pure_generic.market_low} - {curr}{standaloneMarketData.tiers.pure_generic.market_high}</p>
-                      </div>
+                      <p className="text-[11px] text-slate-400 italic">
+                        ℹ️ {standaloneMarketData.notes}
+                      </p>
                     </div>
-
-                    <p className="text-[11px] text-slate-400 italic">
-                      ℹ️ {standaloneMarketData.notes}
-                    </p>
-                  </div>
+                  )
                 )}
               </div>
 
@@ -4022,8 +4122,8 @@ export default function App() {
           )}
         </div>
 
-        {/* Mobile Navigation Bar — 5 tabs: POS / Stock / Loans / Sales / More */}
-        <nav className="md:hidden fixed bottom-0 inset-x-0 liquid-glass border-t border-black/[0.07] dark:border-white/[0.08] px-2 pb-safe pt-1 flex justify-around items-center z-40 shadow-2xl">
+        {/* Mobile Navigation Bar — Solid, High-Contrast Apple Dock (5 tabs) */}
+        <nav className="md:hidden fixed bottom-0 inset-x-0 bg-white/95 dark:bg-[#101016]/95 backdrop-blur-2xl border-t border-slate-200/90 dark:border-white/10 px-2 pt-1.5 pb-safe flex justify-around items-center z-40 shadow-[0_-8px_24px_rgba(0,0,0,0.08)]">
           {[
             { id: 'pos',       icon: ShoppingCart, label: 'Dispense',  color: 'emerald' },
             { id: 'inventory', icon: Pill,          label: 'Stock',     color: 'emerald' },
@@ -4036,22 +4136,22 @@ export default function App() {
               onClick={() => setActiveTab(id)}
               className={`flex flex-col items-center justify-center py-1.5 px-3 rounded-2xl transition-all apple-press min-w-[56px] ${
                 activeTab === id
-                  ? color === 'amber' ? 'text-amber-600 dark:text-amber-400 font-bold' : color === 'blue' ? 'text-blue-600 dark:text-blue-400 font-bold' : 'text-emerald-600 dark:text-emerald-400 font-bold'
-                  : 'text-slate-400 dark:text-slate-500'
+                  ? color === 'amber' ? 'text-amber-600 dark:text-amber-400 font-black' : color === 'blue' ? 'text-blue-600 dark:text-blue-400 font-black' : 'text-emerald-600 dark:text-emerald-400 font-black'
+                  : 'text-slate-600 dark:text-slate-300 font-semibold'
               }`}
             >
               <Icon className="w-5 h-5 mb-0.5" />
-              <span className="text-[10px] font-semibold">{label}</span>
-              {activeTab === id && <span className="absolute bottom-1 w-1 h-1 rounded-full bg-current opacity-60" />}
+              <span className="text-[10px]">{label}</span>
+              {activeTab === id && <span className="w-1.5 h-1.5 rounded-full bg-current mt-0.5" />}
             </button>
           ))}
           <button
             type="button"
             onClick={() => setShowMobileMoreMenu(true)}
-            className="flex flex-col items-center justify-center py-1.5 px-3 rounded-2xl text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition apple-press min-w-[56px]"
+            className="flex flex-col items-center justify-center py-1.5 px-3 rounded-2xl text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition apple-press min-w-[56px] font-semibold"
           >
             <MoreHorizontal className="w-5 h-5 mb-0.5" />
-            <span className="text-[10px] font-semibold">More</span>
+            <span className="text-[10px]">More</span>
           </button>
         </nav>
 
@@ -4224,6 +4324,48 @@ export default function App() {
                   <span>View Subscription Plans</span>
                   <span>↗</span>
                 </button>
+              </div>
+
+              {/* Quick System / Portal Switcher (Mobile) */}
+              <div className="mb-4 p-3 rounded-2xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200/80 dark:border-white/10 space-y-2">
+                <p className="text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  Switch Active System Hub
+                </p>
+                <div className="grid grid-cols-3 gap-1.5 text-xs font-bold">
+                  <button
+                    type="button"
+                    onClick={() => handleSwitchAccountType('solo')}
+                    className={`py-2 rounded-xl text-center transition apple-press ${
+                      currentUser?.account_type === 'solo'
+                        ? 'bg-emerald-600 text-white shadow-xs'
+                        : 'bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-300'
+                    }`}
+                  >
+                    Solo
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSwitchAccountType('organization')}
+                    className={`py-2 rounded-xl text-center transition apple-press ${
+                      currentUser?.account_type === 'organization'
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-300'
+                    }`}
+                  >
+                    Hospital
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSwitchAccountType('wholesale')}
+                    className={`py-2 rounded-xl text-center transition apple-press ${
+                      currentUser?.account_type === 'wholesale'
+                        ? 'bg-amber-600 text-white shadow-xs'
+                        : 'bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-300'
+                    }`}
+                  >
+                    Wholesale
+                  </button>
+                </div>
               </div>
 
               {/* User Profile / Auth Action */}
