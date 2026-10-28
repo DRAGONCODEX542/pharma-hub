@@ -250,13 +250,19 @@ export default function WholesaleHub({
   const [depotAdminPassword, setDepotAdminPassword] = useState('');
 
   // Check if current user or active operator is depot admin/owner
-  const isDepotAdmin = (activeDepotOperator ? (activeDepotOperator.role === 'depot_admin' || activeDepotOperator.role === 'admin') : (currentUser?.role === 'admin' || currentUser?.role === 'depot_admin' || currentUser?.role === 'superadmin' || !currentUser?.role));
+  const isDepotAdmin = activeDepotOperator
+    ? (activeDepotOperator.role === 'depot_admin' || activeDepotOperator.role === 'admin')
+    : (staffList.length > 0 ? false : (currentUser?.role === 'admin' || currentUser?.role === 'depot_admin' || currentUser?.role === 'superadmin' || !currentUser?.role));
 
   // Helper to check if wholesale user has permission
   const canWholesaleAccess = (perm) => {
     if (!currentUser) return false;
     if (isDepotAdmin) return true;
-    const effectivePerms = activeDepotOperator ? activeDepotOperator.permissions : currentUser.permissions;
+    if (!activeDepotOperator) {
+      if (staffList.length > 0) return false;
+      return true;
+    }
+    const effectivePerms = activeDepotOperator.permissions;
     let perms = [];
     if (Array.isArray(effectivePerms)) perms = effectivePerms;
     else if (typeof effectivePerms === 'string') {
@@ -275,20 +281,8 @@ export default function WholesaleHub({
       try {
         setActiveDepotOperator(JSON.parse(saved));
       } catch (e) {
-        setActiveDepotOperator({
-          id: 'admin',
-          name: currentUser.name || 'Depot Admin',
-          role: 'depot_admin',
-          permissions: ['all']
-        });
+        localStorage.removeItem(depotKey);
       }
-    } else {
-      setActiveDepotOperator({
-        id: 'admin',
-        name: currentUser.name || 'Depot Admin',
-        role: 'depot_admin',
-        permissions: ['all']
-      });
     }
   }, [currentUser]);
 
@@ -386,6 +380,41 @@ export default function WholesaleHub({
     }
   };
 
+  const handleLockDepotStation = () => {
+    const depotKey = 'depot_operator_' + (currentUser?.id || 'wholesale');
+    localStorage.removeItem(depotKey);
+    setActiveDepotOperator(null);
+    setSelectedDepotOperatorForPin(null);
+    setDepotOperatorSearch('');
+    setDepotOperatorPinInput('');
+    setDepotAdminPassword('');
+    setShowDepotOperatorModal(true);
+    showToast('Depot workstation locked. Next operator may sign in.', 'info');
+  };
+
+  const handleDepotOperatorSearchKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const query = depotOperatorSearch.trim().toLowerCase();
+      if (!query) return;
+      if (query === 'admin' || query === 'owner' || query === 'depot_admin' || (currentUser?.name && currentUser.name.toLowerCase().includes(query))) {
+        handleSelectDepotOperator({
+          id: 'admin',
+          name: currentUser?.name || 'Depot Owner',
+          role: 'depot_admin',
+          permissions: ['all']
+        });
+        return;
+      }
+      const matched = staffList.find(s => s.name.toLowerCase().includes(query) || s.role.toLowerCase().includes(query));
+      if (matched) {
+        handleSelectDepotOperator(matched);
+      } else {
+        showToast(`No depot staff found matching "${depotOperatorSearch}"`, 'error');
+      }
+    }
+  };
+
   const [connectionForm, setConnectionForm] = useState({
     pharmacy_name: '',
     contact_name: '',
@@ -399,16 +428,44 @@ export default function WholesaleHub({
   const curr = depot?.currency || 'KSh';
   const userRole = currentUser?.role || 'admin';
 
-  // 1. Fetch Depot Profile & KPIs
+  // 1. Fetch Depot Profile, KPIs & Staff
   const fetchDepotData = async () => {
     try {
       setLoading(true);
-      const [depotRes, kpiRes] = await Promise.all([
+      const [depotRes, kpiRes, staffRes] = await Promise.all([
         authFetch('/api/depot/me').then(r => r.json()),
-        authFetch('/api/depot/analytics').then(r => r.json())
+        authFetch('/api/depot/analytics').then(r => r.json()),
+        authFetch('/api/depot/staff').then(r => r.json()).catch(() => [])
       ]);
       setDepot(depotRes);
       setAnalytics(kpiRes);
+
+      const staffArray = Array.isArray(staffRes) ? staffRes : [];
+      setStaffList(staffArray);
+
+      const depotKey = 'depot_operator_' + (currentUser?.id || 'wholesale');
+      const saved = localStorage.getItem(depotKey);
+      if (saved) {
+        try {
+          setActiveDepotOperator(JSON.parse(saved));
+        } catch (e) {
+          localStorage.removeItem(depotKey);
+        }
+      } else {
+        if (staffArray.length > 0) {
+          // Unassigned workstation on multi-staff wholesale depot: prompt operator
+          setActiveDepotOperator(null);
+          setShowDepotOperatorModal(true);
+        } else {
+          // First time depot opened by owner: active administrator
+          setActiveDepotOperator({
+            id: 'admin',
+            name: currentUser?.name || 'Depot Owner',
+            role: 'depot_admin',
+            permissions: ['all']
+          });
+        }
+      }
     } catch (err) {
       console.error(err);
       showToast('Error loading wholesale depot profile', 'error');
@@ -1002,17 +1059,21 @@ export default function WholesaleHub({
               type="button"
               onClick={() => setShowDepotOperatorModal(true)}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition apple-press ${
-                isDarkMode
-                  ? 'bg-amber-500/10 text-amber-300 border border-amber-500/30 hover:bg-amber-500/20'
-                  : 'bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100 shadow-xs'
+                activeDepotOperator
+                  ? isDarkMode
+                    ? 'bg-amber-500/10 text-amber-300 border border-amber-500/30 hover:bg-amber-500/20'
+                    : 'bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100 shadow-xs'
+                  : 'bg-rose-500/20 text-rose-300 border border-rose-500/40 hover:bg-rose-500/30 animate-pulse'
               }`}
-              title="Switch Station Operator"
+              title={activeDepotOperator ? "Switch Station Operator" : "Click to sign into this workstation"}
             >
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+              <span className={`w-1.5 h-1.5 rounded-full ${activeDepotOperator ? 'bg-amber-500 animate-pulse' : 'bg-rose-500'}`} />
               <span className="text-[10px] text-slate-400 font-semibold hidden sm:inline">Station:</span>
-              <span className="truncate max-w-[100px] sm:max-w-[140px] font-black">{activeDepotOperator ? activeDepotOperator.name : (currentUser?.name || 'Admin')}</span>
-              <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-700 dark:text-amber-300 font-bold uppercase">
-                {activeDepotOperator ? activeDepotOperator.role : 'Admin'}
+              <span className="truncate max-w-[100px] sm:max-w-[140px] font-black">{activeDepotOperator ? activeDepotOperator.name : 'Sign In Required'}</span>
+              <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase ${
+                activeDepotOperator ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300' : 'bg-rose-500/30 text-rose-200'
+              }`}>
+                {activeDepotOperator ? activeDepotOperator.role : 'Unassigned'}
               </span>
               <span className="text-xs text-slate-400 ml-0.5">⇄</span>
             </button>
@@ -1111,6 +1172,20 @@ export default function WholesaleHub({
             )}
           </div>
         </header>
+
+        {/* Workstation Unassigned Warning Banner */}
+        {!activeDepotOperator && staffList.length > 0 && (
+          <div
+            onClick={() => setShowDepotOperatorModal(true)}
+            className="bg-amber-500/15 border-b border-amber-500/30 text-amber-900 dark:text-amber-200 px-4 py-2 text-xs font-bold flex items-center justify-between cursor-pointer hover:bg-amber-500/25 transition select-none"
+          >
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+              <span>⚠️ Depot Station Operator Required: This device is currently unassigned. Click here to select/write your name and unlock this workstation.</span>
+            </div>
+            <span className="underline ml-2 whitespace-nowrap">Sign In Now →</span>
+          </div>
+        )}
 
         {/* Content Body */}
         <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 pb-24 md:pb-6">
@@ -2953,9 +3028,11 @@ export default function WholesaleHub({
                   <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
-                    placeholder="Search depot staff by name or role..."
+                    autoFocus
+                    placeholder="Write your name or role (press Enter to activate)..."
                     value={depotOperatorSearch}
                     onChange={(e) => setDepotOperatorSearch(e.target.value)}
+                    onKeyDown={handleDepotOperatorSearchKeyDown}
                     className={`w-full pl-10 pr-4 py-2.5 rounded-2xl border text-xs font-semibold outline-none focus:ring-2 focus:ring-amber-500 ${
                       isDarkMode ? 'bg-slate-900 border-white/10 text-white' : 'bg-slate-100 border-slate-200 text-slate-900'
                     }`}
@@ -3054,7 +3131,19 @@ export default function WholesaleHub({
                 </div>
 
                 <div className="pt-2 border-t border-slate-200 dark:border-white/10 flex items-center justify-between text-xs text-slate-400">
-                  <span>📱 Workstation operator saved per device</span>
+                  {activeDepotOperator ? (
+                    <button
+                      type="button"
+                      onClick={handleLockDepotStation}
+                      className="flex items-center gap-1.5 text-xs font-bold text-red-500 hover:text-red-400 transition"
+                      title="Lock depot workstation so another team member can sign in"
+                    >
+                      <Lock className="w-3.5 h-3.5" />
+                      <span>Lock Workstation</span>
+                    </button>
+                  ) : (
+                    <span>📱 Workstation operator saved per device</span>
+                  )}
                   <button
                     type="button"
                     onClick={() => setShowDepotOperatorModal(false)}

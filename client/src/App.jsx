@@ -335,21 +335,32 @@ export default function App() {
     if (!currentUser) return false;
     if (currentUser.account_type === 'solo') return true;
 
-    // Use active station operator if set on this device, otherwise fall back to authenticated company user
-    const effectiveRole = activeOperator ? activeOperator.role : currentUser.role;
-    const effectivePerms = activeOperator ? activeOperator.permissions : currentUser.permissions;
-
-    if (effectiveRole === 'admin' || effectiveRole === 'superadmin') return true;
-    let perms = [];
-    if (Array.isArray(effectivePerms)) perms = effectivePerms;
-    else if (typeof effectivePerms === 'string') {
-      try { perms = JSON.parse(effectivePerms); } catch (e) { perms = []; }
+    // Use active station operator if set on this device
+    if (activeOperator) {
+      if (activeOperator.role === 'admin' || activeOperator.role === 'superadmin') return true;
+      let perms = [];
+      if (Array.isArray(activeOperator.permissions)) perms = activeOperator.permissions;
+      else if (typeof activeOperator.permissions === 'string') {
+        try { perms = JSON.parse(activeOperator.permissions); } catch (e) { perms = []; }
+      }
+      if (perms.includes('all') || perms.includes('*')) return true;
+      return perms.includes(perm);
     }
-    if (perms.includes('all') || perms.includes('*')) return true;
-    return perms.includes(perm);
+
+    // If no active operator is selected yet on this device:
+    // If other staff exist in the organization, require station sign-in (deny until operator signs in)
+    const hasOtherStaff = staffList.some(s => s.id !== currentUser.id && s.role !== 'admin');
+    if (hasOtherStaff) return false;
+
+    // First time system opened by owner with no staff yet: full admin
+    return currentUser.role === 'admin' || currentUser.role === 'superadmin';
   };
 
-  const isCurrentAdmin = currentUser?.account_type === 'solo' || (activeOperator ? (activeOperator.role === 'admin' || activeOperator.role === 'superadmin') : (currentUser?.role === 'admin' || currentUser?.role === 'superadmin'));
+  const isCurrentAdmin = currentUser?.account_type === 'solo' || (
+    activeOperator
+      ? (activeOperator.role === 'admin' || activeOperator.role === 'superadmin')
+      : (staffList.some(s => s.id !== currentUser.id && s.role !== 'admin') ? false : (currentUser?.role === 'admin' || currentUser?.role === 'superadmin'))
+  );
 
   // Wholesalers & Live Restock Directory State
   const [wholesalersList, setWholesalersList] = useState([]);
@@ -661,7 +672,43 @@ export default function App() {
       const res = await authFetch('/api/organization/staff');
       const data = await res.json();
       if (res.ok) {
-        setStaffList(data.staff || []);
+        const staff = data.staff || [];
+        setStaffList(staff);
+
+        const otherStaff = staff.filter(s => s.id !== currentUser.id && s.role !== 'admin');
+        const orgKey = 'pharma_operator_' + (currentUser.organization_id || currentUser.id);
+        const saved = localStorage.getItem(orgKey);
+
+        if (saved) {
+          try {
+            const parsed = JSON.parse(saved);
+            setActiveOperator(parsed);
+          } catch (e) {
+            localStorage.removeItem(orgKey);
+          }
+        }
+
+        if (otherStaff.length > 0) {
+          if (!saved) {
+            // Unassigned workstation on multi-staff organization:
+            // Prompt operator sign-in modal so individual signs in with their privileges
+            setActiveOperator(null);
+            setShowOperatorModal(true);
+          }
+        } else {
+          // If no staff added yet (brand new system opened by Admin/Owner):
+          // Owner is active administrator
+          if (!saved) {
+            setActiveOperator({
+              id: currentUser.id,
+              name: currentUser.name,
+              role: currentUser.role || 'admin',
+              staff_title: currentUser.staff_title || 'Administrator',
+              permissions: ['all'],
+              allowed_departments: ['All']
+            });
+          }
+        }
       } else {
         showToast(data.error || 'Failed to fetch staff', 'error');
       }
@@ -974,27 +1021,11 @@ export default function App() {
         const parsed = JSON.parse(saved);
         setActiveOperator(parsed);
       } catch (e) {
-        setActiveOperator({
-          id: currentUser.id,
-          name: currentUser.name,
-          role: currentUser.role || 'admin',
-          staff_title: currentUser.staff_title || 'Administrator',
-          permissions: ['all'],
-          allowed_departments: ['All']
-        });
+        localStorage.removeItem(orgKey);
       }
-    } else {
-      setActiveOperator({
-        id: currentUser.id,
-        name: currentUser.name,
-        role: currentUser.role || 'admin',
-        staff_title: currentUser.staff_title || 'Administrator',
-        permissions: ['all'],
-        allowed_departments: ['All']
-      });
     }
 
-    // Always pre-load organization staff list for the operator switcher
+    // Always pre-load organization staff list for the operator switcher & auto-prompt
     if (currentUser.account_type === 'organization') {
       fetchStaffList();
     }
@@ -1363,6 +1394,42 @@ export default function App() {
       }
     } catch {
       showToast('Station verification failed', 'error');
+    }
+  };
+
+  const handleLockStation = () => {
+    const orgKey = 'pharma_operator_' + (currentUser.organization_id || currentUser.id);
+    localStorage.removeItem(orgKey);
+    setActiveOperator(null);
+    setSelectedOperatorForPin(null);
+    setOperatorSearchText('');
+    setOperatorPinInput('');
+    setOperatorAdminPassword('');
+    setShowOperatorModal(true);
+    showToast('Workstation locked. Next operator may sign in.', 'info');
+  };
+
+  const handleOperatorSearchKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const query = operatorSearchText.trim().toLowerCase();
+      if (!query) return;
+      if (query === 'admin' || query === 'owner' || (currentUser?.name && currentUser.name.toLowerCase().includes(query))) {
+        handleSelectOperator({
+          id: currentUser.id,
+          name: currentUser.name,
+          role: 'admin',
+          staff_title: 'Primary Administrator',
+          permissions: ['all']
+        });
+        return;
+      }
+      const matched = staffList.find(s => s.id !== currentUser.id && s.role !== 'admin' && (s.name.toLowerCase().includes(query) || (s.staff_title || s.role).toLowerCase().includes(query)));
+      if (matched) {
+        handleSelectOperator(matched);
+      } else {
+        showToast(`No staff member found matching "${operatorSearchText}"`, 'error');
+      }
     }
   };
 
@@ -2849,14 +2916,20 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => setShowOperatorModal(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-800 dark:text-emerald-300 text-xs font-bold hover:bg-emerald-500/20 transition apple-press"
-                title="Switch Station Operator"
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-bold transition apple-press ${
+                  activeOperator
+                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-500/20'
+                    : 'bg-amber-500/15 border-amber-500/40 text-amber-800 dark:text-amber-300 hover:bg-amber-500/25 animate-pulse'
+                }`}
+                title={activeOperator ? "Switch Station Operator" : "Click to sign into this station"}
               >
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                <span className={`w-1.5 h-1.5 rounded-full ${activeOperator ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
                 <span className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold hidden sm:inline">Station:</span>
-                <span className="truncate max-w-[100px] sm:max-w-[140px] font-black">{activeOperator ? activeOperator.name : currentUser.name}</span>
-                <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 font-bold uppercase">
-                  {activeOperator ? (activeOperator.staff_title || activeOperator.role) : 'Admin'}
+                <span className="truncate max-w-[100px] sm:max-w-[140px] font-black">{activeOperator ? activeOperator.name : 'Sign In Required'}</span>
+                <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase ${
+                  activeOperator ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300' : 'bg-amber-500/30 text-amber-900 dark:text-amber-200'
+                }`}>
+                  {activeOperator ? (activeOperator.staff_title || activeOperator.role) : 'Unassigned'}
                 </span>
                 <span className="text-xs text-slate-400 ml-0.5">⇄</span>
               </button>
@@ -2990,6 +3063,20 @@ export default function App() {
             </div>
           </div>
         </header>
+
+        {/* Workstation Unassigned Warning Banner */}
+        {currentUser?.account_type === 'organization' && !activeOperator && staffList.some(s => s.id !== currentUser.id && s.role !== 'admin') && (
+          <div
+            onClick={() => setShowOperatorModal(true)}
+            className="bg-amber-500/15 border-b border-amber-500/30 text-amber-900 dark:text-amber-200 px-4 py-2 text-xs font-bold flex items-center justify-between cursor-pointer hover:bg-amber-500/25 transition select-none"
+          >
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+              <span>⚠️ Station Operator Sign-In Required: This device is currently unassigned. Click here to write/select your name and sign in.</span>
+            </div>
+            <span className="underline ml-2 whitespace-nowrap">Sign In Now →</span>
+          </div>
+        )}
 
         {/* Trial & Subscription Status Bar — only on mobile (sidebar shows it on desktop) */}
         {currentUser?.trial_days_remaining !== undefined && (
@@ -6300,9 +6387,11 @@ export default function App() {
                   <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
-                    placeholder="Search your name or role..."
+                    autoFocus
+                    placeholder="Write your name or role (press Enter to activate)..."
                     value={operatorSearchText}
                     onChange={(e) => setOperatorSearchText(e.target.value)}
+                    onKeyDown={handleOperatorSearchKeyDown}
                     className="w-full pl-10 pr-4 py-2.5 rounded-2xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-white/10 text-xs font-semibold outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900 dark:text-white"
                   />
                 </div>
@@ -6402,7 +6491,19 @@ export default function App() {
                 </div>
 
                 <div className="pt-2 border-t border-slate-100 dark:border-white/10 flex items-center justify-between text-xs text-slate-400">
-                  <span>📱 Each device saves its own operator</span>
+                  {activeOperator ? (
+                    <button
+                      type="button"
+                      onClick={handleLockStation}
+                      className="flex items-center gap-1.5 text-xs font-bold text-red-500 hover:text-red-600 transition"
+                      title="Lock this workstation so another operator can sign in"
+                    >
+                      <Lock className="w-3.5 h-3.5" />
+                      <span>Lock Workstation</span>
+                    </button>
+                  ) : (
+                    <span>📱 Workstation operator saved per device</span>
+                  )}
                   <button
                     type="button"
                     onClick={() => setShowOperatorModal(false)}
