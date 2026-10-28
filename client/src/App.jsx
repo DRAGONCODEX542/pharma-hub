@@ -50,7 +50,8 @@ import {
   Download,
   Building,
   Check,
-  Briefcase
+  Briefcase,
+  Lock
 } from 'lucide-react';
 import SoloPOS from './components/SoloPOS';
 import PharmaGuide from './components/PharmaGuide';
