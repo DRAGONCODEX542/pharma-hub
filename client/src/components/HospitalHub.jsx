@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   HeartPulse,
   UserPlus,
@@ -6,7 +6,6 @@ import {
   Stethoscope,
   Activity,
   Pill,
-  FlaskConical,
   Clock,
   CheckCircle2,
   AlertCircle,
@@ -24,18 +23,133 @@ import {
   RefreshCw,
   Bed,
   Check,
-  X
+  X,
+  DollarSign,
+  CreditCard,
+  Receipt,
+  Printer,
+  Sparkles,
+  LogOut,
+  Sun,
+  Moon,
+  Layers,
+  ArrowUpRight,
+  UserCheck,
+  Lock,
+  Eye,
+  AlertTriangle,
+  Building2,
+  Filter
 } from 'lucide-react';
 
-export default function HospitalHub({ currentUser, authFetch, showToast, curr = 'KSh', medicines = [] }) {
-  const [activeStation, setActiveStation] = useState('reception'); // 'reception', 'triage', 'doctor', 'lab', 'pharmacy_queue'
+// Hospital Staff Role Presets
+export const HOSPITAL_ROLE_PRESETS = [
+  {
+    id: 'doctor_general',
+    label: '👨‍⚕️ General Practitioner (MO)',
+    role: 'doctor_general',
+    title: 'Medical Officer',
+    desc: 'Conduct OPD consultations, view triage vitals, and issue hospital e-prescriptions'
+  },
+  {
+    id: 'doctor_specialist',
+    label: '🩺 Specialist Physician / Surgeon',
+    role: 'doctor_specialist',
+    title: 'Specialist Consultant',
+    desc: 'Specialized clinic appointments, surgical reviews, and prescription authorization'
+  },
+  {
+    id: 'nurse_triage',
+    label: '💉 Triage & Outpatient Nurse',
+    role: 'nurse_triage',
+    title: 'Triage Nurse',
+    desc: 'Capture vitals (BP, pulse, temp, SpO2, sugar), assign priority, and route to doctor'
+  },
+  {
+    id: 'nurse_ward',
+    label: '🏥 Inpatient / Ward Nurse',
+    role: 'nurse_ward',
+    title: 'Ward Staff Nurse',
+    desc: 'Bed allocation, patient vitals monitoring, and ward medication charting'
+  },
+  {
+    id: 'pharmacist',
+    label: '💊 Hospital Pharmacist',
+    role: 'pharmacist',
+    title: 'Hospital Pharmacist',
+    desc: 'Review live doctor e-prescriptions, dispense medicines, and check drug formulary stock'
+  },
+  {
+    id: 'receptionist',
+    label: '📋 Front Desk & OPD Receptionist',
+    role: 'receptionist',
+    title: 'Reception Officer',
+    desc: 'Register new patients, issue OPD numbers, manage insurance, and check patients into queues'
+  },
+  {
+    id: 'cashier',
+    label: '💰 Hospital Cashier & Billing',
+    role: 'cashier',
+    title: 'Billing Cashier',
+    desc: 'Collect consultation & drug payments via Cash, M-Pesa, or SHA/NHIF, and issue receipts'
+  },
+  {
+    id: 'admin',
+    label: '👑 Hospital Medical Director / Admin',
+    role: 'admin',
+    title: 'Hospital Administrator',
+    desc: 'Full administrative access across all departments, staff duty roster, and financial oversight'
+  }
+];
+
+export default function HospitalHub({
+  currentUser,
+  authFetch,
+  showToast,
+  isDarkMode,
+  setIsDarkMode,
+  handleLogout,
+  handleSwitchAccountType,
+  setShowSubscriptionModal
+}) {
+  // Navigation tabs in Hospital Hub
+  const [activeTab, setActiveTab] = useState('reception'); // 'dashboard', 'reception', 'triage', 'doctor', 'pharmacy', 'billing', 'staff', 'settings'
+  const [loading, setLoading] = useState(false);
+
+  // Core Data States
   const [queue, setQueue] = useState([]);
   const [patients, setPatients] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [patientSearch, setPatientSearch] = useState('');
+  const [pendingPrescriptions, setPendingPrescriptions] = useState([]);
+  const [billingQueue, setBillingQueue] = useState([]);
+  const [medicines, setMedicines] = useState([]);
+  const [staffList, setStaffList] = useState([]);
+  const [hospitalStats, setHospitalStats] = useState({
+    total_patients: 0,
+    today_visits: 0,
+    active_queue: 0,
+    dispensed_prescriptions: 0
+  });
 
-  // 1. New Patient Registration Form (Reception)
+  // Filter & Search states
+  const [patientSearch, setPatientSearch] = useState('');
+  const [medicineSearch, setMedicineSearch] = useState('');
+
+  // Modals
   const [showNewPatientModal, setShowNewPatientModal] = useState(false);
+  const [showTriageModal, setShowTriageModal] = useState(false);
+  const [showConsultModal, setShowConsultModal] = useState(false);
+  const [showBillingModal, setShowBillingModal] = useState(false);
+  const [showReceiptModal, setShowReceiptModal] = useState(false);
+  const [showAddStaffModal, setShowAddStaffModal] = useState(false);
+  const [showWorkspaceModal, setShowWorkspaceModal] = useState(false);
+
+  // Selected Records for Actions
+  const [selectedVisitForTriage, setSelectedVisitForTriage] = useState(null);
+  const [selectedVisitForDoctor, setSelectedVisitForDoctor] = useState(null);
+  const [selectedVisitForBilling, setSelectedVisitForBilling] = useState(null);
+  const [receiptData, setReceiptData] = useState(null);
+
+  // Forms
   const [newPatientForm, setNewPatientForm] = useState({
     full_name: '',
     age: '',
@@ -50,8 +164,6 @@ export default function HospitalHub({ currentUser, authFetch, showToast, curr = 
     allergies: ''
   });
 
-  // 2. Triage Modal (Nursing Station)
-  const [selectedVisitForTriage, setSelectedVisitForTriage] = useState(null);
   const [triageForm, setTriageForm] = useState({
     bp_systolic: 120,
     bp_diastolic: 80,
@@ -62,31 +174,55 @@ export default function HospitalHub({ currentUser, authFetch, showToast, curr = 
     blood_sugar: 5.5,
     triage_priority: 'normal',
     triage_notes: '',
-    assigned_doctor: 'Dr. On Duty',
-    ward_bed: ''
+    assigned_doctor: 'Dr. General Duty'
   });
 
-  // 3. Doctor Consultation & E-Prescription Form
-  const [selectedVisitForDoctor, setSelectedVisitForDoctor] = useState(null);
   const [consultForm, setConsultForm] = useState({
     doctor_notes: '',
     diagnosis: ''
   });
+
   const [prescriptionItems, setPrescriptionItems] = useState([
     { medicine_id: '', medicine_name: '', dosage: '1 tab', frequency: 'TID (3x daily)', duration_days: 5, quantity: 15, instructions: 'Take after meals' }
   ]);
-  const [labTestName, setLabTestName] = useState('');
 
-  // 4. Pharmacy Pending Prescriptions Queue
-  const [pendingPrescriptions, setPendingPrescriptions] = useState([]);
+  const [paymentForm, setPaymentForm] = useState({
+    payment_method: 'Cash',
+    reference_code: '',
+    amount_paid: ''
+  });
 
-  // Fetch Hospital Live Queue
+  const [staffForm, setStaffForm] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    role: 'doctor_general',
+    staff_title: 'Medical Officer',
+    specialization: 'General Practice',
+    pin_code: ''
+  });
+
+  const [facilitySettings, setFacilitySettings] = useState({
+    name: currentUser?.pharmacy_name || 'Metropolitan Hospital',
+    mfl_code: 'MFL-29481',
+    address: currentUser?.address || 'Nairobi, Kenya',
+    phone: currentUser?.phone || '+254 700 000 000',
+    currency: currentUser?.currency_symbol || 'KSh'
+  });
+
+  const curr = facilitySettings.currency || 'KSh';
+
+  // Permissions helper
+  const isHospitalAdmin = currentUser?.role === 'admin' || currentUser?.role === 'superadmin';
+  const userRole = currentUser?.role || 'staff';
+
+  // --- API DATA FETCHERS ---
   const fetchQueue = async () => {
     try {
       setLoading(true);
       const res = await authFetch('/api/hospital/queue');
-      const data = await res.json();
       if (res.ok) {
+        const data = await res.json();
         setQueue(data.queue || []);
       }
     } catch (e) {
@@ -96,12 +232,11 @@ export default function HospitalHub({ currentUser, authFetch, showToast, curr = 
     }
   };
 
-  // Fetch Patients List
   const fetchPatients = async (query = '') => {
     try {
       const res = await authFetch(`/api/hospital/patients${query ? `?q=${encodeURIComponent(query)}` : ''}`);
-      const data = await res.json();
       if (res.ok) {
+        const data = await res.json();
         setPatients(data.patients || []);
       }
     } catch (e) {
@@ -109,12 +244,11 @@ export default function HospitalHub({ currentUser, authFetch, showToast, curr = 
     }
   };
 
-  // Fetch Pending Hospital Prescriptions for Pharmacy
   const fetchPendingPrescriptions = async () => {
     try {
       const res = await authFetch('/api/hospital/prescriptions/pending');
-      const data = await res.json();
       if (res.ok) {
+        const data = await res.json();
         setPendingPrescriptions(data.prescriptions || []);
       }
     } catch (e) {
@@ -122,15 +256,76 @@ export default function HospitalHub({ currentUser, authFetch, showToast, curr = 
     }
   };
 
+  const fetchBillingQueue = async () => {
+    try {
+      const res = await authFetch('/api/hospital/billing/pending');
+      if (res.ok) {
+        const data = await res.json();
+        setBillingQueue(data.billing_queue || []);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const fetchMedicines = async () => {
+    try {
+      const res = await authFetch('/api/medicines');
+      if (res.ok) {
+        const data = await res.json();
+        setMedicines(Array.isArray(data) ? data : data.medicines || []);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const fetchStaff = async () => {
+    try {
+      const res = await authFetch('/api/organization/staff');
+      if (res.ok) {
+        const data = await res.json();
+        setStaffList(data.staff || []);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const fetchHospitalStats = async () => {
+    try {
+      const res = await authFetch('/api/hospital/stats');
+      if (res.ok) {
+        const data = await res.json();
+        setHospitalStats(data);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  // Initial load
   useEffect(() => {
     fetchQueue();
     fetchPatients();
-    if (activeStation === 'pharmacy_queue') {
-      fetchPendingPrescriptions();
-    }
-  }, [activeStation]);
+    fetchMedicines();
+    fetchHospitalStats();
+  }, []);
 
-  // Handle Register Patient & Queue
+  // Fetch when switching tabs
+  useEffect(() => {
+    if (activeTab === 'pharmacy') fetchPendingPrescriptions();
+    if (activeTab === 'billing') fetchBillingQueue();
+    if (activeTab === 'staff') fetchStaff();
+    if (activeTab === 'dashboard') {
+      fetchHospitalStats();
+      fetchQueue();
+    }
+  }, [activeTab]);
+
+  // --- ACTIONS ---
+
+  // 1. Patient Registration (Reception)
   const handleRegisterPatient = async (e) => {
     e.preventDefault();
     if (!newPatientForm.full_name.trim()) {
@@ -145,7 +340,7 @@ export default function HospitalHub({ currentUser, authFetch, showToast, curr = 
       });
       const data = await res.json();
       if (res.ok && data.patient) {
-        showToast(`Patient registered: ${data.patient.opd_number}`, 'success');
+        showToast(`Patient registered! OPD: ${data.patient.opd_number}`, 'success');
         setShowNewPatientModal(false);
         // Automatically check-in to triage queue
         await authFetch('/api/hospital/visits', {
@@ -155,6 +350,7 @@ export default function HospitalHub({ currentUser, authFetch, showToast, curr = 
         });
         fetchQueue();
         fetchPatients();
+        fetchHospitalStats();
         setNewPatientForm({
           full_name: '', age: '', gender: 'Male', phone: '',
           national_id: '', address: '', emergency_contact: '',
@@ -169,7 +365,7 @@ export default function HospitalHub({ currentUser, authFetch, showToast, curr = 
     }
   };
 
-  // Handle Existing Patient Check-in
+  // 2. Check-in Existing Patient (Reception)
   const handleCheckInPatient = async (patientId) => {
     try {
       const res = await authFetch('/api/hospital/visits', {
@@ -180,13 +376,14 @@ export default function HospitalHub({ currentUser, authFetch, showToast, curr = 
       if (res.ok) {
         showToast('Patient queued for Triage', 'success');
         fetchQueue();
+        fetchHospitalStats();
       }
     } catch {
       showToast('Error checking in patient', 'error');
     }
   };
 
-  // Submit Triage Vitals
+  // 3. Submit Triage (Nursing Station)
   const handleSubmitTriage = async (e) => {
     e.preventDefault();
     if (!selectedVisitForTriage) return;
@@ -200,9 +397,11 @@ export default function HospitalHub({ currentUser, authFetch, showToast, curr = 
         })
       });
       if (res.ok) {
-        showToast('Vitals captured! Patient forwarded to Doctor', 'success');
+        showToast('Vitals captured! Patient forwarded to Doctor Clinic', 'success');
+        setShowTriageModal(false);
         setSelectedVisitForTriage(null);
         fetchQueue();
+        fetchHospitalStats();
       } else {
         showToast('Failed to save triage', 'error');
       }
@@ -211,11 +410,11 @@ export default function HospitalHub({ currentUser, authFetch, showToast, curr = 
     }
   };
 
-  // Doctor Consultation: Add E-Prescription item
+  // 4. Doctor Prescription Items Builder
   const handleAddPrescriptionItem = () => {
     setPrescriptionItems([
       ...prescriptionItems,
-      { medicine_id: '', medicine_name: '', dosage: '1 tab', frequency: 'TID (3x daily)', duration_days: 5, quantity: 15, instructions: '' }
+      { medicine_id: '', medicine_name: '', dosage: '1 tab', frequency: 'TID (3x daily)', duration_days: 5, quantity: 15, instructions: 'Take after meals' }
     ]);
   };
 
@@ -228,12 +427,14 @@ export default function HospitalHub({ currentUser, authFetch, showToast, curr = 
     next[index][field] = value;
     if (field === 'medicine_id') {
       const med = medicines.find(m => String(m.id) === String(value));
-      if (med) next[index].medicine_name = med.brand_name || med.generic_name;
+      if (med) {
+        next[index].medicine_name = med.brand_name || med.molecule_name;
+      }
     }
     setPrescriptionItems(next);
   };
 
-  // Doctor Consultation: Complete & Send E-Prescription
+  // 5. Submit Doctor Consultation & E-Prescription
   const handleSubmitDoctorConsultation = async (e) => {
     e.preventDefault();
     if (!selectedVisitForDoctor) return;
@@ -245,11 +446,11 @@ export default function HospitalHub({ currentUser, authFetch, showToast, curr = 
         body: JSON.stringify({
           doctor_notes: consultForm.doctor_notes,
           diagnosis: consultForm.diagnosis,
-          next_stage: prescriptionItems.length > 0 ? 'pharmacy' : 'completed'
+          next_stage: prescriptionItems.some(it => it.medicine_name.trim().length > 0) ? 'pharmacy' : 'completed'
         })
       });
 
-      // 2. If medicines prescribed, transmit e-prescription to Hospital Pharmacy POS
+      // 2. Transmit e-prescription to in-house pharmacy
       const validItems = prescriptionItems.filter(it => it.medicine_name.trim().length > 0);
       if (validItems.length > 0) {
         await authFetch('/api/hospital/prescriptions', {
@@ -267,486 +468,1073 @@ export default function HospitalHub({ currentUser, authFetch, showToast, curr = 
         showToast('Consultation saved successfully', 'success');
       }
 
+      setShowConsultModal(false);
       setSelectedVisitForDoctor(null);
       setConsultForm({ doctor_notes: '', diagnosis: '' });
       setPrescriptionItems([{ medicine_id: '', medicine_name: '', dosage: '1 tab', frequency: 'TID (3x daily)', duration_days: 5, quantity: 15, instructions: 'Take after meals' }]);
       fetchQueue();
+      fetchHospitalStats();
     } catch {
       showToast('Error saving consultation', 'error');
     }
   };
 
-  // Dispense Prescription at Pharmacy Station
+  // 6. Dispense Prescription in Hospital Pharmacy
   const handleDispensePrescription = async (prescriptionId) => {
     try {
       const res = await authFetch(`/api/hospital/prescriptions/${prescriptionId}/dispense`, {
         method: 'PUT'
       });
       if (res.ok) {
-        showToast('Prescription dispensed & patient visit finalized', 'success');
+        showToast('Prescription dispensed! Patient routed to Reception Cashier for billing', 'success');
         fetchPendingPrescriptions();
         fetchQueue();
+        fetchHospitalStats();
       }
     } catch {
       showToast('Error dispensing prescription', 'error');
     }
   };
 
+  // 7. Collect Billing & Discharge Patient
+  const handleSettleBilling = async (e) => {
+    e.preventDefault();
+    if (!selectedVisitForBilling) return;
+    try {
+      const res = await authFetch('/api/hospital/billing/pay', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          visit_id: selectedVisitForBilling.id,
+          payment_method: paymentForm.payment_method,
+          reference_code: paymentForm.reference_code,
+          amount_paid: selectedVisitForBilling.total_amount
+        })
+      });
+      if (res.ok) {
+        showToast('Payment settled! Patient visit discharged and completed', 'success');
+        setShowBillingModal(false);
+        setReceiptData({
+          ...selectedVisitForBilling,
+          payment_method: paymentForm.payment_method,
+          reference_code: paymentForm.reference_code,
+          paid_at: new Date().toLocaleString()
+        });
+        setShowReceiptModal(true);
+        fetchBillingQueue();
+        fetchQueue();
+        fetchHospitalStats();
+      } else {
+        showToast('Failed to settle billing', 'error');
+      }
+    } catch {
+      showToast('Error processing payment', 'error');
+    }
+  };
+
+  // 8. Add Hospital Staff
+  const handleAddStaff = async (e) => {
+    e.preventDefault();
+    if (!staffForm.name || !staffForm.email) {
+      showToast('Staff name and email are required', 'error');
+      return;
+    }
+    try {
+      const res = await authFetch('/api/organization/staff', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: staffForm.name,
+          email: staffForm.email,
+          phone: staffForm.phone,
+          role: staffForm.role,
+          staff_title: staffForm.staff_title,
+          pin_code: staffForm.pin_code,
+          permissions: ['hospital', 'pos']
+        })
+      });
+      if (res.ok) {
+        showToast('Hospital staff member added successfully', 'success');
+        setShowAddStaffModal(false);
+        setStaffForm({
+          name: '', email: '', phone: '', role: 'doctor_general',
+          staff_title: 'Medical Officer', specialization: 'General Practice', pin_code: ''
+        });
+        fetchStaff();
+      } else {
+        const data = await res.json();
+        showToast(data.error || 'Failed to add staff', 'error');
+      }
+    } catch {
+      showToast('Error saving staff member', 'error');
+    }
+  };
+
+  // Filtered views
+  const filteredPatients = useMemo(() => {
+    if (!patientSearch.trim()) return patients;
+    const q = patientSearch.toLowerCase();
+    return patients.filter(p =>
+      (p.full_name || '').toLowerCase().includes(q) ||
+      (p.opd_number || '').toLowerCase().includes(q) ||
+      (p.phone || '').includes(q)
+    );
+  }, [patients, patientSearch]);
+
+  const triageWaiting = queue.filter(q => q.stage === 'triage');
+  const doctorWaiting = queue.filter(q => q.stage === 'doctor');
+  const pharmacyWaiting = queue.filter(q => q.stage === 'pharmacy');
+  const billingWaiting = queue.filter(q => q.stage === 'billing' || q.status === 'pending_payment');
+
   return (
-    <div className="space-y-6">
-      {/* ── Top Hospital Control Center Banner ──────────────────────────── */}
-      <div className="liquid-glass p-5 md:p-6 rounded-3xl border border-black/[0.06] dark:border-white/[0.08] shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-        <div>
-          <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 text-xs font-bold mb-2">
-            <HeartPulse className="w-3.5 h-3.5" />
-            <span>Integrated Hospital Information System (HIS)</span>
+    <div className={`flex h-screen font-sans overflow-hidden transition-colors duration-300 ${
+      isDarkMode ? 'dark bg-slate-950 text-slate-100' : 'bg-[#f5f7fb] text-slate-900'
+    }`}>
+      {/* ════════════════════════════════════════════════════════════ */}
+      {/* 1. DEDICATED HOSPITAL HUB SIDEBAR                           */}
+      {/* ════════════════════════════════════════════════════════════ */}
+      <aside className={`hidden md:flex flex-col w-64 shrink-0 transition-colors duration-300 shadow-2xl h-screen sticky top-0 z-30 ${
+        isDarkMode ? 'bg-[#0c0f17] border-r border-blue-500/20' : 'bg-white border-r border-slate-200'
+      }`}>
+        {/* Hospital Branding */}
+        <div className={`p-5 border-b ${isDarkMode ? 'border-blue-500/15' : 'border-slate-200'}`}>
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-blue-600 via-cyan-500 to-sky-400 flex items-center justify-center text-white font-black shadow-lg shadow-blue-500/30">
+              <HeartPulse className="w-5 h-5 text-white" />
+            </div>
+            <div className="min-w-0">
+              <h2 className={`text-sm font-black truncate tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+                {facilitySettings.name}
+              </h2>
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+                <span className="text-[10px] font-black uppercase tracking-wider text-blue-600 dark:text-blue-400">
+                  Hospital Hub (HIS)
+                </span>
+              </div>
+            </div>
           </div>
-          <h2 className="text-xl md:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
-            Hospital Clinical & Departmental Hub
-          </h2>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Synchronized patient workflow: Front Desk Reception ➔ Nursing Triage ➔ Doctor EHR & Diagnosis ➔ Real-Time Pharmacy POS Dispense.
-          </p>
         </div>
 
-        {/* Quick Station Switcher Tabs */}
-        <div className="flex flex-wrap gap-1 bg-black/[0.05] dark:bg-white/[0.06] p-1.5 rounded-2xl">
+        {/* Currency & Dark Mode Bar */}
+        <div className={`px-5 py-2.5 border-b flex items-center justify-between text-xs font-semibold ${
+          isDarkMode ? 'bg-blue-500/5 border-blue-500/10' : 'bg-slate-50 border-slate-200'
+        }`}>
+          <span className="text-slate-500 dark:text-slate-400 text-[11px]">Facility Base:</span>
+          <div className="flex items-center gap-2">
+            <span className="font-extrabold text-blue-600 dark:text-blue-300 bg-blue-500/15 px-2 py-0.5 rounded-md border border-blue-500/30 text-[11px]">
+              {curr}
+            </span>
+            <button
+              onClick={() => setIsDarkMode(!isDarkMode)}
+              className={`p-1.5 rounded-lg transition ${
+                isDarkMode ? 'text-blue-400 hover:bg-white/10' : 'text-slate-600 hover:bg-slate-200'
+              }`}
+              title="Toggle Theme"
+            >
+              {isDarkMode ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
+            </button>
+          </div>
+        </div>
+
+        {/* Navigation Items */}
+        <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
           {[
-            { id: 'reception', label: 'Reception & OPD', icon: UserPlus },
-            { id: 'triage', label: 'Nursing & Triage', icon: Activity },
-            { id: 'doctor', label: 'Doctor Clinic (EHR)', icon: Stethoscope },
-            { id: 'pharmacy_queue', label: 'Hospital Pharmacy', icon: Pill }
-          ].map(st => {
-            const Icon = st.icon;
-            const count = st.id === 'pharmacy_queue' 
-              ? pendingPrescriptions.length 
-              : queue.filter(q => q.stage === (st.id === 'reception' ? 'triage' : st.id)).length;
+            { id: 'dashboard', label: 'Hospital Overview', icon: Layers, badge: null },
+            { id: 'reception', label: 'Reception & OPD', icon: UserPlus, badge: queue.length > 0 ? queue.length : null },
+            { id: 'triage', label: 'Nurse Station (Triage)', icon: Activity, badge: triageWaiting.length > 0 ? triageWaiting.length : null, badgeColor: 'bg-emerald-500' },
+            { id: 'doctor', label: 'Doctor Clinic (EHR)', icon: Stethoscope, badge: doctorWaiting.length > 0 ? doctorWaiting.length : null, badgeColor: 'bg-blue-500' },
+            { id: 'pharmacy', label: 'Hospital Pharmacy', icon: Pill, badge: pendingPrescriptions.length > 0 ? pendingPrescriptions.length : null, badgeColor: 'bg-purple-500' },
+            { id: 'billing', label: 'Cashier & Billing', icon: DollarSign, badge: billingWaiting.length > 0 ? billingWaiting.length : null, badgeColor: 'bg-amber-500' },
+            { id: 'staff', label: 'Staff & Duty Roster', icon: Users, badge: null },
+            { id: 'settings', label: 'Hospital Settings', icon: Building, badge: null }
+          ].map(tab => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
             return (
               <button
-                key={st.id}
-                onClick={() => setActiveStation(st.id)}
-                className={`flex items-center space-x-2 px-3.5 py-2 rounded-xl text-xs font-bold transition apple-spring ${
-                  activeStation === st.id
-                    ? 'bg-blue-600 text-white shadow-sm'
-                    : 'text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-white/40 dark:hover:bg-white/[0.04]'
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl font-bold text-xs transition apple-spring ${
+                  isActive
+                    ? 'bg-gradient-to-r from-blue-600 to-cyan-600 text-white shadow-md shadow-blue-500/20'
+                    : isDarkMode
+                    ? 'text-slate-400 hover:text-white hover:bg-white/[0.04]'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                 }`}
               >
-                <Icon className="w-3.5 h-3.5" />
-                <span>{st.label}</span>
-                {count > 0 && (
-                  <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
-                    activeStation === st.id ? 'bg-white/20 text-white' : 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
-                  }`}>
-                    {count}
+                <div className="flex items-center space-x-2.5">
+                  <Icon className="w-4 h-4 shrink-0" />
+                  <span>{tab.label}</span>
+                </div>
+                {tab.badge !== null && tab.badge > 0 && (
+                  <span className={`text-[10px] font-black px-1.5 py-0.5 rounded-full text-white ${tab.badgeColor || 'bg-blue-500'}`}>
+                    {tab.badge}
                   </span>
                 )}
               </button>
             );
           })}
+        </nav>
+
+        {/* Sidebar Footer: Portal Switcher & Logout */}
+        <div className={`p-3 border-t space-y-1.5 ${isDarkMode ? 'border-blue-500/15 bg-blue-950/20' : 'border-slate-200 bg-slate-50/70'}`}>
+          <div className="p-2.5 rounded-xl bg-white dark:bg-white/[0.04] border border-black/[0.06] dark:border-white/[0.06]">
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Logged In As</p>
+            <p className="text-xs font-black truncate text-slate-800 dark:text-slate-200 mt-0.5">{currentUser?.name || 'Dr. Administrator'}</p>
+            <p className="text-[10px] text-blue-600 dark:text-blue-400 font-bold">{currentUser?.staff_title || 'Hospital Administrator'}</p>
+          </div>
+
+          <button
+            onClick={() => setShowWorkspaceModal(true)}
+            className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold transition ${
+              isDarkMode ? 'text-blue-400 hover:bg-blue-500/10' : 'text-blue-700 hover:bg-blue-50'
+            }`}
+          >
+            <div className="flex items-center space-x-2">
+              <Building2 className="w-3.5 h-3.5" />
+              <span>Switch Hub / Portal</span>
+            </div>
+            <ChevronRight className="w-3.5 h-3.5" />
+          </button>
+
+          <button
+            onClick={handleLogout}
+            className="w-full flex items-center space-x-2 px-3 py-2 rounded-xl text-xs font-bold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span>Sign Out</span>
+          </button>
         </div>
-      </div>
+      </aside>
 
-      {/* ── 1. RECEPTION & FRONT DESK STATION ───────────────────────────── */}
-      {activeStation === 'reception' && (
-        <div className="grid lg:grid-cols-3 gap-6">
-          {/* Left Column: Registered Patients & Check-in */}
-          <div className="lg:col-span-2 space-y-4">
-            <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-black/[0.06] dark:border-white/[0.08] shadow-xs space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div>
-                  <h3 className="font-extrabold text-slate-900 dark:text-white text-base flex items-center gap-2">
-                    <Users className="w-4 h-4 text-blue-500" />
-                    <span>Patient Directory & Daily OPD Check-In</span>
-                  </h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">Search existing hospital records or register a new walk-in / insurance patient.</p>
-                </div>
-                <button
-                  onClick={() => setShowNewPatientModal(true)}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl transition flex items-center space-x-1.5 apple-spring shrink-0"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Register Patient</span>
-                </button>
+      {/* ════════════════════════════════════════════════════════════ */}
+      {/* 2. MAIN VIEW AREA                                            */}
+      {/* ════════════════════════════════════════════════════════════ */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {/* Top Header Bar */}
+        <header className={`h-16 px-4 md:px-6 border-b flex items-center justify-between shrink-0 transition-colors duration-300 ${
+          isDarkMode ? 'bg-[#0c0f17] border-blue-500/15' : 'bg-white border-slate-200'
+        }`}>
+          <div className="flex items-center space-x-3">
+            <div className="md:hidden flex items-center gap-2">
+              <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold">
+                🏥
               </div>
-
-              {/* Patient Search Input */}
-              <div className="relative">
-                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-                <input
-                  type="text"
-                  placeholder="Search patient by name, OPD number (HOSP-...), or phone..."
-                  value={patientSearch}
-                  onChange={(e) => {
-                    setPatientSearch(e.target.value);
-                    fetchPatients(e.target.value);
-                  }}
-                  className="w-full pl-9 pr-4 py-2.5 text-xs bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/50"
-                />
+            </div>
+            <div>
+              <div className="flex items-center space-x-2">
+                <h1 className="text-base md:text-lg font-black tracking-tight capitalize text-slate-900 dark:text-white">
+                  {activeTab.replace('_', ' ')}
+                </h1>
+                <span className="hidden sm:inline-block px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
+                  {facilitySettings.mfl_code}
+                </span>
               </div>
-
-              {/* Patient List Table */}
-              <div className="overflow-x-auto rounded-2xl border border-black/[0.06] dark:border-white/[0.08]">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-50 dark:bg-slate-800 text-slate-400 font-semibold border-b border-black/[0.06] dark:border-white/[0.08]">
-                    <tr>
-                      <th className="p-3">OPD File #</th>
-                      <th className="p-3">Patient Name</th>
-                      <th className="p-3">Age / Gender</th>
-                      <th className="p-3">Insurance / Payment</th>
-                      <th className="p-3">Contact</th>
-                      <th className="p-3 text-right">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-black/[0.04] dark:divide-white/[0.05]">
-                    {patients.length === 0 ? (
-                      <tr>
-                        <td colSpan="6" className="p-6 text-center text-slate-400">
-                          No patients found. Click "Register Patient" to add one.
-                        </td>
-                      </tr>
-                    ) : (
-                      patients.map(p => (
-                        <tr key={p.id} className="hover:bg-slate-50/60 dark:hover:bg-white/[0.02]">
-                          <td className="p-3 font-mono font-bold text-blue-600 dark:text-blue-400">{p.opd_number}</td>
-                          <td className="p-3 font-semibold text-slate-900 dark:text-white">{p.full_name}</td>
-                          <td className="p-3 text-slate-600 dark:text-slate-300">{p.age ? `${p.age} yrs` : '—'} • {p.gender}</td>
-                          <td className="p-3">
-                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                              p.insurance_provider === 'Cash' 
-                                ? 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300' 
-                                : 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300'
-                            }`}>
-                              {p.insurance_provider}
-                            </span>
-                          </td>
-                          <td className="p-3 text-slate-500 font-mono text-[11px]">{p.phone || '—'}</td>
-                          <td className="p-3 text-right">
-                            <button
-                              onClick={() => handleCheckInPatient(p.id)}
-                              className="px-3 py-1.5 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/40 text-blue-600 dark:text-blue-300 text-xs font-bold rounded-lg transition inline-flex items-center gap-1"
-                            >
-                              <span>Send to Triage</span>
-                              <ChevronRight className="w-3.5 h-3.5" />
-                            </button>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 hidden sm:block">
+                Hospital Information System &bull; Unified Clinical & Pharmacy Flow
+              </p>
             </div>
           </div>
 
-          {/* Right Column: Live Triage & Clinic Waiting Queue */}
-          <div className="space-y-4">
-            <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-black/[0.06] dark:border-white/[0.08] shadow-xs space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="font-extrabold text-slate-900 dark:text-white text-sm flex items-center gap-2">
-                  <Clock className="w-4 h-4 text-blue-500" />
-                  <span>Active Hospital Queue ({queue.length})</span>
-                </h3>
-                <button
-                  onClick={fetchQueue}
-                  className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-                </button>
+          <div className="flex items-center space-x-2.5">
+            <button
+              onClick={() => {
+                fetchQueue();
+                fetchHospitalStats();
+                if (activeTab === 'pharmacy') fetchPendingPrescriptions();
+                if (activeTab === 'billing') fetchBillingQueue();
+                showToast('Refreshed data', 'success');
+              }}
+              className="p-2 rounded-xl border border-black/[0.08] dark:border-white/[0.08] hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+              title="Refresh"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 text-slate-500 ${loading ? 'animate-spin' : ''}`} />
+            </button>
+
+            {activeTab === 'reception' && (
+              <button
+                onClick={() => setShowNewPatientModal(true)}
+                className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-md shadow-blue-500/20 transition apple-spring flex items-center space-x-1.5"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Register Patient</span>
+              </button>
+            )}
+
+            {activeTab === 'staff' && (
+              <button
+                onClick={() => setShowAddStaffModal(true)}
+                className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-md shadow-blue-500/20 transition apple-spring flex items-center space-x-1.5"
+              >
+                <UserPlus className="w-4 h-4" />
+                <span>Add Hospital Staff</span>
+              </button>
+            )}
+          </div>
+        </header>
+
+        {/* Mobile Navigation Strip */}
+        <div className="md:hidden flex overflow-x-auto gap-1 p-2 bg-slate-100 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shrink-0">
+          {[
+            { id: 'dashboard', label: 'Overview' },
+            { id: 'reception', label: 'Reception' },
+            { id: 'triage', label: 'Triage' },
+            { id: 'doctor', label: 'Doctor' },
+            { id: 'pharmacy', label: 'Pharmacy' },
+            { id: 'billing', label: 'Cashier' },
+            { id: 'staff', label: 'Staff' }
+          ].map(t => (
+            <button
+              key={t.id}
+              onClick={() => setActiveTab(t.id)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap ${
+                activeTab === t.id
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Content Area */}
+        <main className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6">
+
+          {/* ══════════════════════════════════════════════════════════ */}
+          {/* TAB 1: DASHBOARD & WORKFLOW OVERVIEW                       */}
+          {/* ══════════════════════════════════════════════════════════ */}
+          {activeTab === 'dashboard' && (
+            <div className="space-y-6">
+              {/* Stats Cards */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 shadow-sm">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-xs font-bold text-slate-500 dark:text-slate-400">Total Patients</span>
+                    <div className="w-8 h-8 rounded-xl bg-blue-500/10 text-blue-500 flex items-center justify-center">
+                      <Users className="w-4 h-4" />
+                    </div>
+                  </div>
+                  <p className="text-2xl font-black text-slate-900 dark:text-white">{hospitalStats.total_patients}</p>
+                  <p className="text-[11px] text-slate-400 mt-1">Registered OPD records</p>
+                </div>
+
+                <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 shadow-sm">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-xs font-bold text-slate-500 dark:text-slate-400">Today's Visits</span>
+                    <div className="w-8 h-8 rounded-xl bg-cyan-500/10 text-cyan-500 flex items-center justify-center">
+                      <Calendar className="w-4 h-4" />
+                    </div>
+                  </div>
+                  <p className="text-2xl font-black text-slate-900 dark:text-white">{hospitalStats.today_visits}</p>
+                  <p className="text-[11px] text-slate-400 mt-1">Checked in today</p>
+                </div>
+
+                <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 shadow-sm">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-xs font-bold text-slate-500 dark:text-slate-400">Active Queue</span>
+                    <div className="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-500 flex items-center justify-center">
+                      <Clock className="w-4 h-4" />
+                    </div>
+                  </div>
+                  <p className="text-2xl font-black text-amber-600 dark:text-amber-400">{hospitalStats.active_queue}</p>
+                  <p className="text-[11px] text-slate-400 mt-1">In triage, doctor, or pharmacy</p>
+                </div>
+
+                <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 shadow-sm">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-xs font-bold text-slate-500 dark:text-slate-400">Dispensed Rx</span>
+                    <div className="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center">
+                      <Pill className="w-4 h-4" />
+                    </div>
+                  </div>
+                  <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400">{hospitalStats.dispensed_prescriptions}</p>
+                  <p className="text-[11px] text-slate-400 mt-1">Fulfilled in pharmacy</p>
+                </div>
               </div>
 
-              <div className="space-y-2.5">
-                {queue.length === 0 ? (
-                  <p className="text-xs text-slate-400 py-6 text-center">Hospital queue is currently empty.</p>
-                ) : (
-                  queue.map(q => (
-                    <div
-                      key={q.id}
-                      className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-black/[0.04] dark:border-white/[0.05] space-y-1.5"
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="font-bold text-slate-900 dark:text-white text-xs">{q.patient_name}</span>
-                        <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
-                          q.stage === 'triage' ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300' :
-                          q.stage === 'doctor' ? 'bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300' :
-                          q.stage === 'pharmacy' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300' :
-                          'bg-purple-100 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300'
-                        }`}>
-                          {q.stage}
+              {/* Visual Synchronized Hospital Workflow Journey */}
+              <div className="p-6 rounded-3xl bg-gradient-to-r from-blue-900/30 via-slate-900 to-cyan-950/30 border border-blue-500/30 text-white shadow-xl">
+                <div className="flex items-center space-x-2 text-xs font-bold text-blue-400 mb-2">
+                  <Sparkles className="w-4 h-4" />
+                  <span>Integrated Synchronized Clinical Architecture</span>
+                </div>
+                <h3 className="text-lg font-black">Patient Care Flow & In-House Pharmacy Synchronization</h3>
+                <p className="text-xs text-slate-300 mt-1 max-w-2xl leading-relaxed">
+                  Every step is connected in real-time. Doctors inspect real-time in-house drug stock, nurses record vitals, prescriptions route directly to the dispensary, and cashier billing settles all accounts before patient exit.
+                </p>
+
+                <div className="grid grid-cols-1 md:grid-cols-5 gap-3 mt-6">
+                  {[
+                    { step: '1', title: 'Reception OPD', desc: 'Patient arrives, registers, and gets queued', count: queue.length },
+                    { step: '2', title: 'Nursing Triage', desc: 'Vitals captured: BP, temp, pulse, SpO2 & sugar', count: triageWaiting.length },
+                    { step: '3', title: 'Doctor Clinic', desc: 'Clinical notes, stock check & e-prescription', count: doctorWaiting.length },
+                    { step: '4', title: 'Hospital Pharmacy', desc: 'Pharmacist dispenses medications from stock', count: pendingPrescriptions.length },
+                    { step: '5', title: 'Reception Billing', desc: 'Cashier collects payment & discharges patient', count: billingWaiting.length }
+                  ].map((s, idx) => (
+                    <div key={idx} className="p-4 rounded-2xl bg-white/5 border border-white/10 relative overflow-hidden">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="w-6 h-6 rounded-lg bg-blue-500/30 text-blue-300 flex items-center justify-center font-black text-xs">
+                          {s.step}
+                        </span>
+                        <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-white/10 text-white">
+                          {s.count} in line
                         </span>
                       </div>
-                      <div className="flex items-center justify-between text-[11px] text-slate-500">
-                        <span>{q.opd_number}</span>
-                        <span>{q.assigned_doctor || 'Unassigned'}</span>
-                      </div>
+                      <h4 className="font-bold text-sm text-white">{s.title}</h4>
+                      <p className="text-[10px] text-slate-400 mt-1 leading-snug">{s.desc}</p>
                     </div>
-                  ))
+                  ))}
+                </div>
+              </div>
+
+              {/* Active Hospital Live Queue */}
+              <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-white/10 p-5 shadow-sm space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="font-black text-sm text-slate-900 dark:text-white">Active Patient Queue Across All Stations</h3>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Real-time status of patients currently inside the hospital</p>
+                  </div>
+                  <span className="text-xs font-bold px-3 py-1 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400">
+                    {queue.length} Active
+                  </span>
+                </div>
+
+                {queue.length === 0 ? (
+                  <div className="py-12 text-center text-slate-400 space-y-2">
+                    <HeartPulse className="w-10 h-10 mx-auto opacity-30 text-blue-500" />
+                    <p className="text-sm font-semibold">No patients currently in the hospital queue</p>
+                    <p className="text-xs">Go to Reception OPD to register or check in a patient.</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs text-left">
+                      <thead className="bg-slate-50 dark:bg-slate-800/50 text-slate-500 uppercase font-black text-[10px] tracking-wider">
+                        <tr>
+                          <th className="py-3 px-4">Patient</th>
+                          <th className="py-3 px-4">OPD #</th>
+                          <th className="py-3 px-4">Station</th>
+                          <th className="py-3 px-4">Priority</th>
+                          <th className="py-3 px-4">Vitals Summary</th>
+                          <th className="py-3 px-4">Waiting Since</th>
+                          <th className="py-3 px-4 text-right">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-white/5 font-medium">
+                        {queue.map(q => (
+                          <tr key={q.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition">
+                            <td className="py-3 px-4 font-bold text-slate-900 dark:text-white">
+                              {q.patient_name}
+                              <span className="block text-[10px] text-slate-400 font-normal">{q.gender}, {q.age} yrs</span>
+                            </td>
+                            <td className="py-3 px-4 font-mono font-bold text-blue-600 dark:text-blue-400">{q.opd_number}</td>
+                            <td className="py-3 px-4">
+                              <span className={`px-2.5 py-1 rounded-full font-bold uppercase text-[9px] tracking-wider ${
+                                q.stage === 'triage' ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' :
+                                q.stage === 'doctor' ? 'bg-blue-500/15 text-blue-600 dark:text-blue-400' :
+                                q.stage === 'pharmacy' ? 'bg-purple-500/15 text-purple-600 dark:text-purple-400' :
+                                q.stage === 'billing' ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400' :
+                                'bg-slate-500/15 text-slate-600'
+                              }`}>
+                                {q.stage}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4">
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                q.triage_priority === 'critical' ? 'bg-rose-500 text-white' :
+                                q.triage_priority === 'urgent' ? 'bg-amber-500 text-white' :
+                                'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                              }`}>
+                                {q.triage_priority || 'normal'}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 text-[11px] text-slate-500">
+                              {q.bp_systolic ? `${q.bp_systolic}/${q.bp_diastolic} mmHg, ${q.pulse_rate} bpm` : 'Pending triage'}
+                            </td>
+                            <td className="py-3 px-4 text-slate-400 text-[11px]">{new Date(q.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
+                            <td className="py-3 px-4 text-right">
+                              {q.stage === 'triage' && (
+                                <button
+                                  onClick={() => {
+                                    setSelectedVisitForTriage(q);
+                                    setShowTriageModal(true);
+                                  }}
+                                  className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] transition"
+                                >
+                                  Triage Now
+                                </button>
+                              )}
+                              {q.stage === 'doctor' && (
+                                <button
+                                  onClick={() => {
+                                    setSelectedVisitForDoctor(q);
+                                    setShowConsultModal(true);
+                                  }}
+                                  className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-[11px] transition"
+                                >
+                                  Consult
+                                </button>
+                              )}
+                              {q.stage === 'pharmacy' && (
+                                <button
+                                  onClick={() => setActiveTab('pharmacy')}
+                                  className="px-2.5 py-1 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-bold text-[11px] transition"
+                                >
+                                  View Rx
+                                </button>
+                              )}
+                              {q.stage === 'billing' && (
+                                <button
+                                  onClick={() => setActiveTab('billing')}
+                                  className="px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-bold text-[11px] transition"
+                                >
+                                  Settle Bill
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
               </div>
             </div>
-          </div>
-        </div>
-      )}
+          )}
 
-      {/* ── 2. NURSING & TRIAGE STATION ─────────────────────────────────── */}
-      {activeStation === 'triage' && (
-        <div className="space-y-4">
-          <div className="bg-white dark:bg-slate-900 p-5 md:p-6 rounded-3xl border border-black/[0.06] dark:border-white/[0.08] shadow-xs space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="font-extrabold text-slate-900 dark:text-white text-base flex items-center gap-2">
-                  <Activity className="w-5 h-5 text-emerald-500" />
-                  <span>Nursing Station: Vitals Assessment & Triage</span>
-                </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400">Capture blood pressure, pulse, SpO2, and temperature before sending to the doctor.</p>
+          {/* ══════════════════════════════════════════════════════════ */}
+          {/* TAB 2: RECEPTION & OPD                                     */}
+          {/* ══════════════════════════════════════════════════════════ */}
+          {activeTab === 'reception' && (
+            <div className="space-y-6">
+              {/* Header and Quick Search */}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                <div className="relative flex-1 max-w-md">
+                  <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Search patient by name, OPD number, or phone..."
+                    value={patientSearch}
+                    onChange={e => setPatientSearch(e.target.value)}
+                    className="w-full pl-9 pr-4 py-2.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 text-xs text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <button
+                  onClick={() => setShowNewPatientModal(true)}
+                  className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-2xl shadow-md shadow-blue-500/20 transition apple-spring flex items-center justify-center space-x-2"
+                >
+                  <UserPlus className="w-4 h-4" />
+                  <span>Register New Patient</span>
+                </button>
+              </div>
+
+              {/* Patient Directory Table */}
+              <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-white/10 p-5 shadow-sm space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-black text-sm text-slate-900 dark:text-white">Registered Hospital Patients ({filteredPatients.length})</h3>
+                  <span className="text-xs text-slate-400">Click Check-in to start OPD visit</span>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs text-left">
+                    <thead className="bg-slate-50 dark:bg-slate-800/50 text-slate-500 uppercase font-black text-[10px] tracking-wider">
+                      <tr>
+                        <th className="py-3 px-4">OPD Number</th>
+                        <th className="py-3 px-4">Full Name</th>
+                        <th className="py-3 px-4">Demographics</th>
+                        <th className="py-3 px-4">Phone / Contact</th>
+                        <th className="py-3 px-4">Insurance Provider</th>
+                        <th className="py-3 px-4">Blood Group</th>
+                        <th className="py-3 px-4 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-white/5 font-medium">
+                      {filteredPatients.map(p => (
+                        <tr key={p.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition">
+                          <td className="py-3 px-4 font-mono font-bold text-blue-600 dark:text-blue-400">{p.opd_number}</td>
+                          <td className="py-3 px-4 font-bold text-slate-900 dark:text-white">{p.full_name}</td>
+                          <td className="py-3 px-4 text-slate-500">{p.gender}, {p.age} years</td>
+                          <td className="py-3 px-4 text-slate-600 dark:text-slate-300">{p.phone || 'N/A'}</td>
+                          <td className="py-3 px-4">
+                            <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold text-[10px]">
+                              {p.insurance_provider || 'Cash'}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 font-bold text-rose-500">{p.blood_group || 'O+'}</td>
+                          <td className="py-3 px-4 text-right">
+                            <button
+                              onClick={() => handleCheckInPatient(p.id)}
+                              className="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg text-xs transition apple-press"
+                            >
+                              Check-In OPD &rarr;
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
+          )}
 
-            {/* Waiting for Triage Queue */}
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {queue.filter(q => q.stage === 'triage').length === 0 ? (
-                <div className="col-span-full py-12 text-center text-slate-400 text-xs">
-                  No patients waiting for triage right now.
+          {/* ══════════════════════════════════════════════════════════ */}
+          {/* TAB 3: NURSE STATION (TRIAGE)                              */}
+          {/* ══════════════════════════════════════════════════════════ */}
+          {activeTab === 'triage' && (
+            <div className="space-y-6">
+              <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-800 dark:text-emerald-300 text-xs flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <Activity className="w-4 h-4 text-emerald-500 shrink-0" />
+                  <span><strong>Nursing Triage Station:</strong> Measure and record patient vitals before doctor consultation. Patients are tagged as Normal, Urgent, or Critical.</span>
                 </div>
-              ) : (
-                queue.filter(q => q.stage === 'triage').map(q => (
-                  <div
-                    key={q.id}
-                    className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-black/[0.06] dark:border-white/[0.08] flex flex-col justify-between space-y-3"
-                  >
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="font-mono text-xs font-bold text-blue-600 dark:text-blue-400">{q.opd_number}</span>
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 uppercase">
-                          Waiting Vitals
-                        </span>
+                <span className="font-bold px-2 py-0.5 rounded-full bg-emerald-500 text-white text-[10px]">
+                  {triageWaiting.length} Awaiting Vitals
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {triageWaiting.map(visit => (
+                  <div key={visit.id} className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 shadow-sm space-y-3">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <span className="text-[10px] font-mono font-bold text-blue-500">{visit.opd_number}</span>
+                        <h4 className="font-black text-slate-900 dark:text-white text-base mt-0.5">{visit.patient_name}</h4>
+                        <p className="text-xs text-slate-400">{visit.gender}, {visit.age} yrs &bull; {visit.insurance_provider || 'Cash'}</p>
                       </div>
-                      <h4 className="font-bold text-slate-900 dark:text-white text-sm">{q.patient_name}</h4>
-                      <p className="text-xs text-slate-500">{q.age ? `${q.age} yrs` : ''} • {q.gender} • {q.insurance_provider}</p>
+                      <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-500/15 text-emerald-600">
+                        In Triage
+                      </span>
                     </div>
 
-                    <button
-                      onClick={() => {
-                        setSelectedVisitForTriage(q);
-                        setTriageForm({
-                          bp_systolic: 120,
-                          bp_diastolic: 80,
-                          pulse_rate: 72,
-                          temperature: 36.6,
-                          weight_kg: 68,
-                          spo2: 98,
-                          blood_sugar: 5.5,
-                          triage_priority: 'normal',
-                          triage_notes: '',
-                          assigned_doctor: q.assigned_doctor || 'Dr. On Duty',
-                          ward_bed: ''
-                        });
-                      }}
-                      className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 apple-press"
-                    >
-                      <Activity className="w-3.5 h-3.5" />
-                      <span>Record Vitals & Send to Doctor</span>
-                    </button>
+                    <div className="pt-2 border-t border-slate-100 dark:border-white/5 flex items-center justify-between text-xs text-slate-500">
+                      <span>Waiting: {new Date(visit.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                      <button
+                        onClick={() => {
+                          setSelectedVisitForTriage(visit);
+                          setShowTriageModal(true);
+                        }}
+                        className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-sm transition apple-spring flex items-center space-x-1"
+                      >
+                        <Thermometer className="w-3.5 h-3.5" />
+                        <span>Record Vitals &rarr;</span>
+                      </button>
+                    </div>
                   </div>
-                ))
+                ))}
+              </div>
+
+              {triageWaiting.length === 0 && (
+                <div className="p-12 text-center text-slate-400 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-white/10">
+                  <Activity className="w-10 h-10 mx-auto opacity-30 text-emerald-500 mb-2" />
+                  <p className="font-bold text-sm">No patients waiting in Triage queue</p>
+                  <p className="text-xs mt-1">Patients checked in from Reception OPD will appear here automatically.</p>
+                </div>
               )}
             </div>
-          </div>
-        </div>
-      )}
+          )}
 
-      {/* ── 3. DOCTOR CLINIC & EHR (E-PRESCRIPTION) ──────────────────────── */}
-      {activeStation === 'doctor' && (
-        <div className="space-y-4">
-          <div className="bg-white dark:bg-slate-900 p-5 md:p-6 rounded-3xl border border-black/[0.06] dark:border-white/[0.08] shadow-xs space-y-4">
-            <div>
-              <h3 className="font-extrabold text-slate-900 dark:text-white text-base flex items-center gap-2">
-                <Stethoscope className="w-5 h-5 text-blue-500" />
-                <span>Doctor Consultation Room & Real-Time E-Prescribing</span>
-              </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Diagnose patients with live triage vitals and transmit electronic prescriptions directly to the Hospital Pharmacy POS.
-              </p>
-            </div>
-
-            {/* Patients Waiting for Doctor */}
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {queue.filter(q => q.stage === 'doctor').length === 0 ? (
-                <div className="col-span-full py-12 text-center text-slate-400 text-xs">
-                  No patients waiting for doctor consultation.
+          {/* ══════════════════════════════════════════════════════════ */}
+          {/* TAB 4: DOCTOR CLINIC (EHR & E-PRESCRIPTIONS)                */}
+          {/* ══════════════════════════════════════════════════════════ */}
+          {activeTab === 'doctor' && (
+            <div className="space-y-6">
+              <div className="p-4 rounded-2xl bg-blue-500/10 border border-blue-500/20 text-blue-800 dark:text-blue-300 text-xs flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <Stethoscope className="w-4 h-4 text-blue-500 shrink-0" />
+                  <span><strong>Doctor Consultation & EHR:</strong> Review recorded triage vitals, conduct clinical examination, check live in-house pharmacy formulary stock, and transmit e-prescriptions directly to the dispensary.</span>
                 </div>
-              ) : (
-                queue.filter(q => q.stage === 'doctor').map(q => (
-                  <div
-                    key={q.id}
-                    className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-black/[0.06] dark:border-white/[0.08] flex flex-col justify-between space-y-3"
-                  >
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="font-mono text-xs font-bold text-blue-600 dark:text-blue-400">{q.opd_number}</span>
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${
-                          q.triage_priority === 'emergency' ? 'bg-red-500 text-white' :
-                          q.triage_priority === 'urgent' ? 'bg-amber-500 text-slate-950' :
-                          'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300'
-                        }`}>
-                          {q.triage_priority}
-                        </span>
-                      </div>
-                      <h4 className="font-bold text-slate-900 dark:text-white text-sm">{q.patient_name}</h4>
-                      <p className="text-xs text-slate-500">{q.age} yrs • {q.gender}</p>
+                <span className="font-bold px-2 py-0.5 rounded-full bg-blue-600 text-white text-[10px]">
+                  {doctorWaiting.length} Awaiting Doctor
+                </span>
+              </div>
 
-                      {/* Display Vitals preview */}
-                      <div className="grid grid-cols-3 gap-1.5 mt-3 pt-3 border-t border-black/[0.05] dark:border-white/[0.05] text-[11px]">
-                        <div>
-                          <span className="text-slate-400 block">BP:</span>
-                          <span className="font-bold text-slate-800 dark:text-slate-200">{q.bp_systolic}/{q.bp_diastolic}</span>
-                        </div>
-                        <div>
-                          <span className="text-slate-400 block">Pulse:</span>
-                          <span className="font-bold text-slate-800 dark:text-slate-200">{q.pulse_rate} bpm</span>
-                        </div>
-                        <div>
-                          <span className="text-slate-400 block">Temp:</span>
-                          <span className="font-bold text-slate-800 dark:text-slate-200">{q.temperature}°C</span>
-                        </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {doctorWaiting.map(visit => (
+                  <div key={visit.id} className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 shadow-sm space-y-4">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <span className="text-[10px] font-mono font-bold text-blue-500">{visit.opd_number}</span>
+                        <h4 className="font-black text-slate-900 dark:text-white text-base mt-0.5">{visit.patient_name}</h4>
+                        <p className="text-xs text-slate-400">{visit.gender}, {visit.age} yrs &bull; {visit.insurance_provider || 'Cash'}</p>
+                      </div>
+                      <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                        visit.triage_priority === 'critical' ? 'bg-rose-500 text-white' :
+                        visit.triage_priority === 'urgent' ? 'bg-amber-500 text-white' :
+                        'bg-blue-500/15 text-blue-600'
+                      }`}>
+                        {visit.triage_priority || 'Normal'}
+                      </span>
+                    </div>
+
+                    {/* Vitals summary badges */}
+                    <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-white/5 grid grid-cols-3 gap-2 text-center">
+                      <div>
+                        <span className="text-[9px] uppercase font-bold text-slate-400 block">BP (mmHg)</span>
+                        <span className="text-xs font-black text-slate-800 dark:text-slate-200">{visit.bp_systolic || 120}/{visit.bp_diastolic || 80}</span>
+                      </div>
+                      <div>
+                        <span className="text-[9px] uppercase font-bold text-slate-400 block">Pulse</span>
+                        <span className="text-xs font-black text-slate-800 dark:text-slate-200">{visit.pulse_rate || 72} bpm</span>
+                      </div>
+                      <div>
+                        <span className="text-[9px] uppercase font-bold text-slate-400 block">Temp</span>
+                        <span className="text-xs font-black text-slate-800 dark:text-slate-200">{visit.temperature || 36.6} °C</span>
                       </div>
                     </div>
 
                     <button
                       onClick={() => {
-                        setSelectedVisitForDoctor(q);
-                        setConsultForm({ doctor_notes: q.doctor_notes || '', diagnosis: q.diagnosis || '' });
+                        setSelectedVisitForDoctor(visit);
+                        setShowConsultModal(true);
                       }}
-                      className="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 apple-press"
+                      className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-md shadow-blue-500/20 transition apple-spring flex items-center justify-center space-x-1.5"
                     >
                       <Stethoscope className="w-3.5 h-3.5" />
-                      <span>Open Consultation & Prescribe</span>
+                      <span>Start EHR Consultation & Prescription &rarr;</span>
                     </button>
                   </div>
-                ))
+                ))}
+              </div>
+
+              {doctorWaiting.length === 0 && (
+                <div className="p-12 text-center text-slate-400 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-white/10">
+                  <Stethoscope className="w-10 h-10 mx-auto opacity-30 text-blue-500 mb-2" />
+                  <p className="font-bold text-sm">No patients waiting for Doctor consultation</p>
+                  <p className="text-xs mt-1">Once nurses complete triage vitals, patients appear here immediately.</p>
+                </div>
               )}
             </div>
-          </div>
-        </div>
-      )}
+          )}
 
-      {/* ── 4. HOSPITAL PHARMACY REAL-TIME SYNC QUEUE ───────────────────── */}
-      {activeStation === 'pharmacy_queue' && (
-        <div className="space-y-4">
-          <div className="bg-white dark:bg-slate-900 p-5 md:p-6 rounded-3xl border border-black/[0.06] dark:border-white/[0.08] shadow-xs space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="font-extrabold text-slate-900 dark:text-white text-base flex items-center gap-2">
-                  <Pill className="w-5 h-5 text-emerald-500" />
-                  <span>Hospital Pharmacy: Live E-Prescriptions ({pendingPrescriptions.length})</span>
-                </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Electronic prescriptions transmitted directly from doctors' rooms for dispensing.
-                </p>
-              </div>
-              <button
-                onClick={fetchPendingPrescriptions}
-                className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 rounded-xl text-xs font-semibold flex items-center gap-1.5 hover:bg-slate-200 transition"
-              >
-                <RefreshCw className="w-3.5 h-3.5" />
-                <span>Refresh Queue</span>
-              </button>
-            </div>
-
-            <div className="space-y-3">
-              {pendingPrescriptions.length === 0 ? (
-                <div className="py-12 text-center text-slate-400 text-xs">
-                  No pending prescriptions in the pharmacy queue.
+          {/* ══════════════════════════════════════════════════════════ */}
+          {/* TAB 5: IN-HOUSE HOSPITAL PHARMACY (DISPENSING)             */}
+          {/* ══════════════════════════════════════════════════════════ */}
+          {activeTab === 'pharmacy' && (
+            <div className="space-y-6">
+              <div className="p-4 rounded-2xl bg-purple-500/10 border border-purple-500/20 text-purple-800 dark:text-purple-300 text-xs flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <Pill className="w-4 h-4 text-purple-500 shrink-0" />
+                  <span><strong>Hospital In-House Pharmacy:</strong> Live stream of electronic prescriptions sent directly from doctor consultation rooms. Dispensing moves patients to Reception Billing.</span>
                 </div>
-              ) : (
-                pendingPrescriptions.map(p => (
-                  <div
-                    key={p.id}
-                    className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-black/[0.06] dark:border-white/[0.08] flex flex-col md:flex-row md:items-center justify-between gap-4"
-                  >
-                    <div className="space-y-1">
-                      <div className="flex items-center space-x-2">
-                        <span className="font-bold text-slate-900 dark:text-white text-sm">{p.patient_name}</span>
-                        <span className="font-mono text-xs text-blue-600 dark:text-blue-400">{p.opd_number}</span>
-                        <span className="text-[10px] bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 font-bold px-2 py-0.5 rounded-full">
-                          {p.insurance_provider}
-                        </span>
-                      </div>
-                      <p className="text-xs text-slate-500">
-                        Prescribed by: <strong className="text-slate-700 dark:text-slate-300">{p.prescribing_doctor}</strong> • Diagnosis: <em className="text-slate-600 dark:text-slate-400">{p.diagnosis || 'Routine'}</em>
-                      </p>
+                <span className="font-bold px-2 py-0.5 rounded-full bg-purple-600 text-white text-[10px]">
+                  {pendingPrescriptions.length} Pending Dispense
+                </span>
+              </div>
 
-                      {/* Prescribed Items */}
-                      <div className="flex flex-wrap gap-2 pt-2">
-                        {(p.items || []).map((it, idx) => (
-                          <span
-                            key={idx}
-                            className="px-2.5 py-1 bg-white dark:bg-slate-700 rounded-lg text-xs font-semibold text-slate-800 dark:text-slate-200 border border-black/[0.05] dark:border-white/[0.05]"
-                          >
-                            💊 {it.medicine_name} — {it.dosage} ({it.frequency}, {it.duration_days} days) • Qty: {it.quantity}
-                          </span>
-                        ))}
+              <div className="space-y-4">
+                {pendingPrescriptions.map(presc => (
+                  <div key={presc.id} className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 shadow-sm space-y-4">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-slate-100 dark:border-white/5 pb-3">
+                      <div>
+                        <div className="flex items-center space-x-2">
+                          <span className="text-xs font-mono font-bold text-blue-500">{presc.opd_number}</span>
+                          <span className="text-slate-300">&bull;</span>
+                          <h4 className="font-black text-slate-900 dark:text-white text-base">{presc.patient_name}</h4>
+                          <span className="text-xs text-slate-400">({presc.age} yrs, {presc.gender})</span>
+                        </div>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          Prescribed by: <strong className="text-slate-700 dark:text-slate-300">{presc.doctor_name || 'Dr. On Duty'}</strong> &bull; {new Date(presc.created_at).toLocaleString()}
+                        </p>
+                      </div>
+
+                      <button
+                        onClick={() => handleDispensePrescription(presc.id)}
+                        className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs shadow-md shadow-purple-500/20 transition apple-spring flex items-center space-x-1.5"
+                      >
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>Dispense All & Route to Cashier</span>
+                      </button>
+                    </div>
+
+                    {/* Prescribed Items Table */}
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs text-left">
+                        <thead className="bg-slate-50 dark:bg-slate-800/40 text-slate-500 uppercase font-black text-[9px] tracking-wider">
+                          <tr>
+                            <th className="py-2.5 px-3">Medication</th>
+                            <th className="py-2.5 px-3">Dosage</th>
+                            <th className="py-2.5 px-3">Frequency</th>
+                            <th className="py-2.5 px-3">Duration</th>
+                            <th className="py-2.5 px-3">Qty</th>
+                            <th className="py-2.5 px-3">Instructions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 dark:divide-white/5 font-medium">
+                          {(presc.items || []).map((it, idx) => (
+                            <tr key={idx}>
+                              <td className="py-2.5 px-3 font-bold text-slate-900 dark:text-white">{it.medication_name}</td>
+                              <td className="py-2.5 px-3 text-slate-600 dark:text-slate-300">{it.dosage}</td>
+                              <td className="py-2.5 px-3 text-slate-600 dark:text-slate-300">{it.frequency}</td>
+                              <td className="py-2.5 px-3 text-slate-600 dark:text-slate-300">{it.duration_days} days</td>
+                              <td className="py-2.5 px-3 font-bold text-blue-600">{it.quantity} units</td>
+                              <td className="py-2.5 px-3 text-slate-500 italic">{it.instructions || 'As directed'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ))}
+
+                {pendingPrescriptions.length === 0 && (
+                  <div className="p-12 text-center text-slate-400 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-white/10">
+                    <Pill className="w-10 h-10 mx-auto opacity-30 text-purple-500 mb-2" />
+                    <p className="font-bold text-sm">No prescriptions awaiting dispense</p>
+                    <p className="text-xs mt-1">Doctor e-prescriptions will appear here instantly in real time.</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ══════════════════════════════════════════════════════════ */}
+          {/* TAB 6: CASHIER & PATIENT BILLING                           */}
+          {/* ══════════════════════════════════════════════════════════ */}
+          {activeTab === 'billing' && (
+            <div className="space-y-6">
+              <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-800 dark:text-amber-300 text-xs flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <DollarSign className="w-4 h-4 text-amber-500 shrink-0" />
+                  <span><strong>Reception Cashier & Patient Billing:</strong> Review dispensed medicines, calculate total bill (Consultation + Pharmacy), accept payment (Cash, M-Pesa, Insurance), and issue receipt.</span>
+                </div>
+                <span className="font-bold px-2 py-0.5 rounded-full bg-amber-600 text-white text-[10px]">
+                  {billingQueue.length} Pending Settlement
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {billingQueue.map(bill => (
+                  <div key={bill.id} className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 shadow-sm space-y-4">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <span className="text-[10px] font-mono font-bold text-blue-500">{bill.opd_number}</span>
+                        <h4 className="font-black text-slate-900 dark:text-white text-base mt-0.5">{bill.patient_name}</h4>
+                        <p className="text-xs text-slate-400">Insurance: <strong>{bill.insurance_provider || 'Cash'}</strong></p>
+                      </div>
+                      <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500/15 text-amber-600">
+                        Pending Payment
+                      </span>
+                    </div>
+
+                    {/* Breakdown */}
+                    <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-white/5 space-y-1.5 text-xs">
+                      <div className="flex justify-between text-slate-500">
+                        <span>OPD Consultation Fee:</span>
+                        <span>{curr} {bill.consultation_fee?.toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between text-slate-500">
+                        <span>Dispensed Medications ({bill.items?.length || 0}):</span>
+                        <span>{curr} {bill.drug_total?.toLocaleString()}</span>
+                      </div>
+                      <div className="pt-2 border-t border-slate-200 dark:border-white/10 flex justify-between font-black text-slate-900 dark:text-white text-sm">
+                        <span>Total Due:</span>
+                        <span className="text-amber-600 dark:text-amber-400">{curr} {bill.total_amount?.toLocaleString()}</span>
                       </div>
                     </div>
 
                     <button
-                      onClick={() => handleDispensePrescription(p.id)}
-                      className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 apple-press shrink-0"
+                      onClick={() => {
+                        setSelectedVisitForBilling(bill);
+                        setPaymentForm({ payment_method: 'Cash', reference_code: '', amount_paid: bill.total_amount });
+                        setShowBillingModal(true);
+                      }}
+                      className="w-full py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs shadow-md shadow-amber-500/20 transition apple-spring flex items-center justify-center space-x-1.5"
                     >
-                      <CheckCircle2 className="w-4 h-4" />
-                      <span>Dispense & Complete</span>
+                      <CreditCard className="w-3.5 h-3.5" />
+                      <span>Collect Payment & Discharge &rarr;</span>
                     </button>
                   </div>
-                ))
+                ))}
+              </div>
+
+              {billingQueue.length === 0 && (
+                <div className="p-12 text-center text-slate-400 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-white/10">
+                  <DollarSign className="w-10 h-10 mx-auto opacity-30 text-amber-500 mb-2" />
+                  <p className="font-bold text-sm">No bills currently pending settlement</p>
+                  <p className="text-xs mt-1">When pharmacy dispenses medicines, patient invoices appear here immediately.</p>
+                </div>
               )}
             </div>
-          </div>
-        </div>
-      )}
+          )}
 
-      {/* ── MODAL: REGISTER PATIENT ─────────────────────────────────────── */}
+          {/* ══════════════════════════════════════════════════════════ */}
+          {/* TAB 7: STAFF & DUTY ROSTER                                 */}
+          {/* ══════════════════════════════════════════════════════════ */}
+          {activeTab === 'staff' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="font-black text-sm text-slate-900 dark:text-white">Hospital Clinical & Administrative Staff</h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Manage Doctors, Nurses, Pharmacists, and Receptionists with departmental credentials</p>
+                </div>
+                <button
+                  onClick={() => setShowAddStaffModal(true)}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl shadow-md shadow-blue-500/20 transition apple-spring flex items-center space-x-1.5"
+                >
+                  <UserPlus className="w-4 h-4" />
+                  <span>Add Staff Member</span>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {staffList.map(s => (
+                  <div key={s.id} className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 shadow-sm space-y-3">
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-center space-x-3">
+                        <div className="w-10 h-10 rounded-2xl bg-blue-500/15 text-blue-600 dark:text-blue-400 font-black flex items-center justify-center text-sm">
+                          {s.name?.slice(0, 2).toUpperCase() || 'DR'}
+                        </div>
+                        <div>
+                          <h4 className="font-black text-slate-900 dark:text-white text-sm">{s.name}</h4>
+                          <p className="text-xs text-blue-600 dark:text-blue-400 font-bold">{s.staff_title || s.role}</p>
+                        </div>
+                      </div>
+                      <span className={`w-2 h-2 rounded-full ${s.is_active ? 'bg-emerald-500' : 'bg-slate-400'}`} />
+                    </div>
+
+                    <div className="text-xs text-slate-500 space-y-1 pt-2 border-t border-slate-100 dark:border-white/5">
+                      <p>Email: <span className="font-mono text-slate-700 dark:text-slate-300">{s.email}</span></p>
+                      {s.phone && <p>Phone: <span className="font-mono text-slate-700 dark:text-slate-300">{s.phone}</span></p>}
+                      <p>Fast PIN Login: <span className="font-bold text-emerald-600">{s.has_pin ? 'Configured' : 'Not Set'}</span></p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ══════════════════════════════════════════════════════════ */}
+          {/* TAB 8: HOSPITAL SETTINGS                                   */}
+          {/* ══════════════════════════════════════════════════════════ */}
+          {activeTab === 'settings' && (
+            <div className="max-w-3xl space-y-6">
+              <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 shadow-sm space-y-4">
+                <h3 className="font-black text-base text-slate-900 dark:text-white">Hospital Facility Profile & Regulatory Info</h3>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                  <div>
+                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Facility Name</label>
+                    <input
+                      type="text"
+                      value={facilitySettings.name}
+                      onChange={e => setFacilitySettings({ ...facilitySettings, name: e.target.value })}
+                      className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 text-slate-900 dark:text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">MFL Facility Code</label>
+                    <input
+                      type="text"
+                      value={facilitySettings.mfl_code}
+                      onChange={e => setFacilitySettings({ ...facilitySettings, mfl_code: e.target.value })}
+                      className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 text-slate-900 dark:text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Address / Location</label>
+                    <input
+                      type="text"
+                      value={facilitySettings.address}
+                      onChange={e => setFacilitySettings({ ...facilitySettings, address: e.target.value })}
+                      className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 text-slate-900 dark:text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Currency Code</label>
+                    <input
+                      type="text"
+                      value={facilitySettings.currency}
+                      onChange={e => setFacilitySettings({ ...facilitySettings, currency: e.target.value })}
+                      className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 text-slate-900 dark:text-white"
+                    />
+                  </div>
+                </div>
+
+                <div className="pt-4 border-t border-slate-100 dark:border-white/5 flex justify-end">
+                  <button
+                    onClick={() => showToast('Hospital facility settings updated', 'success')}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl shadow-md transition"
+                  >
+                    Save Facility Details
+                  </button>
+                </div>
+              </div>
+
+              {/* Subscription Status Card */}
+              <div className="p-6 rounded-3xl bg-gradient-to-r from-blue-900/20 to-slate-900 border border-blue-500/20 shadow-sm flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] uppercase font-bold tracking-wider text-blue-400">Active License</span>
+                  <h4 className="font-black text-lg text-white mt-0.5">Hospital Clinical Suite & Integrated Pharmacy</h4>
+                  <p className="text-xs text-slate-400 mt-1">All hospital modules (Reception, Triage, EHR, Pharmacy, Billing) included under single subscription.</p>
+                </div>
+                <button
+                  onClick={() => setShowSubscriptionModal(true)}
+                  className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs transition apple-spring shadow-lg shadow-blue-500/20"
+                >
+                  Manage Subscription
+                </button>
+              </div>
+            </div>
+          )}
+
+        </main>
+      </div>
+
+      {/* ════════════════════════════════════════════════════════════ */}
+      {/* MODAL 1: NEW PATIENT REGISTRATION (RECEPTION)               */}
+      {/* ════════════════════════════════════════════════════════════ */}
       {showNewPatientModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 max-w-lg w-full p-6 rounded-3xl border border-black/[0.08] dark:border-white/[0.1] shadow-xl space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-black/[0.05] dark:border-white/[0.05]">
-              <h3 className="font-extrabold text-slate-900 dark:text-white text-base flex items-center gap-2">
-                <UserPlus className="w-5 h-5 text-blue-500" />
-                <span>Register New Hospital Patient</span>
-              </h3>
-              <button onClick={() => setShowNewPatientModal(false)} className="text-slate-400 hover:text-slate-600">
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-white/10 space-y-4 my-8">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-white/5 pb-3">
+              <div className="flex items-center space-x-2">
+                <div className="w-8 h-8 rounded-xl bg-blue-500/20 text-blue-600 flex items-center justify-center font-bold">
+                  🏥
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-900 dark:text-white text-base">New Patient Registration</h3>
+                  <p className="text-[11px] text-slate-400">Issues permanent OPD record and queues for triage</p>
+                </div>
+              </div>
+              <button onClick={() => setShowNewPatientModal(false)} className="text-slate-400 hover:text-slate-600 p-1">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <form onSubmit={handleRegisterPatient} className="space-y-3 text-xs">
               <div>
-                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Full Name *</label>
+                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Patient Full Name *</label>
                 <input
                   type="text"
                   required
-                  placeholder="e.g. John Mwangi"
+                  placeholder="e.g. Mary Wanjiku Kamau"
                   value={newPatientForm.full_name}
-                  onChange={(e) => setNewPatientForm({ ...newPatientForm, full_name: e.target.value })}
-                  className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10"
+                  onChange={e => setNewPatientForm({ ...newPatientForm, full_name: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 text-slate-900 dark:text-white"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Age</label>
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Age (Years) *</label>
                   <input
                     type="number"
+                    required
+                    min="0"
                     placeholder="e.g. 34"
                     value={newPatientForm.age}
-                    onChange={(e) => setNewPatientForm({ ...newPatientForm, age: e.target.value })}
-                    className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10"
+                    onChange={e => setNewPatientForm({ ...newPatientForm, age: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 text-slate-900 dark:text-white"
                   />
                 </div>
                 <div>
-                  <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Gender</label>
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Gender *</label>
                   <select
                     value={newPatientForm.gender}
-                    onChange={(e) => setNewPatientForm({ ...newPatientForm, gender: e.target.value })}
-                    className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10"
+                    onChange={e => setNewPatientForm({ ...newPatientForm, gender: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 text-slate-900 dark:text-white"
                   >
                     <option value="Male">Male</option>
                     <option value="Female">Female</option>
@@ -757,21 +1545,34 @@ export default function HospitalHub({ currentUser, authFetch, showToast, curr = 
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Phone Number</label>
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Phone Number</label>
                   <input
                     type="tel"
-                    placeholder="07..."
+                    placeholder="0712 345 678"
                     value={newPatientForm.phone}
-                    onChange={(e) => setNewPatientForm({ ...newPatientForm, phone: e.target.value })}
-                    className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10"
+                    onChange={e => setNewPatientForm({ ...newPatientForm, phone: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 text-slate-900 dark:text-white"
                   />
                 </div>
                 <div>
-                  <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Insurance Provider</label>
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">National ID / Passport</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 29482910"
+                    value={newPatientForm.national_id}
+                    onChange={e => setNewPatientForm({ ...newPatientForm, national_id: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 text-slate-900 dark:text-white"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Insurance Scheme</label>
                   <select
                     value={newPatientForm.insurance_provider}
-                    onChange={(e) => setNewPatientForm({ ...newPatientForm, insurance_provider: e.target.value })}
-                    className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10"
+                    onChange={e => setNewPatientForm({ ...newPatientForm, insurance_provider: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 text-slate-900 dark:text-white"
                   >
                     <option value="Cash">Cash / Self-Pay</option>
                     <option value="SHA / NHIF">SHA / NHIF</option>
@@ -781,21 +1582,49 @@ export default function HospitalHub({ currentUser, authFetch, showToast, curr = 
                     <option value="APA Insurance">APA Insurance</option>
                   </select>
                 </div>
+                <div>
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Blood Group</label>
+                  <select
+                    value={newPatientForm.blood_group}
+                    onChange={e => setNewPatientForm({ ...newPatientForm, blood_group: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 text-slate-900 dark:text-white"
+                  >
+                    <option value="O+">O+</option>
+                    <option value="A+">A+</option>
+                    <option value="B+">B+</option>
+                    <option value="AB+">AB+</option>
+                    <option value="O-">O-</option>
+                    <option value="A-">A-</option>
+                    <option value="B-">B-</option>
+                    <option value="AB-">AB-</option>
+                  </select>
+                </div>
               </div>
 
-              <div className="pt-3 flex items-center justify-end gap-2">
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Known Drug Allergies (Optional)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Penicillin, Sulfa, Aspirin"
+                  value={newPatientForm.allergies}
+                  onChange={e => setNewPatientForm({ ...newPatientForm, allergies: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div className="pt-3 border-t border-slate-100 dark:border-white/5 flex items-center justify-end space-x-2">
                 <button
                   type="button"
                   onClick={() => setShowNewPatientModal(false)}
-                  className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100"
+                  className="px-4 py-2 rounded-xl text-slate-500 font-bold hover:bg-slate-100 dark:hover:bg-slate-800"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl transition"
+                  className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold shadow-md shadow-blue-500/20 apple-press"
                 >
-                  Save & Check-In
+                  Register & Queue for Triage &rarr;
                 </button>
               </div>
             </form>
@@ -803,119 +1632,125 @@ export default function HospitalHub({ currentUser, authFetch, showToast, curr = 
         </div>
       )}
 
-      {/* ── MODAL: NURSING TRIAGE & VITALS ───────────────────────────────── */}
-      {selectedVisitForTriage && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 max-w-lg w-full p-6 rounded-3xl border border-black/[0.08] dark:border-white/[0.1] shadow-xl space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-black/[0.05] dark:border-white/[0.05]">
+      {/* ════════════════════════════════════════════════════════════ */}
+      {/* MODAL 2: TRIAGE & VITALS CAPTURE (NURSING)                 */}
+      {/* ════════════════════════════════════════════════════════════ */}
+      {showTriageModal && selectedVisitForTriage && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-white/10 space-y-4 my-8">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-white/5 pb-3">
               <div>
-                <h3 className="font-extrabold text-slate-900 dark:text-white text-base flex items-center gap-2">
-                  <Activity className="w-5 h-5 text-emerald-500" />
-                  <span>Record Vitals: {selectedVisitForTriage.patient_name}</span>
-                </h3>
-                <p className="text-xs text-slate-500">{selectedVisitForTriage.opd_number}</p>
+                <span className="text-[10px] font-mono font-bold text-blue-500">{selectedVisitForTriage.opd_number}</span>
+                <h3 className="font-extrabold text-slate-900 dark:text-white text-base">Record Vitals & Triage: {selectedVisitForTriage.patient_name}</h3>
+                <p className="text-[11px] text-slate-400">{selectedVisitForTriage.gender}, {selectedVisitForTriage.age} yrs</p>
               </div>
-              <button onClick={() => setSelectedVisitForTriage(null)} className="text-slate-400 hover:text-slate-600">
+              <button onClick={() => setShowTriageModal(false)} className="text-slate-400 hover:text-slate-600 p-1">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleSubmitTriage} className="space-y-3 text-xs">
+            <form onSubmit={handleSubmitTriage} className="space-y-4 text-xs">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">BP Systolic / Diastolic (mmHg)</label>
-                  <div className="flex items-center gap-1">
-                    <input
-                      type="number"
-                      placeholder="120"
-                      value={triageForm.bp_systolic}
-                      onChange={(e) => setTriageForm({ ...triageForm, bp_systolic: e.target.value })}
-                      className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10"
-                    />
-                    <span>/</span>
-                    <input
-                      type="number"
-                      placeholder="80"
-                      value={triageForm.bp_diastolic}
-                      onChange={(e) => setTriageForm({ ...triageForm, bp_diastolic: e.target.value })}
-                      className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Pulse (bpm)</label>
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Blood Pressure Systolic (mmHg)</label>
                   <input
                     type="number"
-                    placeholder="72"
-                    value={triageForm.pulse_rate}
-                    onChange={(e) => setTriageForm({ ...triageForm, pulse_rate: e.target.value })}
-                    className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10"
+                    value={triageForm.bp_systolic}
+                    onChange={e => setTriageForm({ ...triageForm, bp_systolic: Number(e.target.value) })}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 font-bold"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">BP Diastolic (mmHg)</label>
+                  <input
+                    type="number"
+                    value={triageForm.bp_diastolic}
+                    onChange={e => setTriageForm({ ...triageForm, bp_diastolic: Number(e.target.value) })}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 font-bold"
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Temp (°C)</label>
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Pulse (bpm)</label>
+                  <input
+                    type="number"
+                    value={triageForm.pulse_rate}
+                    onChange={e => setTriageForm({ ...triageForm, pulse_rate: Number(e.target.value) })}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Temp (°C)</label>
                   <input
                     type="number"
                     step="0.1"
-                    placeholder="36.5"
                     value={triageForm.temperature}
-                    onChange={(e) => setTriageForm({ ...triageForm, temperature: e.target.value })}
-                    className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10"
+                    onChange={e => setTriageForm({ ...triageForm, temperature: Number(e.target.value) })}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10"
                   />
                 </div>
                 <div>
-                  <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">SpO2 (%)</label>
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">SpO2 (%)</label>
                   <input
                     type="number"
-                    placeholder="98"
                     value={triageForm.spo2}
-                    onChange={(e) => setTriageForm({ ...triageForm, spo2: e.target.value })}
-                    className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10"
+                    onChange={e => setTriageForm({ ...triageForm, spo2: Number(e.target.value) })}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10"
                   />
                 </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Weight (kg)</label>
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Weight (kg)</label>
                   <input
                     type="number"
                     step="0.5"
-                    placeholder="70"
                     value={triageForm.weight_kg}
-                    onChange={(e) => setTriageForm({ ...triageForm, weight_kg: e.target.value })}
-                    className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10"
+                    onChange={e => setTriageForm({ ...triageForm, weight_kg: Number(e.target.value) })}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10"
                   />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Triage Priority Tag</label>
+                  <select
+                    value={triageForm.triage_priority}
+                    onChange={e => setTriageForm({ ...triageForm, triage_priority: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 font-bold"
+                  >
+                    <option value="normal">Normal (Routine OPD)</option>
+                    <option value="urgent">Urgent (Fast-Track Doctor)</option>
+                    <option value="critical">Critical / Emergency Resuscitation</option>
+                  </select>
                 </div>
               </div>
 
               <div>
-                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Triage Priority Level</label>
-                <select
-                  value={triageForm.triage_priority}
-                  onChange={(e) => setTriageForm({ ...triageForm, triage_priority: e.target.value })}
-                  className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10"
-                >
-                  <option value="normal">Normal (Routine OPD Consultation)</option>
-                  <option value="urgent">Urgent (Elevated vitals, high fever)</option>
-                  <option value="emergency">Emergency (Critical / Immediate Resuscitation)</option>
-                </select>
+                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Nursing Observation Notes</label>
+                <textarea
+                  rows="2"
+                  placeholder="Patient complains of severe headache, fever for 3 days..."
+                  value={triageForm.triage_notes}
+                  onChange={e => setTriageForm({ ...triageForm, triage_notes: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 text-slate-900 dark:text-white"
+                />
               </div>
 
-              <div className="pt-3 flex items-center justify-end gap-2">
+              <div className="pt-3 border-t border-slate-100 dark:border-white/5 flex items-center justify-end space-x-2">
                 <button
                   type="button"
-                  onClick={() => setSelectedVisitForTriage(null)}
-                  className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100"
+                  onClick={() => setShowTriageModal(false)}
+                  className="px-4 py-2 rounded-xl text-slate-500 font-bold hover:bg-slate-100 dark:hover:bg-slate-800"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl transition"
+                  className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold shadow-md shadow-emerald-500/20 apple-press"
                 >
-                  Forward to Doctor
+                  Forward to Doctor Clinic &rarr;
                 </button>
               </div>
             </form>
@@ -923,135 +1758,137 @@ export default function HospitalHub({ currentUser, authFetch, showToast, curr = 
         </div>
       )}
 
-      {/* ── MODAL: DOCTOR CONSULTATION & E-PRESCRIBE ─────────────────────── */}
-      {selectedVisitForDoctor && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 max-w-2xl w-full p-6 rounded-3xl border border-black/[0.08] dark:border-white/[0.1] shadow-xl space-y-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between pb-3 border-b border-black/[0.05] dark:border-white/[0.05]">
+      {/* ════════════════════════════════════════════════════════════ */}
+      {/* MODAL 3: DOCTOR CONSULTATION & E-PRESCRIPTION               */}
+      {/* ════════════════════════════════════════════════════════════ */}
+      {showConsultModal && selectedVisitForDoctor && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-white/10 space-y-4 my-8">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-white/5 pb-3">
               <div>
-                <h3 className="font-extrabold text-slate-900 dark:text-white text-base flex items-center gap-2">
-                  <Stethoscope className="w-5 h-5 text-blue-500" />
-                  <span>Consultation: {selectedVisitForDoctor.patient_name}</span>
-                </h3>
-                <p className="text-xs text-slate-500">
-                  {selectedVisitForDoctor.opd_number} • BP: {selectedVisitForDoctor.bp_systolic}/{selectedVisitForDoctor.bp_diastolic} • Pulse: {selectedVisitForDoctor.pulse_rate} • Temp: {selectedVisitForDoctor.temperature}°C
-                </p>
+                <span className="text-[10px] font-mono font-bold text-blue-500">{selectedVisitForDoctor.opd_number}</span>
+                <h3 className="font-extrabold text-slate-900 dark:text-white text-base">Doctor Consultation: {selectedVisitForDoctor.patient_name}</h3>
+                <p className="text-[11px] text-slate-400">{selectedVisitForDoctor.gender}, {selectedVisitForDoctor.age} yrs &bull; Triage Vitals: {selectedVisitForDoctor.bp_systolic}/{selectedVisitForDoctor.bp_diastolic} mmHg, {selectedVisitForDoctor.pulse_rate} bpm, {selectedVisitForDoctor.temperature} °C</p>
               </div>
-              <button onClick={() => setSelectedVisitForDoctor(null)} className="text-slate-400 hover:text-slate-600">
+              <button onClick={() => setShowConsultModal(false)} className="text-slate-400 hover:text-slate-600 p-1">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <form onSubmit={handleSubmitDoctorConsultation} className="space-y-4 text-xs">
-              <div>
-                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Clinical Diagnosis *</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Acute Bacterial Tonsillitis / Upper Respiratory Tract Infection"
-                  value={consultForm.diagnosis}
-                  onChange={(e) => setConsultForm({ ...consultForm, diagnosis: e.target.value })}
-                  className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Clinical Impression / Diagnosis *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Acute Upper Respiratory Tract Infection (URTI)"
+                    value={consultForm.diagnosis}
+                    onChange={e => setConsultForm({ ...consultForm, diagnosis: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 font-bold text-slate-900 dark:text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Doctor Consultation Notes</label>
+                  <input
+                    type="text"
+                    placeholder="Physical examination notes, symptoms history..."
+                    value={consultForm.doctor_notes}
+                    onChange={e => setConsultForm({ ...consultForm, doctor_notes: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 text-slate-900 dark:text-white"
+                  />
+                </div>
               </div>
 
-              <div>
-                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Doctor's Clinical Notes</label>
-                <textarea
-                  rows="2"
-                  placeholder="Patient presented with sore throat and fever for 3 days..."
-                  value={consultForm.doctor_notes}
-                  onChange={(e) => setConsultForm({ ...consultForm, doctor_notes: e.target.value })}
-                  className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10"
-                />
-              </div>
-
-              {/* Electronic Prescription Builder */}
-              <div className="space-y-2 pt-2 border-t border-black/[0.05] dark:border-white/[0.05]">
+              {/* In-House Pharmacy Formulary E-Prescription Builder */}
+              <div className="p-4 rounded-2xl bg-blue-50 dark:bg-slate-800/80 border border-blue-200 dark:border-blue-500/20 space-y-3">
                 <div className="flex items-center justify-between">
-                  <h4 className="font-bold text-slate-900 dark:text-white text-xs flex items-center gap-1.5">
-                    <Pill className="w-4 h-4 text-emerald-500" />
-                    <span>Direct E-Prescription (Real-Time Pharmacy POS Sync)</span>
-                  </h4>
+                  <div className="flex items-center space-x-2">
+                    <Pill className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                    <span className="font-extrabold text-slate-900 dark:text-white">In-House Pharmacy E-Prescription</span>
+                  </div>
                   <button
                     type="button"
                     onClick={handleAddPrescriptionItem}
-                    className="px-2.5 py-1 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-300 rounded-lg text-xs font-bold hover:bg-blue-100 transition"
+                    className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-[10px] flex items-center space-x-1"
                   >
-                    + Add Medication
+                    <Plus className="w-3 h-3" />
+                    <span>Add Medicine</span>
                   </button>
                 </div>
 
-                <div className="space-y-2">
-                  {prescriptionItems.map((item, idx) => (
-                    <div key={idx} className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl space-y-2 border border-black/[0.04]">
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <label className="text-[10px] text-slate-400 block">Select Medication from Pharmacy Stock</label>
-                          <select
-                            value={item.medicine_id}
-                            onChange={(e) => handlePrescriptionItemChange(idx, 'medicine_id', e.target.value)}
-                            className="w-full p-2 rounded-lg bg-white dark:bg-slate-700 border border-slate-200 dark:border-white/10 text-xs"
-                          >
-                            <option value="">-- Choose Formulary Drug or Custom --</option>
-                            {medicines.map(m => (
-                              <option key={m.id} value={m.id}>
-                                {m.brand_name || m.generic_name} ({m.strength || 'Standard'})
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        <div>
-                          <label className="text-[10px] text-slate-400 block">Medication Name (or Custom)</label>
+                <div className="space-y-2 max-h-56 overflow-y-auto">
+                  {prescriptionItems.map((item, index) => (
+                    <div key={index} className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 space-y-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        <div className="sm:col-span-2">
+                          <label className="block font-bold text-[10px] text-slate-500 mb-0.5">Select Drug from Hospital Formulary</label>
                           <input
                             type="text"
-                            placeholder="e.g. Amoxicillin 500mg"
+                            placeholder="Drug name (e.g. Amoxicillin 500mg)"
                             value={item.medicine_name}
-                            onChange={(e) => handlePrescriptionItemChange(idx, 'medicine_name', e.target.value)}
-                            className="w-full p-2 rounded-lg bg-white dark:bg-slate-700 border border-slate-200 dark:border-white/10 text-xs"
+                            onChange={e => handlePrescriptionItemChange(index, 'medicine_name', e.target.value)}
+                            className="w-full px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 font-bold"
+                          />
+                        </div>
+                        <div>
+                          <label className="block font-bold text-[10px] text-slate-500 mb-0.5">Dosage</label>
+                          <input
+                            type="text"
+                            placeholder="1 tab"
+                            value={item.dosage}
+                            onChange={e => handlePrescriptionItemChange(index, 'dosage', e.target.value)}
+                            className="w-full px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10"
                           />
                         </div>
                       </div>
 
                       <div className="grid grid-cols-4 gap-2">
                         <div>
-                          <label className="text-[10px] text-slate-400 block">Dosage</label>
-                          <input
-                            type="text"
-                            placeholder="1 tab"
-                            value={item.dosage}
-                            onChange={(e) => handlePrescriptionItemChange(idx, 'dosage', e.target.value)}
-                            className="w-full p-1.5 rounded-lg bg-white dark:bg-slate-700 border border-slate-200 text-xs"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-[10px] text-slate-400 block">Frequency</label>
-                          <input
-                            type="text"
-                            placeholder="TID (3x daily)"
+                          <label className="block font-bold text-[10px] text-slate-500 mb-0.5">Frequency</label>
+                          <select
                             value={item.frequency}
-                            onChange={(e) => handlePrescriptionItemChange(idx, 'frequency', e.target.value)}
-                            className="w-full p-1.5 rounded-lg bg-white dark:bg-slate-700 border border-slate-200 text-xs"
-                          />
+                            onChange={e => handlePrescriptionItemChange(index, 'frequency', e.target.value)}
+                            className="w-full px-2 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10"
+                          >
+                            <option value="OD (Once daily)">OD (1x daily)</option>
+                            <option value="BD (2x daily)">BD (2x daily)</option>
+                            <option value="TID (3x daily)">TID (3x daily)</option>
+                            <option value="QID (4x daily)">QID (4x daily)</option>
+                            <option value="PRN (As needed)">PRN (As needed)</option>
+                            <option value="Stat (Immediately)">Stat</option>
+                          </select>
                         </div>
                         <div>
-                          <label className="text-[10px] text-slate-400 block">Days</label>
+                          <label className="block font-bold text-[10px] text-slate-500 mb-0.5">Days</label>
                           <input
                             type="number"
-                            placeholder="5"
+                            min="1"
                             value={item.duration_days}
-                            onChange={(e) => handlePrescriptionItemChange(idx, 'duration_days', e.target.value)}
-                            className="w-full p-1.5 rounded-lg bg-white dark:bg-slate-700 border border-slate-200 text-xs"
+                            onChange={e => handlePrescriptionItemChange(index, 'duration_days', Number(e.target.value))}
+                            className="w-full px-2 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10"
+                          />
+                        </div>
+                        <div>
+                          <label className="block font-bold text-[10px] text-slate-500 mb-0.5">Qty</label>
+                          <input
+                            type="number"
+                            min="1"
+                            value={item.quantity}
+                            onChange={e => handlePrescriptionItemChange(index, 'quantity', Number(e.target.value))}
+                            className="w-full px-2 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 font-bold"
                           />
                         </div>
                         <div className="flex items-end">
-                          <button
-                            type="button"
-                            onClick={() => handleRemovePrescriptionItem(idx)}
-                            className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg text-xs"
-                          >
-                            Remove
-                          </button>
+                          {prescriptionItems.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemovePrescriptionItem(index)}
+                              className="w-full py-1.5 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg font-bold text-[10px]"
+                            >
+                              Remove
+                            </button>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -1059,23 +1896,335 @@ export default function HospitalHub({ currentUser, authFetch, showToast, curr = 
                 </div>
               </div>
 
-              <div className="pt-3 flex items-center justify-end gap-2 border-t border-black/[0.05]">
+              <div className="pt-3 border-t border-slate-100 dark:border-white/5 flex items-center justify-end space-x-2">
                 <button
                   type="button"
-                  onClick={() => setSelectedVisitForDoctor(null)}
-                  className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100"
+                  onClick={() => setShowConsultModal(false)}
+                  className="px-4 py-2 rounded-xl text-slate-500 font-bold hover:bg-slate-100 dark:hover:bg-slate-800"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl transition flex items-center gap-1.5"
+                  className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold shadow-md shadow-blue-500/20 apple-press"
                 >
-                  <Send className="w-3.5 h-3.5" />
-                  <span>Transmit to Pharmacy POS</span>
+                  Transmit E-Prescription to Hospital Pharmacy &rarr;
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ════════════════════════════════════════════════════════════ */}
+      {/* MODAL 4: CASHIER BILLING SETTLEMENT                         */}
+      {/* ════════════════════════════════════════════════════════════ */}
+      {showBillingModal && selectedVisitForBilling && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-white/10 space-y-4 my-8">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-white/5 pb-3">
+              <div>
+                <span className="text-[10px] font-mono font-bold text-blue-500">{selectedVisitForBilling.opd_number}</span>
+                <h3 className="font-extrabold text-slate-900 dark:text-white text-base">Collect Payment & Settle Bill</h3>
+                <p className="text-[11px] text-slate-400">{selectedVisitForBilling.patient_name}</p>
+              </div>
+              <button onClick={() => setShowBillingModal(false)} className="text-slate-400 hover:text-slate-600 p-1">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSettleBilling} className="space-y-4 text-xs">
+              <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 space-y-2">
+                <div className="flex justify-between font-bold text-slate-700 dark:text-slate-300">
+                  <span>Consultation Fee:</span>
+                  <span>{curr} {selectedVisitForBilling.consultation_fee?.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between font-bold text-slate-700 dark:text-slate-300">
+                  <span>Pharmacy Medications:</span>
+                  <span>{curr} {selectedVisitForBilling.drug_total?.toLocaleString()}</span>
+                </div>
+                <div className="pt-2 border-t border-amber-500/30 flex justify-between font-black text-base text-amber-700 dark:text-amber-300">
+                  <span>Total Amount Due:</span>
+                  <span>{curr} {selectedVisitForBilling.total_amount?.toLocaleString()}</span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Payment Method</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {['Cash', 'M-Pesa', 'SHA / NHIF'].map(m => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setPaymentForm({ ...paymentForm, payment_method: m })}
+                      className={`py-2 rounded-xl font-bold border transition ${
+                        paymentForm.payment_method === m
+                          ? 'border-amber-500 bg-amber-500/15 text-amber-600 dark:text-amber-400'
+                          : 'border-slate-200 dark:border-white/10 text-slate-500'
+                      }`}
+                    >
+                      {m}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {paymentForm.payment_method === 'M-Pesa' && (
+                <div>
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">M-Pesa Confirmation Code</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. QKH839210"
+                    value={paymentForm.reference_code}
+                    onChange={e => setPaymentForm({ ...paymentForm, reference_code: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 uppercase font-mono font-bold"
+                  />
+                </div>
+              )}
+
+              <div className="pt-3 border-t border-slate-100 dark:border-white/5 flex items-center justify-end space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setShowBillingModal(false)}
+                  className="px-4 py-2 rounded-xl text-slate-500 font-bold hover:bg-slate-100 dark:hover:bg-slate-800"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold shadow-md shadow-amber-500/20 apple-press"
+                >
+                  Confirm Payment & Discharge Patient
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ════════════════════════════════════════════════════════════ */}
+      {/* MODAL 5: RECEIPT / DISCHARGE CLEARANCE                     */}
+      {/* ════════════════════════════════════════════════════════════ */}
+      {showReceiptModal && receiptData && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-white/10 space-y-4 text-center">
+            <div className="w-12 h-12 rounded-full bg-emerald-500/20 text-emerald-500 flex items-center justify-center mx-auto text-xl">
+              ✓
+            </div>
+            <div>
+              <h3 className="font-black text-slate-900 dark:text-white text-base">Payment Clearance Receipt</h3>
+              <p className="text-xs text-slate-400">{facilitySettings.name}</p>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800 text-xs text-left space-y-2 font-mono">
+              <div className="flex justify-between">
+                <span className="text-slate-400">Patient:</span>
+                <span className="font-bold">{receiptData.patient_name}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">OPD No:</span>
+                <span>{receiptData.opd_number}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Paid Amount:</span>
+                <span className="font-bold text-emerald-600">{curr} {receiptData.total_amount?.toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Method:</span>
+                <span>{receiptData.payment_method}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Status:</span>
+                <span className="font-bold text-blue-600">Discharged & Complete</span>
+              </div>
+            </div>
+
+            <button
+              onClick={() => {
+                setShowReceiptModal(false);
+                setReceiptData(null);
+              }}
+              className="w-full py-2.5 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold text-xs"
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ════════════════════════════════════════════════════════════ */}
+      {/* MODAL 6: ADD HOSPITAL STAFF                                */}
+      {/* ════════════════════════════════════════════════════════════ */}
+      {showAddStaffModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-white/10 space-y-4 my-8">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-white/5 pb-3">
+              <div className="flex items-center space-x-2">
+                <div className="w-8 h-8 rounded-xl bg-blue-500/20 text-blue-600 flex items-center justify-center font-bold">
+                  👥
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-900 dark:text-white text-base">Add Hospital Staff Member</h3>
+                  <p className="text-[11px] text-slate-400">Assign role credentials and login PIN</p>
+                </div>
+              </div>
+              <button onClick={() => setShowAddStaffModal(false)} className="text-slate-400 hover:text-slate-600 p-1">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddStaff} className="space-y-3 text-xs">
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Full Name *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Dr. Agnes Mutua"
+                  value={staffForm.name}
+                  onChange={e => setStaffForm({ ...staffForm, name: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 text-slate-900 dark:text-white font-bold"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Work Email *</label>
+                <input
+                  type="email"
+                  required
+                  placeholder="doctor@hospital.com"
+                  value={staffForm.email}
+                  onChange={e => setStaffForm({ ...staffForm, email: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 text-slate-900 dark:text-white font-mono"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Role Preset *</label>
+                  <select
+                    value={staffForm.role}
+                    onChange={e => {
+                      const matched = HOSPITAL_ROLE_PRESETS.find(p => p.role === e.target.value);
+                      setStaffForm({
+                        ...staffForm,
+                        role: e.target.value,
+                        staff_title: matched?.title || 'Staff'
+                      });
+                    }}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 text-slate-900 dark:text-white font-bold"
+                  >
+                    {HOSPITAL_ROLE_PRESETS.map(p => (
+                      <option key={p.id} value={p.role}>{p.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Fast Tablet PIN (4-Digits)</label>
+                  <input
+                    type="password"
+                    maxLength="4"
+                    placeholder="e.g. 1234"
+                    value={staffForm.pin_code}
+                    onChange={e => setStaffForm({ ...staffForm, pin_code: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 text-slate-900 dark:text-white font-mono font-bold text-center tracking-widest"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-3 border-t border-slate-100 dark:border-white/5 flex items-center justify-end space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAddStaffModal(false)}
+                  className="px-4 py-2 rounded-xl text-slate-500 font-bold hover:bg-slate-100 dark:hover:bg-slate-800"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold shadow-md shadow-blue-500/20 apple-press"
+                >
+                  Save Staff Member &rarr;
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ════════════════════════════════════════════════════════════ */}
+      {/* MODAL 7: MULTI-WORKSPACE / SWITCH PORTAL                   */}
+      {/* ════════════════════════════════════════════════════════════ */}
+      {showWorkspaceModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-white/10 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="font-black text-slate-900 dark:text-white text-base">Switch Active PharmaHub Portal</h3>
+                <p className="text-xs text-slate-500">Select the ecosystem hub you want to manage</p>
+              </div>
+              <button onClick={() => setShowWorkspaceModal(false)} className="text-slate-400 hover:text-slate-600 p-1">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 pt-2">
+              <button
+                onClick={() => {
+                  setShowWorkspaceModal(false);
+                  handleSwitchAccountType('solo');
+                }}
+                className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 text-left hover:border-emerald-500 transition group"
+              >
+                <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-500 flex items-center justify-center text-base mb-2">
+                  💊
+                </div>
+                <h4 className="font-bold text-xs text-slate-900 dark:text-white group-hover:text-emerald-500">Solo Pharmacy</h4>
+                <p className="text-[10px] text-slate-400 mt-0.5">Community chemist POS</p>
+              </button>
+
+              <button
+                onClick={() => {
+                  setShowWorkspaceModal(false);
+                  handleSwitchAccountType('organization');
+                }}
+                className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 text-left hover:border-cyan-500 transition group"
+              >
+                <div className="w-8 h-8 rounded-xl bg-cyan-500/20 text-cyan-500 flex items-center justify-center text-base mb-2">
+                  🏢
+                </div>
+                <h4 className="font-bold text-xs text-slate-900 dark:text-white group-hover:text-cyan-500">Enterprise Hub</h4>
+                <p className="text-[10px] text-slate-400 mt-0.5">Multi-branch pharmacy chain</p>
+              </button>
+
+              <button
+                onClick={() => {
+                  setShowWorkspaceModal(false);
+                  handleSwitchAccountType('wholesale');
+                }}
+                className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 text-left hover:border-amber-500 transition group"
+              >
+                <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-500 flex items-center justify-center text-base mb-2">
+                  🏭
+                </div>
+                <h4 className="font-bold text-xs text-slate-900 dark:text-white group-hover:text-amber-500">Wholesale Hub</h4>
+                <p className="text-[10px] text-slate-400 mt-0.5">Bulk warehouse distribution</p>
+              </button>
+
+              <button
+                onClick={() => {
+                  setShowWorkspaceModal(false);
+                  handleSwitchAccountType('hospital');
+                }}
+                className="p-4 rounded-2xl border-2 border-blue-500 bg-blue-500/10 text-left group"
+              >
+                <div className="w-8 h-8 rounded-xl bg-blue-500/20 text-blue-500 flex items-center justify-center text-base mb-2">
+                  🏥
+                </div>
+                <h4 className="font-bold text-xs text-blue-500">Hospital Hub</h4>
+                <p className="text-[10px] text-slate-400 mt-0.5">Active Workspace</p>
+              </button>
+            </div>
           </div>
         </div>
       )}

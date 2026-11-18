@@ -123,7 +123,7 @@ function requireActiveSubscription(req, res, next) {
   }
 
   const tier = freshUser.subscription_tier || 'trial';
-  const paidTiers = ['basic', 'standard', 'premium', 'org_basic', 'org_enterprise', 'wholesale_basic', 'wholesale_growth', 'wholesale_enterprise'];
+  const paidTiers = ['basic', 'standard', 'premium', 'org_basic', 'org_enterprise', 'wholesale_basic', 'wholesale_growth', 'wholesale_enterprise', 'hospital_clinic', 'hospital_full'];
 
   if (paidTiers.includes(tier)) {
     return next();
@@ -147,7 +147,7 @@ function requireActiveSubscription(req, res, next) {
 // Granular Role & Module Permission Check
 function hasPermission(user, perm) {
   if (!user) return false;
-  if (user.role === 'admin' || user.role === 'superadmin' || user.role === 'depot_admin' || user.account_type === 'solo' || (user.account_type === 'wholesale' && (!user.role || user.role === 'admin'))) return true;
+  if (user.role === 'admin' || user.role === 'superadmin' || user.role === 'depot_admin' || user.account_type === 'solo' || (user.account_type === 'wholesale' && (!user.role || user.role === 'admin')) || (user.account_type === 'hospital' && (!user.role || user.role === 'admin'))) return true;
   let perms = [];
   try {
     perms = typeof user.permissions === 'string' ? JSON.parse(user.permissions) : (user.permissions || []);
@@ -214,7 +214,8 @@ app.post('/api/auth/register', authRateLimiter, (req, res) => {
     const trialEndsDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
     const trialEndsAt = trialEndsDate.toISOString().replace('T', ' ').slice(0, 19);
 
-    const isOrg = account_type === 'organization';
+    const finalAccountType = ['organization', 'wholesale', 'hospital'].includes(account_type) ? account_type : 'solo';
+    const isOrg = finalAccountType === 'organization';
     const domain = work_domain || cleanEmail.split('@')[1] || '';
 
     const stmt = db.prepare(`
@@ -233,7 +234,7 @@ app.post('/api/auth/register', authRateLimiter, (req, res) => {
       phone.trim(),
       address.trim(),
       currency_symbol,
-      isOrg ? 'organization' : 'solo',
+      finalAccountType,
       trialEndsAt,
       domain,
       nowStr
@@ -252,7 +253,7 @@ app.post('/api/auth/register', authRateLimiter, (req, res) => {
       email: cleanEmail,
       pharmacy_name: pharmacy_name.trim(),
       role: 'admin',
-      account_type: isOrg ? 'organization' : 'solo',
+      account_type: finalAccountType,
       subscription_tier: 'trial',
       trial_ends_at: trialEndsAt,
       trial_days_remaining: 30,
@@ -454,16 +455,8 @@ app.post('/api/auth/google', authRateLimiter, async (req, res) => {
 
     const isSuperAdmin = user.role === 'superadmin' || (process.env.OWNER_EMAIL && cleanEmail === process.env.OWNER_EMAIL.trim().toLowerCase());
     const token = crypto.randomBytes(48).toString('hex');
-    const userObj = {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      pharmacy_name: user.pharmacy_name,
-      role: user.role,
-      currency_symbol: user.currency_symbol || 'KSh',
-      phone: user.phone || '',
-      picture: user.google_picture || ''
-    };
+    const userObj = formatUserResponse(user);
+    if (picture || user.google_picture) userObj.picture = picture || user.google_picture;
     const sessionTTL = isSuperAdmin ? 30 * 24 * 60 * 60 * 1000 : SESSION_TTL_MS;
     saveSession(token, userObj, sessionTTL);
 
@@ -778,13 +771,13 @@ function ensureUserSystemLicenses(userId, defaultAccountType = 'solo') {
     `);
   } catch (e) {}
 
-  const systems = ['solo', 'organization', 'wholesale'];
+  const systems = ['solo', 'organization', 'wholesale', 'hospital'];
   const now = new Date();
   const nowStr = now.toISOString().replace('T', ' ').slice(0, 19);
   const thirtyDaysLater = new Date(now.getTime() + 30 * 86400000).toISOString().replace('T', ' ').slice(0, 19);
 
   const user = db.prepare('SELECT id, account_type, subscription_tier, trial_ends_at FROM users WHERE id = ?').get(userId);
-  const paidTiers = ['basic', 'standard', 'premium', 'org_basic', 'org_enterprise', 'wholesale_basic', 'wholesale_growth', 'wholesale_enterprise'];
+  const paidTiers = ['basic', 'standard', 'premium', 'org_basic', 'org_enterprise', 'wholesale_basic', 'wholesale_growth', 'wholesale_enterprise', 'hospital_clinic', 'hospital_full'];
   const isPaid = user && paidTiers.includes(user.subscription_tier);
 
   for (const sys of systems) {
@@ -965,7 +958,7 @@ app.post('/api/user/switch-portal', (req, res) => {
     const user = getAuthUser(req);
     if (!user) return res.status(401).json({ error: 'Authentication required' });
     const { account_type } = req.body;
-    if (!['solo', 'organization', 'wholesale'].includes(account_type)) {
+    if (!['solo', 'organization', 'wholesale', 'hospital'].includes(account_type)) {
       return res.status(400).json({ error: 'Invalid portal type selected' });
     }
     const orgId = user.organization_id || user.id;
@@ -3591,13 +3584,13 @@ app.put('/api/hospital/prescriptions/:id/dispense', (req, res) => {
     // Update items status
     db.prepare('UPDATE hospital_prescription_items SET status = "dispensed" WHERE prescription_id = ?').run(prescId);
 
-    // If visit has no more pending orders, mark visit as completed
+    // Route patient visit to billing stage so reception / cashier collects payment
     const presc = db.prepare('SELECT visit_id FROM hospital_prescriptions WHERE id = ?').get(prescId);
     if (presc?.visit_id) {
-      db.prepare('UPDATE hospital_visits SET stage = "completed", status = "discharged" WHERE id = ?').run(presc.visit_id);
+      db.prepare('UPDATE hospital_visits SET stage = "billing", status = "pending_payment" WHERE id = ?').run(presc.visit_id);
     }
 
-    res.json({ message: 'Prescription marked as dispensed & patient visit completed' });
+    res.json({ message: 'Prescription marked as dispensed & patient routed to cashier for billing' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -3675,6 +3668,105 @@ app.put('/api/hospital/lab-orders/:id/result', (req, res) => {
     }
 
     res.json({ message: 'Lab result submitted and patient routed back to doctor' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 11. Hospital Billing & Cashier Endpoints
+app.get('/api/hospital/billing/pending', (req, res) => {
+  try {
+    const user = getAuthenticatedUser(req);
+    const orgId = user?.organization_id || user?.id || 1;
+
+    // Get visits currently in billing stage or with dispensed prescriptions needing settlement
+    const visits = db.prepare(`
+      SELECT v.*, p.full_name as patient_name, p.opd_number, p.phone as patient_phone,
+             p.insurance_provider, p.insurance_policy_no, p.blood_group
+      FROM hospital_visits v
+      JOIN hospital_patients p ON v.patient_id = p.id
+      WHERE v.organization_id = ? AND (v.stage = 'billing' OR v.status = 'pending_payment')
+      ORDER BY v.created_at DESC LIMIT 50
+    `).all(orgId);
+
+    const getItems = db.prepare(`
+      SELECT i.*, p.notes as presc_notes, p.doctor_name
+      FROM hospital_prescription_items i
+      JOIN hospital_prescriptions p ON i.prescription_id = p.id
+      WHERE p.visit_id = ?
+    `);
+
+    const result = visits.map(v => {
+      const items = getItems.all(v.id);
+      // Try to find drug price from medicines table or default reasonable estimate
+      const itemized = items.map(it => {
+        let price = 100;
+        try {
+          const med = db.prepare('SELECT selling_price FROM medicines WHERE name LIKE ? LIMIT 1').get(`%${it.medication_name}%`);
+          if (med?.selling_price) price = med.selling_price;
+        } catch (e) {}
+        return {
+          ...it,
+          unit_price: price,
+          total_price: price * (it.quantity || 1)
+        };
+      });
+      const consultationFee = 500;
+      const drugTotal = itemized.reduce((sum, it) => sum + (it.total_price || 0), 0);
+      const totalAmount = consultationFee + drugTotal;
+
+      return {
+        ...v,
+        items: itemized,
+        consultation_fee: consultationFee,
+        drug_total: drugTotal,
+        total_amount: totalAmount
+      };
+    });
+
+    res.json({ billing_queue: result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/hospital/billing/pay', (req, res) => {
+  try {
+    const user = getAuthenticatedUser(req);
+    const orgId = user?.organization_id || user?.id || 1;
+    const { visit_id, payment_method, amount_paid, reference_code } = req.body;
+
+    if (!visit_id) return res.status(400).json({ error: 'visit_id is required' });
+
+    db.prepare(`
+      UPDATE hospital_visits
+      SET stage = 'completed', status = 'discharged',
+          triage_notes = COALESCE(triage_notes, '') || ' | Paid: ' || ? || ' via ' || ?
+      WHERE id = ? AND organization_id = ?
+    `).run(String(amount_paid || '0'), payment_method || 'Cash', visit_id, orgId);
+
+    res.json({ success: true, message: 'Payment recorded and patient visit completed & discharged' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/hospital/stats', (req, res) => {
+  try {
+    const user = getAuthenticatedUser(req);
+    const orgId = user?.organization_id || user?.id || 1;
+
+    const totalPatients = db.prepare('SELECT COUNT(*) as count FROM hospital_patients WHERE organization_id = ?').get(orgId)?.count || 0;
+    const todayVisits = db.prepare("SELECT COUNT(*) as count FROM hospital_visits WHERE organization_id = ? AND date(created_at) = date('now')").get(orgId)?.count || 0;
+    const activeQueue = db.prepare("SELECT COUNT(*) as count FROM hospital_visits WHERE organization_id = ? AND stage != 'completed' AND status != 'discharged'").get(orgId)?.count || 0;
+    const dispensedCount = db.prepare("SELECT COUNT(*) as count FROM hospital_prescriptions WHERE organization_id = ? AND status = 'dispensed'").get(orgId)?.count || 0;
+
+    res.json({
+      total_patients: totalPatients,
+      today_visits: todayVisits,
+      active_queue: activeQueue,
+      dispensed_prescriptions: dispensedCount
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

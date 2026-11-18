@@ -211,6 +211,44 @@ const SUBSCRIPTION_PLANS = {
         'Dedicated 24/7 Supply Chain Account Manager'
       ]
     }
+  ],
+  hospital: [
+    {
+      id: 'hospital_clinic',
+      name: 'Hospital Clinic Suite',
+      price: 8000,
+      period: 'month',
+      staffLimit: 15,
+      tag: 'Medium Hospital / Medical Centre',
+      description: 'Unified Hospital management with Reception OPD, Doctors EHR, Nursing Triage, and Integrated In-House Pharmacy POS.',
+      features: [
+        'All-in-One: Hospital & In-House Pharmacy Included in 1 Subscription',
+        'Reception & Patient Registration with OPD Numbers & Insurance',
+        'Nursing Station: Vitals Capture (BP, Pulse, SpO2, Temp, Sugar)',
+        'Doctor EHR: Consultations, Clinical Notes, and e-Prescriptions',
+        'Real-time Formulary Drug Stock Availability Checking',
+        'Front Desk Cashier & Prescription Billing Settle Station'
+      ]
+    },
+    {
+      id: 'hospital_full',
+      name: 'Full Hospital & Network',
+      price: 15000,
+      period: 'month',
+      staffLimit: 9999,
+      tag: 'Full Multi-Ward Hospital',
+      popular: true,
+      description: 'Unlimited multi-specialist doctors, inpatient ward bed management, laboratory requisitions, and central pharmacy dispensaries.',
+      features: [
+        'All-in-One: Hospital & Complete Pharmacy System Combined',
+        'Unlimited Doctor, Nurse, Receptionist, & Pharmacist Accounts',
+        'Specialist Clinics (Pediatrics, Surgery, Ob/Gyn, Cardiology)',
+        'Inpatient Ward Bed Allocation & Medication Charting',
+        'Integrated Lab Requisitions & Diagnostic Routing',
+        'Direct Wholesale Depot Bulk Restock Ordering Integration',
+        'Executive Financial Statements, Cashier Audits & 24/7 Dedicated Support'
+      ]
+    }
   ]
 };
 
@@ -934,8 +972,9 @@ export default function App() {
         const updated = { ...currentUser, account_type: type };
         setCurrentUser(updated);
         localStorage.setItem('pharmahub_user', JSON.stringify(updated));
-        showToast(`Switched to ${type === 'wholesale' ? 'Wholesale Depot Hub' : type === 'organization' ? 'Enterprise Pharmacy Hub' : 'Solo Chemist Hub'}`, 'success');
-        if (type === 'wholesale') setActiveTab('wholesalers');
+        showToast(`Switched to ${type === 'hospital' ? 'Hospital Hub' : type === 'wholesale' ? 'Wholesale Depot Hub' : type === 'organization' ? 'Enterprise Pharmacy Hub' : 'Solo Chemist Hub'}`, 'success');
+        if (type === 'hospital') setActiveTab('dashboard');
+        else if (type === 'wholesale') setActiveTab('wholesalers');
         else if (type === 'organization') setActiveTab('dashboard');
         else setActiveTab('pos');
         setShowProfileMenu(false);
@@ -954,7 +993,8 @@ export default function App() {
             const updated = { ...currentUser, account_type: type };
             setCurrentUser(updated);
             localStorage.setItem('pharmahub_user', JSON.stringify(updated));
-            if (type === 'wholesale') setActiveTab('wholesalers');
+            if (type === 'hospital') setActiveTab('dashboard');
+            else if (type === 'wholesale') setActiveTab('wholesalers');
             else if (type === 'organization') setActiveTab('dashboard');
             else setActiveTab('pos');
             setShowProfileMenu(false);
@@ -2133,8 +2173,8 @@ export default function App() {
               <span>Multi-Portal Healthcare & Distribution Network</span>
             </div>
 
-            {/* 3-Portal Category Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-2xl">
+            {/* 4-Portal Category Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 max-w-4xl">
               <button
                 type="button"
                 onClick={() => {
@@ -2206,6 +2246,30 @@ export default function App() {
                   <span className="text-xs text-slate-400 group-hover:translate-x-1 transition">Enter →</span>
                 </div>
               </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setLandingPortalCategory('hospital');
+                  setAuthForm(f => ({ ...f, account_type: 'hospital' }));
+                  setShowPortalLoginModal(true);
+                }}
+                className={`p-4 rounded-2xl border text-left transition apple-spring group ${
+                  landingPortalCategory === 'hospital'
+                    ? 'bg-gradient-to-br from-blue-950/40 to-slate-900 border-blue-500 shadow-xl shadow-blue-500/10'
+                    : 'bg-slate-900/80 border-slate-800 hover:border-slate-700'
+                }`}
+              >
+                <div className="w-10 h-10 rounded-xl bg-blue-500/20 text-blue-400 flex items-center justify-center text-lg mb-3">
+                  🏥
+                </div>
+                <h4 className="font-bold text-white text-sm group-hover:text-blue-400 transition">Hospital Hub</h4>
+                <p className="text-[11px] text-slate-400 mt-1 leading-snug">Reception OPD, nurses, doctors, in-house pharmacy & billing</p>
+                <div className="mt-3 flex items-center justify-between pt-2 border-t border-slate-800/80">
+                  <span className="text-[10px] font-bold text-blue-400">Hospital System</span>
+                  <span className="text-xs text-slate-400 group-hover:translate-x-1 transition">Enter →</span>
+                </div>
+              </button>
             </div>
 
             <h1 className="text-3xl sm:text-5xl font-extrabold text-white tracking-tight leading-[1.15]">
@@ -2233,6 +2297,14 @@ export default function App() {
                   </span>
                 </>
               )}
+              {landingPortalCategory === 'hospital' && (
+                <>
+                  Hospital Management. <br />
+                  <span className="bg-gradient-to-r from-blue-400 via-cyan-300 to-sky-400 bg-clip-text text-transparent">
+                    Reception, nurses, doctors & integrated pharmacy.
+                  </span>
+                </>
+              )}
             </h1>
 
             <p className="text-slate-300 text-base sm:text-lg leading-relaxed max-w-2xl">
@@ -2240,10 +2312,13 @@ export default function App() {
                 'PharmaHub equips community pharmacies with 3-tier brand vs generic price intelligence, FEFO expiry safety, and patient trust loans with 1-click WhatsApp reminders.'
               }
               {landingPortalCategory === 'organization' &&
-                'Designed for hospitals, clinics, and multi-branch pharmacy chains. Full role-based staff isolation (Veterinary, Ointments, Dispensing), professional domain emails, and complete financial accounting.'
+                'Designed for multi-branch pharmacy chains. Full role-based staff isolation (Veterinary, Ointments, Dispensing), professional domain emails, and complete financial accounting.'
               }
               {landingPortalCategory === 'wholesale' &&
                 'Connect your bulk pharmaceutical warehouse directly to hundreds of ordering chemists and hospitals. Real-time stock visibility, phone call orders, and automated low-stock restock alerts.'
+              }
+              {landingPortalCategory === 'hospital' &&
+                'Full hospital workflow — patient registration, triage vitals, doctor consultation, e-prescriptions, in-house pharmacy dispensing, and cashier billing. Everything in one hub.'
               }
             </p>
 
@@ -2338,12 +2413,12 @@ export default function App() {
 
               <div className="mb-5">
                 <div className="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold mb-2.5 bg-black/[0.04] dark:bg-white/[0.06] text-slate-700 dark:text-slate-300">
-                  <span>{landingPortalCategory === 'solo' ? '💊 Solo Pharmacy Portal' : landingPortalCategory === 'organization' ? '🏢 Enterprise Pharmacy Portal' : '🏭 Wholesale Distribution Portal'}</span>
+                  <span>{landingPortalCategory === 'hospital' ? '🏥 Hospital Hub Portal' : landingPortalCategory === 'solo' ? '💊 Solo Pharmacy Portal' : landingPortalCategory === 'organization' ? '🏢 Enterprise Pharmacy Portal' : '🏭 Wholesale Distribution Portal'}</span>
                 </div>
                 <h2 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight">
                   {authMode === 'login'
-                    ? (landingPortalCategory === 'wholesale' ? 'Sign in to Wholesale Hub' : landingPortalCategory === 'organization' ? 'Sign in to Enterprise Hub' : 'Sign in to Pharmacy Hub')
-                    : (landingPortalCategory === 'wholesale' ? 'Register Wholesale Depot' : landingPortalCategory === 'organization' ? 'Register Enterprise Pharmacy' : 'Set up your Solo Pharmacy')}
+                    ? (landingPortalCategory === 'hospital' ? 'Sign in to Hospital Hub' : landingPortalCategory === 'wholesale' ? 'Sign in to Wholesale Hub' : landingPortalCategory === 'organization' ? 'Sign in to Enterprise Hub' : 'Sign in to Pharmacy Hub')
+                    : (landingPortalCategory === 'hospital' ? 'Register Hospital HIS System' : landingPortalCategory === 'wholesale' ? 'Register Wholesale Depot' : landingPortalCategory === 'organization' ? 'Register Enterprise Pharmacy' : 'Set up your Solo Pharmacy')}
                 </h2>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                   {authMode === 'login'
@@ -2450,10 +2525,10 @@ export default function App() {
                 <form onSubmit={authMode === 'login' ? handleLogin : handleRegister} className="space-y-3.5">
                   {authMode === 'register' && (
                     <>
-                      {/* Account Type Selector (Solo vs Organization vs Wholesale) */}
+                      {/* Account Type Selector (Solo vs Organization vs Wholesale vs Hospital) */}
                       <div>
                         <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Portal & Account Category</label>
-                        <div className="grid grid-cols-3 gap-2">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                           <button
                             type="button"
                             onClick={() => { setAuthForm(f => ({ ...f, account_type: 'solo' })); setLandingPortalCategory('solo'); }}
@@ -2473,13 +2548,13 @@ export default function App() {
                             onClick={() => { setAuthForm(f => ({ ...f, account_type: 'organization' })); setLandingPortalCategory('organization'); }}
                             className={`p-2 rounded-xl border text-left transition apple-spring ${
                               authForm.account_type === 'organization'
-                                ? 'border-emerald-500 bg-emerald-50/70 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-200 font-bold shadow-xs'
+                                ? 'border-cyan-500 bg-cyan-50/70 dark:bg-cyan-950/40 text-cyan-900 dark:text-cyan-200 font-bold shadow-xs'
                                 : 'border-black/[0.08] dark:border-white/[0.1] bg-white/50 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
                             }`}
                           >
-                            <span className="text-base block mb-0.5">🏥</span>
+                            <span className="text-base block mb-0.5">🏢</span>
                             <span className="text-xs block font-bold leading-tight">Enterprise</span>
-                            <span className="text-[9px] block opacity-75">Hospitals & Chains</span>
+                            <span className="text-[9px] block opacity-75">Pharmacy Chains</span>
                           </button>
 
                           <button
@@ -2494,6 +2569,20 @@ export default function App() {
                             <span className="text-base block mb-0.5">🏭</span>
                             <span className="text-xs block font-bold leading-tight">Wholesale</span>
                             <span className="text-[9px] block opacity-75">Bulk Distributor</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => { setAuthForm(f => ({ ...f, account_type: 'hospital' })); setLandingPortalCategory('hospital'); }}
+                            className={`p-2 rounded-xl border text-left transition apple-spring ${
+                              authForm.account_type === 'hospital'
+                                ? 'border-blue-500 bg-blue-50/70 dark:bg-blue-950/40 text-blue-900 dark:text-blue-200 font-bold shadow-xs'
+                                : 'border-black/[0.08] dark:border-white/[0.1] bg-white/50 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                            }`}
+                          >
+                            <span className="text-base block mb-0.5">🏥</span>
+                            <span className="text-xs block font-bold leading-tight">Hospital</span>
+                            <span className="text-[9px] block opacity-75">Hospital HIS + Rx</span>
                           </button>
                         </div>
                       </div>
@@ -2511,12 +2600,12 @@ export default function App() {
                       </div>
                       <div>
                         <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                          {authForm.account_type === 'organization' ? 'Organization / Hospital Name' : 'Pharmacy / Chemist Name'}
+                          {authForm.account_type === 'hospital' ? 'Hospital / Medical Centre Name' : authForm.account_type === 'wholesale' ? 'Distributor Depot Name' : authForm.account_type === 'organization' ? 'Enterprise Pharmacy Chain Name' : 'Pharmacy / Chemist Name'}
                         </label>
                         <input
                           type="text"
                           required
-                          placeholder={authForm.account_type === 'organization' ? 'Metro Health Hospital Network' : 'CarePoint Community Pharmacy'}
+                          placeholder={authForm.account_type === 'hospital' ? 'Nairobi General Hospital' : authForm.account_type === 'wholesale' ? 'Nairobi Med Distributors Ltd' : authForm.account_type === 'organization' ? 'Metro Health Pharmacy Chain' : 'CarePoint Community Pharmacy'}
                           value={authForm.pharmacy_name}
                           onChange={e => setAuthForm(f => ({ ...f, pharmacy_name: e.target.value }))}
                           className="w-full px-3.5 py-2.5 bg-white/70 dark:bg-slate-800 border border-black/[0.08] dark:border-white/[0.1] rounded-xl text-sm dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none transition"
@@ -2642,13 +2731,13 @@ export default function App() {
 
               <div className="flex items-center space-x-2.5">
                 <div className={`w-10 h-10 rounded-2xl flex items-center justify-center text-lg font-black ${
-                  landingPortalCategory === 'wholesale' ? 'bg-amber-500/20 text-amber-500' : landingPortalCategory === 'organization' ? 'bg-cyan-500/20 text-cyan-500' : 'bg-emerald-500/20 text-emerald-500'
+                  landingPortalCategory === 'hospital' ? 'bg-blue-500/20 text-blue-500' : landingPortalCategory === 'wholesale' ? 'bg-amber-500/20 text-amber-500' : landingPortalCategory === 'organization' ? 'bg-cyan-500/20 text-cyan-500' : 'bg-emerald-500/20 text-emerald-500'
                 }`}>
-                  {landingPortalCategory === 'wholesale' ? '🏭' : landingPortalCategory === 'organization' ? '🏢' : '💊'}
+                  {landingPortalCategory === 'hospital' ? '🏥' : landingPortalCategory === 'wholesale' ? '🏭' : landingPortalCategory === 'organization' ? '🏢' : '💊'}
                 </div>
                 <div>
                   <h3 className="font-extrabold text-slate-900 dark:text-white text-base">
-                    {landingPortalCategory === 'wholesale' ? 'Wholesale Hub Access' : landingPortalCategory === 'organization' ? 'Enterprise Pharmacy Hub' : 'Solo Pharmacy Chemist'}
+                    {landingPortalCategory === 'hospital' ? 'Hospital Hub Access' : landingPortalCategory === 'wholesale' ? 'Wholesale Hub Access' : landingPortalCategory === 'organization' ? 'Enterprise Pharmacy Hub' : 'Solo Pharmacy Chemist'}
                   </h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
                     {authMode === 'login' ? 'Input your account credentials below' : 'First-time setup: Create Administrator Account'}
@@ -2725,12 +2814,12 @@ export default function App() {
                     </div>
                     <div>
                       <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                        {landingPortalCategory === 'wholesale' ? 'Distributor Depot Name' : landingPortalCategory === 'organization' ? 'Enterprise Pharmacy / Chain Name' : 'Pharmacy / Chemist Name'}
+                        {landingPortalCategory === 'hospital' ? 'Hospital / Medical Centre Name' : landingPortalCategory === 'wholesale' ? 'Distributor Depot Name' : landingPortalCategory === 'organization' ? 'Enterprise Pharmacy / Chain Name' : 'Pharmacy / Chemist Name'}
                       </label>
                       <input
                         type="text"
                         required
-                        placeholder={landingPortalCategory === 'wholesale' ? 'Nairobi Med Distributors Ltd' : landingPortalCategory === 'organization' ? 'Metropolitan Health Hospital' : 'CarePoint Pharmacy'}
+                        placeholder={landingPortalCategory === 'hospital' ? 'Nairobi General Hospital' : landingPortalCategory === 'wholesale' ? 'Nairobi Med Distributors Ltd' : landingPortalCategory === 'organization' ? 'Metropolitan Health Pharmacy' : 'CarePoint Pharmacy'}
                         value={authForm.pharmacy_name}
                         onChange={e => setAuthForm(f => ({ ...f, pharmacy_name: e.target.value }))}
                         className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-xs text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500"
@@ -2781,6 +2870,22 @@ export default function App() {
   if (currentUser?.account_type === 'wholesale') {
     return (
       <WholesaleHub
+        currentUser={currentUser}
+        authFetch={authFetch}
+        showToast={showToast}
+        isDarkMode={isDarkMode}
+        setIsDarkMode={setIsDarkMode}
+        handleLogout={handleLogout}
+        handleSwitchAccountType={handleSwitchAccountType}
+        setShowSubscriptionModal={setShowSubscriptionModal}
+      />
+    );
+  }
+
+  // Dedicated Hospital Management System (Hospital Hub Portal)
+  if (currentUser?.account_type === 'hospital') {
+    return (
+      <HospitalHub
         currentUser={currentUser}
         authFetch={authFetch}
         showToast={showToast}
@@ -2846,7 +2951,6 @@ export default function App() {
             { id: 'batches',     label: 'Batch / FEFO',     icon: Boxes, color: 'emerald', perm: 'batch_view' },
             { id: 'loans',       label: 'Customer Loans',   icon: HandCoins, color: 'amber', badge: overdueLoansCount, perm: 'loans_view' },
             { id: 'sales',       label: 'Sales & P&L',      icon: BarChart3, color: 'blue', perm: 'sales_view' },
-            { id: 'hospital',    label: 'Hospital Hub',     icon: HeartPulse, color: 'blue', perm: 'hospital' },
             { id: 'wholesalers', label: 'Wholesale Hub',    icon: Building2, color: 'amber', perm: 'wholesalers' },
             ...(currentUser?.role === 'admin' && currentUser?.account_type !== 'solo' ? [{ id: 'staff', label: 'Staff & Roles', icon: Users, color: 'teal', perm: 'admin' }] : []),
             { id: 'settings',    label: 'Settings',         icon: Settings, color: 'purple', perm: 'settings' },
@@ -3057,7 +3161,7 @@ export default function App() {
                     <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500 px-1">
                       Switch Active Portal
                     </p>
-                    <div className="grid grid-cols-3 gap-1 bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl text-[11px] font-bold">
+                    <div className="grid grid-cols-4 gap-1 bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl text-[10px] font-bold">
                       <button
                         type="button"
                         onClick={() => handleSwitchAccountType('solo')}
@@ -3074,11 +3178,11 @@ export default function App() {
                         onClick={() => handleSwitchAccountType('organization')}
                         className={`py-1.5 rounded-lg text-center transition apple-press ${
                           currentUser?.account_type === 'organization'
-                            ? 'bg-blue-600 text-white shadow-xs'
+                            ? 'bg-cyan-600 text-white shadow-xs'
                             : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                         }`}
                       >
-                        Hospital
+                        Enterprise
                       </button>
                       <button
                         type="button"
@@ -3090,6 +3194,17 @@ export default function App() {
                         }`}
                       >
                         Wholesale
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSwitchAccountType('hospital')}
+                        className={`py-1.5 rounded-lg text-center transition apple-press ${
+                          currentUser?.account_type === 'hospital'
+                            ? 'bg-blue-600 text-white shadow-xs'
+                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                        }`}
+                      >
+                        Hospital
                       </button>
                     </div>
                   </div>
@@ -4250,19 +4365,6 @@ export default function App() {
           )}
 
           {/* ============================================================ */}
-          {/* HOSPITAL HUB: CLINICAL EHR, NURSING, DOCTOR & PHARMACY SYNC  */}
-          {/* ============================================================ */}
-          {activeTab === 'hospital' && (
-            <HospitalHub
-              currentUser={currentUser}
-              authFetch={authFetch}
-              showToast={showToast}
-              curr={curr}
-              medicines={medicines}
-            />
-          )}
-
-          {/* ============================================================ */}
           {/* WHOLESALE HUB & LIVE DISTRIBUTOR RESTOCK DIRECTORY           */}
           {/* ============================================================ */}
           {activeTab === 'wholesalers' && (
@@ -4979,7 +5081,7 @@ export default function App() {
                 <p className="text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
                   Switch Active System Hub
                 </p>
-                <div className="grid grid-cols-3 gap-1.5 text-xs font-bold">
+                <div className="grid grid-cols-4 gap-1.5 text-xs font-bold">
                   <button
                     type="button"
                     onClick={() => handleSwitchAccountType('solo')}
@@ -4989,18 +5091,18 @@ export default function App() {
                         : 'bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-300'
                     }`}
                   >
-                    Solo
+                    💊 Solo
                   </button>
                   <button
                     type="button"
                     onClick={() => handleSwitchAccountType('organization')}
                     className={`py-2 rounded-xl text-center transition apple-press ${
                       currentUser?.account_type === 'organization'
-                        ? 'bg-blue-600 text-white shadow-xs'
+                        ? 'bg-purple-600 text-white shadow-xs'
                         : 'bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-300'
                     }`}
                   >
-                    Hospital
+                    🏢 Enterprise
                   </button>
                   <button
                     type="button"
@@ -5011,7 +5113,18 @@ export default function App() {
                         : 'bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-300'
                     }`}
                   >
-                    Wholesale
+                    🏭 Wholesale
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSwitchAccountType('hospital')}
+                    className={`py-2 rounded-xl text-center transition apple-press ${
+                      currentUser?.account_type === 'hospital'
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-300'
+                    }`}
+                  >
+                    🏥 Hospital
                   </button>
                 </div>
               </div>
@@ -5849,8 +5962,8 @@ export default function App() {
               </button>
             </div>
 
-            {/* Account Type Sub-toggle (Solo vs Organization vs Wholesale) */}
-            <div className="flex bg-slate-100 dark:bg-slate-800 p-1 m-6 rounded-2xl gap-1 max-w-md">
+            {/* Account Type Sub-toggle (Solo vs Organization vs Wholesale vs Hospital) */}
+            <div className="flex bg-slate-100 dark:bg-slate-800 p-1 m-6 rounded-2xl gap-1 max-w-xl flex-wrap">
               <button
                 onClick={() => setAuthForm(f => ({ ...f, account_type: 'solo' }))}
                 className={`flex-1 py-2 rounded-xl text-xs font-bold transition apple-spring ${
@@ -5869,7 +5982,7 @@ export default function App() {
                     : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
-                🏥 Organization
+                🏢 Enterprise Hub
               </button>
               <button
                 onClick={() => setAuthForm(f => ({ ...f, account_type: 'wholesale' }))}
@@ -5880,6 +5993,16 @@ export default function App() {
                 }`}
               >
                 🏭 Wholesale Hub
+              </button>
+              <button
+                onClick={() => setAuthForm(f => ({ ...f, account_type: 'hospital' }))}
+                className={`flex-1 py-2 rounded-xl text-xs font-bold transition apple-spring ${
+                  authForm.account_type === 'hospital'
+                    ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm'
+                    : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                🏥 Hospital Hub
               </button>
             </div>
 
@@ -6018,6 +6141,53 @@ export default function App() {
                         currentUser?.subscription_tier === plan.id
                           ? 'bg-slate-100 dark:bg-slate-700 text-slate-500 cursor-default'
                           : 'bg-amber-500 hover:bg-amber-400 active:bg-amber-600 text-slate-950 shadow-sm font-black'
+                      }`}
+                      disabled={currentUser?.subscription_tier === plan.id}
+                    >
+                      {currentUser?.subscription_tier === plan.id ? '✓ Current Plan' : `Select & Pay KSh ${plan.price.toLocaleString()}`}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Hospital Plans */}
+            {authForm.account_type === 'hospital' && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 px-6 pb-6">
+                {(SUBSCRIPTION_PLANS.hospital || []).map((plan) => (
+                  <div key={plan.id} className={`rounded-2xl border p-5 space-y-4 transition relative flex flex-col justify-between ${
+                    plan.popular
+                      ? 'border-blue-500 bg-blue-50/60 dark:bg-blue-950/30 shadow-lg shadow-blue-500/10'
+                      : 'border-slate-200 dark:border-white/10 bg-white dark:bg-slate-800/50'
+                  }`}>
+                    {plan.popular && (
+                      <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 px-3 py-0.5 bg-blue-500 text-white text-[10px] font-bold rounded-full">
+                        Full Hospital Suite
+                      </span>
+                    )}
+                    <div>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">{plan.tag}</span>
+                      <h3 className="font-bold text-slate-900 dark:text-white text-lg mt-0.5">{plan.name}</h3>
+                      <div className="flex items-baseline space-x-1 mt-2">
+                        <span className="text-2xl font-bold text-slate-900 dark:text-white">KSh {plan.price.toLocaleString()}</span>
+                        <span className="text-xs text-slate-500">/month</span>
+                      </div>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">{plan.description}</p>
+                    </div>
+                    <ul className="space-y-1.5 flex-1">
+                      {plan.features.map((f) => (
+                        <li key={f} className="flex items-start space-x-2 text-xs text-slate-700 dark:text-slate-300">
+                          <Check className="w-3.5 h-3.5 text-blue-500 shrink-0 mt-0.5" />
+                          <span>{f}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    <button
+                      onClick={() => setMpesaCheckoutPlan(plan)}
+                      className={`w-full py-2.5 rounded-xl font-bold text-xs transition apple-spring ${
+                        currentUser?.subscription_tier === plan.id
+                          ? 'bg-slate-100 dark:bg-slate-700 text-slate-500 cursor-default'
+                          : 'bg-blue-600 hover:bg-blue-500 text-white shadow-sm'
                       }`}
                       disabled={currentUser?.subscription_tier === plan.id}
                     >
