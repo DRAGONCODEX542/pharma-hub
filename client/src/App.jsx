@@ -3166,6 +3166,7 @@ export default function App() {
               currency={currentUser?.currency_symbol || 'KSh'}
               onCompleteSale={handleSoloSaleSubmit}
               showToast={showToast}
+              authFetch={authFetch}
             />
           )}
 

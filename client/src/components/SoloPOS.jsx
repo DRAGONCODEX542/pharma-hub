@@ -19,7 +19,9 @@ import {
   Sparkles,
   Printer,
   RotateCcw,
-  Pill
+  Pill,
+  HeartPulse,
+  FileText
 } from 'lucide-react';
 
 export default function SoloPOS({
@@ -27,7 +29,8 @@ export default function SoloPOS({
   currency = 'KSh',
   onCompleteSale,
   isSubmitting = false,
-  showToast
+  showToast,
+  authFetch
 }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
@@ -36,9 +39,68 @@ export default function SoloPOS({
   const [paymentMode, setPaymentMode] = useState('cash'); // 'cash', 'mpesa', 'credit'
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
+  const [prescribingDoctor, setPrescribingDoctor] = useState('');
+  const [prescriptionNumber, setPrescriptionNumber] = useState('');
   const [mobileCartOpen, setMobileCartOpen] = useState(false);
   const [completedReceipt, setCompletedReceipt] = useState(null);
   const [justAddedId, setJustAddedId] = useState(null);
+
+  // Hospital Pending Prescriptions Modal / Queue Integration
+  const [hospitalPrescriptions, setHospitalPrescriptions] = useState([]);
+  const [showHospitalPrescModal, setShowHospitalPrescModal] = useState(false);
+  const [loadingHospitalPresc, setLoadingHospitalPresc] = useState(false);
+
+  // Fetch pending hospital prescriptions for 1-click loading into cart
+  const fetchHospitalPrescriptions = async () => {
+    if (!authFetch) return;
+    try {
+      setLoadingHospitalPresc(true);
+      const res = await authFetch('/api/hospital/prescriptions/pending');
+      const data = await res.json();
+      if (res.ok) {
+        setHospitalPrescriptions(data.prescriptions || []);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoadingHospitalPresc(false);
+    }
+  };
+
+  // 1-Click Load Electronic Prescription directly into SoloPOS Cart
+  const handleLoadPrescriptionIntoCart = (prescription) => {
+    setCustomerName(prescription.patient_name || '');
+    setCustomerPhone(prescription.phone || '');
+    setPrescribingDoctor(prescription.prescribing_doctor || '');
+    setPrescriptionNumber(prescription.opd_number || '');
+
+    // Add matching or custom items into cart
+    const newCartItems = [...cart];
+    (prescription.items || []).forEach(item => {
+      // Find matching drug in current pharmacy catalog
+      const matched = drugs.find(d => 
+        (item.medicine_id && String(d.id) === String(item.medicine_id)) ||
+        (d.brand_name && d.brand_name.toLowerCase() === item.medicine_name?.toLowerCase())
+      );
+
+      const itemPrice = matched?.pack_price || matched?.unit_price || 150;
+      newCartItems.push({
+        id: matched ? matched.id : `custom-${Date.now()}-${Math.random()}`,
+        brand_name: item.medicine_name || matched?.brand_name || 'Rx Medication',
+        generic_name: matched?.molecule_name || matched?.generic_name || item.instructions || '',
+        price: itemPrice,
+        qty: Number(item.quantity) || 1,
+        dosage_form: matched?.dosage_form || 'Tablet',
+        units_per_pack: matched?.units_per_pack || 10,
+        available_packs: matched?.available_packs ?? 999,
+        is_prescription: true
+      });
+    });
+
+    setCart(newCartItems);
+    setShowHospitalPrescModal(false);
+    if (showToast) showToast(`Loaded e-prescription for ${prescription.patient_name} directly into cart!`, 'success');
+  };
 
   // Categories
   const categories = ['All', 'OTC', 'Prescription', 'Pain Relief', 'Antibiotics', 'Vitamins', 'Cough & Cold'];
@@ -272,6 +334,37 @@ export default function SoloPOS({
         {/* ======================================================== */}
         <div className="lg:col-span-7 xl:col-span-8 space-y-4">
           
+          {/* Hospital EHR Direct E-Prescription Inbound Alert Banner */}
+          {authFetch && (
+            <div className="flex items-center justify-between p-3.5 bg-gradient-to-r from-blue-600/10 via-indigo-600/10 to-teal-600/10 dark:from-blue-900/30 dark:to-teal-900/30 border border-blue-500/20 dark:border-blue-500/30 rounded-2xl shadow-xs">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                  <HeartPulse className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="font-extrabold text-slate-900 dark:text-white text-xs flex items-center gap-1.5">
+                    <span>Hospital Doctor E-Prescriptions</span>
+                    <span className="px-1.5 py-0.2 bg-blue-500 text-white rounded-full text-[9px] font-black">Live Sync</span>
+                  </h4>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Pull prescriptions directly transmitted from doctor consultation rooms into this POS counter.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  fetchHospitalPrescriptions();
+                  setShowHospitalPrescModal(true);
+                }}
+                className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition flex items-center space-x-1 apple-spring shrink-0 shadow-xs"
+              >
+                <span>View Rx Queue</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+
           {/* iOS Liquid Glass Search Box */}
           <div className="relative">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 dark:text-slate-500 pointer-events-none" />
@@ -856,6 +949,87 @@ export default function SoloPOS({
               </button>
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* HOSPITAL E-PRESCRIPTION PULL & 1-CLICK DISPENSE MODAL    */}
+      {/* ======================================================== */}
+      {showHospitalPrescModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fade-in">
+          <div className="w-full max-w-2xl rounded-3xl p-6 bg-white dark:bg-slate-900 border border-black/[0.08] dark:border-white/10 shadow-2xl space-y-4 max-h-[85vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-black/[0.05] dark:border-white/[0.05]">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center">
+                  <HeartPulse className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-900 dark:text-white text-base">
+                    Hospital Doctor Inbound Prescriptions
+                  </h3>
+                  <p className="text-xs text-slate-500">Live electronic prescriptions ready for dispensing</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowHospitalPrescModal(false)}
+                className="p-1.5 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {loadingHospitalPresc ? (
+              <div className="py-12 text-center text-slate-400 text-xs">
+                Fetching hospital prescription queue...
+              </div>
+            ) : hospitalPrescriptions.length === 0 ? (
+              <div className="py-12 text-center text-slate-400 text-xs">
+                No active hospital prescriptions waiting in queue.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {hospitalPrescriptions.map((p) => (
+                  <div
+                    key={p.id}
+                    className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-black/[0.06] dark:border-white/[0.08] flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                  >
+                    <div className="space-y-1.5">
+                      <div className="flex items-center space-x-2">
+                        <span className="font-bold text-slate-900 dark:text-white text-sm">{p.patient_name}</span>
+                        <span className="font-mono text-xs text-blue-600 dark:text-blue-400 font-bold">{p.opd_number}</span>
+                        <span className="text-[10px] bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 font-bold px-2 py-0.5 rounded-full">
+                          {p.insurance_provider}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-500">
+                        Doctor: <strong className="text-slate-700 dark:text-slate-300">{p.prescribing_doctor}</strong> • Diagnosis: <em>{p.diagnosis || 'Clinical OPD'}</em>
+                      </p>
+                      <div className="flex flex-wrap gap-1.5 pt-1">
+                        {(p.items || []).map((it, idx) => (
+                          <span
+                            key={idx}
+                            className="px-2 py-0.5 bg-white dark:bg-slate-700 rounded-md text-[11px] font-medium text-slate-700 dark:text-slate-200 border border-black/[0.05]"
+                          >
+                            💊 {it.medicine_name} ({it.dosage}, {it.frequency}) × {it.quantity}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => handleLoadPrescriptionIntoCart(p)}
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 apple-press shrink-0"
+                    >
+                      <span>Load into Cart</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
