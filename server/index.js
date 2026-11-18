@@ -511,7 +511,9 @@ function formatUserResponse(user) {
     is_active: user.is_active !== 0,
     currency_symbol: user.currency_symbol || 'KSh',
     phone: user.phone || '',
-    address: user.address || ''
+    address: user.address || '',
+    is_onboarded: user.is_onboarded === 1,
+    has_pin: !!user.pin_code
   };
 }
 
@@ -1525,7 +1527,94 @@ app.delete('/api/depot/staff/:id', (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// --- STATION OPERATOR AUTHENTICATION & SWITCH ---
+// --- INITIAL ORGANIZATION ONBOARDING WIZARD ---
+app.post('/api/auth/onboarding', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ error: 'Authentication required' });
+
+    const { facility_name, admin_username, pin_code, password, portal_choice } = req.body;
+    if (!facility_name || !facility_name.trim()) {
+      return res.status(400).json({ error: 'Facility / Business Name is required' });
+    }
+    if (!admin_username || !admin_username.trim()) {
+      return res.status(400).json({ error: 'Administrator Name / Username is required' });
+    }
+
+    const updates = [];
+    const params = [];
+
+    updates.push('pharmacy_name = ?');
+    params.push(facility_name.trim());
+
+    updates.push('name = ?');
+    params.push(admin_username.trim());
+
+    if (pin_code && pin_code.trim()) {
+      updates.push('pin_code = ?');
+      params.push(pin_code.trim());
+    }
+
+    if (password && password.length >= 6) {
+      updates.push('password_hash = ?');
+      params.push(hashPassword(password));
+    }
+
+    const finalAccountType = (portal_choice === 'wholesale' || portal_choice === 'solo') ? portal_choice : 'organization';
+    updates.push('account_type = ?');
+    params.push(finalAccountType);
+
+    updates.push('is_onboarded = 1');
+    params.push(user.id);
+
+    db.prepare(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+
+    // If wholesale, ensure wholesale_depots entry has updated depot_name
+    if (finalAccountType === 'wholesale') {
+      const existingDepot = db.prepare('SELECT id FROM wholesale_depots WHERE user_id = ?').get(user.id);
+      if (existingDepot) {
+        db.prepare('UPDATE wholesale_depots SET depot_name = ? WHERE id = ?').run(facility_name.trim(), existingDepot.id);
+      } else {
+        const nowStr = new Date().toISOString().replace('T', ' ').slice(0, 19);
+        db.prepare(`
+          INSERT INTO wholesale_depots (user_id, depot_name, currency, country, county, created_at)
+          VALUES (?, ?, 'KSh', 'Kenya', 'Nairobi', ?)
+        `).run(user.id, facility_name.trim(), nowStr);
+      }
+    }
+
+    const freshUser = db.prepare('SELECT * FROM users WHERE id = ?').get(user.id);
+    const orgId = freshUser.organization_id || freshUser.id;
+
+    // Clock in administrator session log
+    try {
+      db.prepare(`
+        INSERT INTO staff_shift_logs (organization_id, portal, staff_id, staff_name, staff_role, action, station_device)
+        VALUES (?, ?, ?, ?, 'Administrator', 'clock_in', 'Onboarding Station')
+      `).run(orgId, finalAccountType === 'wholesale' ? 'wholesale' : 'pharmacy', String(user.id), admin_username.trim());
+    } catch (e) {}
+
+    const adminOperator = {
+      id: freshUser.id,
+      name: admin_username.trim(),
+      role: finalAccountType === 'wholesale' ? 'depot_admin' : 'admin',
+      staff_title: 'Primary Administrator',
+      permissions: ['all'],
+      allowed_departments: ['All']
+    };
+
+    res.json({
+      success: true,
+      message: 'Onboarding complete',
+      user: formatUserResponse(freshUser),
+      operator: adminOperator
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- STATION OPERATOR AUTHENTICATION, SWITCH & LOGOUT ---
 app.post('/api/auth/station-switch', (req, res) => {
   try {
     const user = getAuthUser(req);
@@ -1545,6 +1634,15 @@ app.post('/api/auth/station-switch', (req, res) => {
           return res.status(401).json({ error: 'Incorrect administrator PIN' });
         }
       }
+
+      // Record clock-in log
+      try {
+        db.prepare(`
+          INSERT INTO staff_shift_logs (organization_id, portal, staff_id, staff_name, staff_role, action, station_device)
+          VALUES (?, 'pharmacy', ?, ?, 'Administrator', 'clock_in', 'Workstation')
+        `).run(orgId, String(adminUser.id), adminUser.name);
+      } catch (e) {}
+
       return res.json({
         success: true,
         operator: {
@@ -1573,6 +1671,14 @@ app.post('/api/auth/station-switch', (req, res) => {
     try { perms = JSON.parse(target.permissions || '[]'); } catch (e) {}
     try { deps = JSON.parse(target.allowed_departments || '[]'); } catch (e) {}
 
+    // Record clock-in log
+    try {
+      db.prepare(`
+        INSERT INTO staff_shift_logs (organization_id, portal, staff_id, staff_name, staff_role, action, station_device)
+        VALUES (?, 'pharmacy', ?, ?, ?, 'clock_in', 'Workstation')
+      `).run(orgId, String(target.id), target.name, target.staff_title || target.role);
+    } catch (e) {}
+
     return res.json({
       success: true,
       operator: {
@@ -1584,6 +1690,48 @@ app.post('/api/auth/station-switch', (req, res) => {
         allowed_departments: deps
       }
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/auth/station-logout', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ error: 'Authentication required' });
+    const { staff_id, staff_name, staff_role } = req.body;
+    const orgId = user.organization_id || user.id;
+
+    if (staff_name) {
+      try {
+        db.prepare(`
+          INSERT INTO staff_shift_logs (organization_id, portal, staff_id, staff_name, staff_role, action, station_device)
+          VALUES (?, 'pharmacy', ?, ?, ?, 'clock_out', 'Workstation')
+        `).run(orgId, String(staff_id || orgId), staff_name, staff_role || 'Staff');
+      } catch (e) {}
+    }
+
+    res.json({ success: true, message: 'Shift ended and logged' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/organization/shift-logs', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ error: 'Authentication required' });
+    const orgId = user.organization_id || user.id;
+
+    const logs = db.prepare(`
+      SELECT id, staff_id, staff_name, staff_role, action, station_device, created_at
+      FROM staff_shift_logs
+      WHERE organization_id = ? AND portal = 'pharmacy'
+      ORDER BY id DESC
+      LIMIT 100
+    `).all(orgId);
+
+    res.json({ success: true, logs: logs || [] });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1602,6 +1750,14 @@ app.post('/api/depot/station-switch', (req, res) => {
       if (admin_password && !verifyPassword(admin_password, user.password_hash)) {
         return res.status(401).json({ error: 'Incorrect depot administrator password' });
       }
+
+      try {
+        db.prepare(`
+          INSERT INTO staff_shift_logs (organization_id, portal, staff_id, staff_name, staff_role, action, station_device)
+          VALUES (?, 'wholesale', ?, ?, 'Depot Admin', 'clock_in', 'Depot Workstation')
+        `).run(depot.id, 'admin', user.name);
+      } catch (e) {}
+
       return res.json({
         success: true,
         operator: {
@@ -1624,6 +1780,13 @@ app.post('/api/depot/station-switch', (req, res) => {
     let perms = [];
     try { perms = JSON.parse(staff.custom_permissions || '[]'); } catch (e) {}
 
+    try {
+      db.prepare(`
+        INSERT INTO staff_shift_logs (organization_id, portal, staff_id, staff_name, staff_role, action, station_device)
+        VALUES (?, 'wholesale', ?, ?, ?, 'clock_in', 'Depot Workstation')
+      `).run(depot.id, String(staff.id), staff.name, staff.role);
+    } catch (e) {}
+
     return res.json({
       success: true,
       operator: {
@@ -1635,6 +1798,50 @@ app.post('/api/depot/station-switch', (req, res) => {
         permissions: perms
       }
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/depot/station-logout', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user || user.account_type !== 'wholesale') return res.status(403).json({ error: 'Wholesale access required' });
+    const depot = db.prepare('SELECT id FROM wholesale_depots WHERE user_id = ?').get(user.id);
+    if (!depot) return res.status(404).json({ error: 'Depot not found' });
+    const { staff_id, staff_name, staff_role } = req.body;
+
+    if (staff_name) {
+      try {
+        db.prepare(`
+          INSERT INTO staff_shift_logs (organization_id, portal, staff_id, staff_name, staff_role, action, station_device)
+          VALUES (?, 'wholesale', ?, ?, ?, 'clock_out', 'Depot Workstation')
+        `).run(depot.id, String(staff_id || 'admin'), staff_name, staff_role || 'Staff');
+      } catch (e) {}
+    }
+
+    res.json({ success: true, message: 'Depot shift ended and logged' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/depot/shift-logs', (req, res) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user || user.account_type !== 'wholesale') return res.status(403).json({ error: 'Wholesale access required' });
+    const depot = db.prepare('SELECT id FROM wholesale_depots WHERE user_id = ?').get(user.id);
+    if (!depot) return res.status(404).json({ error: 'Depot not found' });
+
+    const logs = db.prepare(`
+      SELECT id, staff_id, staff_name, staff_role, action, station_device, created_at
+      FROM staff_shift_logs
+      WHERE organization_id = ? AND portal = 'wholesale'
+      ORDER BY id DESC
+      LIMIT 100
+    `).all(depot.id);
+
+    res.json({ success: true, logs: logs || [] });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -3074,6 +3281,400 @@ app.get('/api/market-prices', (req, res) => {
       medicine: q,
       message: `No clinical market benchmarks found for "${q}". Please check the spelling or search by generic chemical formula (e.g. Metronidazole, Amoxicillin, Paracetamol).`
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── HOSPITAL MANAGEMENT SYSTEM (HMS) API ROUTES ───────────────────────────
+
+// 1. Get Patients & Search
+app.get('/api/hospital/patients', (req, res) => {
+  try {
+    const user = getAuthenticatedUser(req);
+    const orgId = user?.organization_id || user?.id || 1;
+    const search = req.query.q ? req.query.q.trim() : '';
+
+    let query = 'SELECT * FROM hospital_patients WHERE organization_id = ?';
+    const params = [orgId];
+
+    if (search) {
+      query += ' AND (full_name LIKE ? OR opd_number LIKE ? OR phone LIKE ? OR national_id LIKE ?)';
+      params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+    }
+
+    query += ' ORDER BY created_at DESC LIMIT 50';
+    const patients = db.prepare(query).all(...params);
+    res.json({ patients });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 2. Register New Patient (Reception)
+app.post('/api/hospital/patients', (req, res) => {
+  try {
+    const user = getAuthenticatedUser(req);
+    const orgId = user?.organization_id || user?.id || 1;
+    const {
+      full_name, age, gender, phone, national_id, address,
+      emergency_contact, insurance_provider, insurance_policy_no,
+      blood_group, allergies
+    } = req.body;
+
+    if (!full_name || !full_name.trim()) {
+      return res.status(400).json({ error: 'Patient full name is required' });
+    }
+
+    // Auto-generate OPD number
+    const countRow = db.prepare('SELECT COUNT(*) as cnt FROM hospital_patients WHERE organization_id = ?').get(orgId);
+    const opdNumber = `HOSP-${new Date().getFullYear()}-${String((countRow?.cnt || 0) + 1).padStart(4, '0')}`;
+
+    const stmt = db.prepare(`
+      INSERT INTO hospital_patients (
+        organization_id, opd_number, full_name, age, gender, phone,
+        national_id, address, emergency_contact, insurance_provider,
+        insurance_policy_no, blood_group, allergies
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    const result = stmt.run(
+      orgId, opdNumber, full_name.trim(), age ? Number(age) : null,
+      gender || 'Other', phone || '', national_id || '', address || '',
+      emergency_contact || '', insurance_provider || 'Cash',
+      insurance_policy_no || '', blood_group || '', allergies || ''
+    );
+
+    const newPatient = db.prepare('SELECT * FROM hospital_patients WHERE id = ?').get(result.lastInsertRowid);
+    res.status(201).json({ message: 'Patient registered successfully', patient: newPatient });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 3. Hospital Queue (Triage, Doctor, Pharmacy, Lab, Completed)
+app.get('/api/hospital/queue', (req, res) => {
+  try {
+    const user = getAuthenticatedUser(req);
+    const orgId = user?.organization_id || user?.id || 1;
+    const stage = req.query.stage; // optional filter
+
+    let sql = `
+      SELECT v.*, p.full_name as patient_name, p.opd_number, p.age, p.gender, p.phone,
+             p.insurance_provider, p.blood_group, p.allergies
+      FROM hospital_visits v
+      JOIN hospital_patients p ON v.patient_id = p.id
+      WHERE v.organization_id = ? AND v.status = 'active'
+    `;
+    const params = [orgId];
+
+    if (stage) {
+      sql += ' AND v.stage = ?';
+      params.push(stage);
+    }
+
+    sql += ` ORDER BY 
+      CASE v.triage_priority 
+        WHEN 'emergency' THEN 1 
+        WHEN 'urgent' THEN 2 
+        ELSE 3 
+      END ASC, v.visit_date ASC`;
+
+    const visits = db.prepare(sql).all(...params);
+    res.json({ queue: visits });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 4. Start New Visit / Check-in Patient (Reception sends to Triage or Doctor)
+app.post('/api/hospital/visits', (req, res) => {
+  try {
+    const user = getAuthenticatedUser(req);
+    const orgId = user?.organization_id || user?.id || 1;
+    const { patient_id, initial_stage = 'triage', priority = 'normal', assigned_doctor } = req.body;
+
+    if (!patient_id) {
+      return res.status(400).json({ error: 'patient_id is required' });
+    }
+
+    const stmt = db.prepare(`
+      INSERT INTO hospital_visits (
+        organization_id, patient_id, stage, triage_priority, assigned_doctor
+      ) VALUES (?, ?, ?, ?, ?)
+    `);
+
+    const result = stmt.run(orgId, patient_id, initial_stage, priority, assigned_doctor || null);
+    const newVisit = db.prepare(`
+      SELECT v.*, p.full_name as patient_name, p.opd_number, p.age, p.gender, p.phone
+      FROM hospital_visits v
+      JOIN hospital_patients p ON v.patient_id = p.id
+      WHERE v.id = ?
+    `).get(result.lastInsertRowid);
+
+    res.status(201).json({ message: 'Patient queued for consultation', visit: newVisit });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 5. Update Vitals & Triage (Nursing Station)
+app.put('/api/hospital/visits/:id/triage', (req, res) => {
+  try {
+    const user = getAuthenticatedUser(req);
+    const orgId = user?.organization_id || user?.id || 1;
+    const visitId = req.params.id;
+    const {
+      bp_systolic, bp_diastolic, pulse_rate, temperature,
+      weight_kg, spo2, blood_sugar, triage_priority,
+      triage_notes, next_stage = 'doctor', assigned_doctor, ward_bed
+    } = req.body;
+
+    const stmt = db.prepare(`
+      UPDATE hospital_visits
+      SET bp_systolic = ?, bp_diastolic = ?, pulse_rate = ?, temperature = ?,
+          weight_kg = ?, spo2 = ?, blood_sugar = ?, triage_priority = ?,
+          triage_notes = ?, stage = ?, assigned_doctor = coalesce(?, assigned_doctor),
+          ward_bed = coalesce(?, ward_bed)
+      WHERE id = ? AND organization_id = ?
+    `);
+
+    stmt.run(
+      bp_systolic ? Number(bp_systolic) : null,
+      bp_diastolic ? Number(bp_diastolic) : null,
+      pulse_rate ? Number(pulse_rate) : null,
+      temperature ? Number(temperature) : null,
+      weight_kg ? Number(weight_kg) : null,
+      spo2 ? Number(spo2) : null,
+      blood_sugar ? Number(blood_sugar) : null,
+      triage_priority || 'normal',
+      triage_notes || '',
+      next_stage,
+      assigned_doctor || null,
+      ward_bed || null,
+      visitId,
+      orgId
+    );
+
+    res.json({ message: 'Vitals and triage saved successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 6. Doctor Consultation Notes & Diagnosis
+app.put('/api/hospital/visits/:id/consultation', (req, res) => {
+  try {
+    const user = getAuthenticatedUser(req);
+    const orgId = user?.organization_id || user?.id || 1;
+    const visitId = req.params.id;
+    const { doctor_notes, diagnosis, next_stage = 'pharmacy' } = req.body;
+
+    const stmt = db.prepare(`
+      UPDATE hospital_visits
+      SET doctor_notes = ?, diagnosis = ?, stage = ?,
+          assigned_doctor = coalesce(assigned_doctor, ?)
+      WHERE id = ? AND organization_id = ?
+    `);
+
+    stmt.run(doctor_notes || '', diagnosis || '', next_stage, user?.name || 'Dr. On Duty', visitId, orgId);
+    res.json({ message: 'Doctor consultation saved' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 7. Electronic Prescription (Doctor -> Pharmacy Direct Sync)
+app.post('/api/hospital/prescriptions', (req, res) => {
+  try {
+    const user = getAuthenticatedUser(req);
+    const orgId = user?.organization_id || user?.id || 1;
+    const { visit_id, patient_id, items, prescribing_doctor } = req.body;
+
+    if (!visit_id || !patient_id || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'visit_id, patient_id, and items array are required' });
+    }
+
+    const prescStmt = db.prepare(`
+      INSERT INTO hospital_prescriptions (
+        organization_id, visit_id, patient_id, prescribing_doctor
+      ) VALUES (?, ?, ?, ?)
+    `);
+
+    const prescRes = prescStmt.run(
+      orgId, visit_id, patient_id,
+      prescribing_doctor || user?.name || 'Hospital Doctor'
+    );
+    const prescriptionId = prescRes.lastInsertRowid;
+
+    const itemStmt = db.prepare(`
+      INSERT INTO hospital_prescription_items (
+        prescription_id, medicine_id, medicine_name, dosage,
+        frequency, duration_days, quantity, instructions
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    for (const it of items) {
+      itemStmt.run(
+        prescriptionId,
+        it.medicine_id || null,
+        it.medicine_name || 'Generic Medicine',
+        it.dosage || '1 tab',
+        it.frequency || 'TID (3x daily)',
+        it.duration_days ? Number(it.duration_days) : 5,
+        it.quantity ? Number(it.quantity) : 1,
+        it.instructions || ''
+      );
+    }
+
+    // Automatically advance patient stage to pharmacy
+    db.prepare('UPDATE hospital_visits SET stage = ? WHERE id = ? AND organization_id = ?')
+      .run('pharmacy', visit_id, orgId);
+
+    res.status(201).json({
+      message: 'Prescription transmitted to Hospital Pharmacy POS in real time',
+      prescription_id: prescriptionId
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 8. Get Pending Prescriptions for Pharmacy POS
+app.get('/api/hospital/prescriptions/pending', (req, res) => {
+  try {
+    const user = getAuthenticatedUser(req);
+    const orgId = user?.organization_id || user?.id || 1;
+
+    const prescriptions = db.prepare(`
+      SELECT pr.*, p.full_name as patient_name, p.opd_number, p.age, p.gender, p.phone,
+             p.insurance_provider, v.diagnosis
+      FROM hospital_prescriptions pr
+      JOIN hospital_patients p ON pr.patient_id = p.id
+      JOIN hospital_visits v ON pr.visit_id = v.id
+      WHERE pr.organization_id = ? AND pr.status = 'pending'
+      ORDER BY pr.created_at ASC
+    `).all(orgId);
+
+    // Fetch items for each prescription
+    const getItems = db.prepare(`
+      SELECT pi.*, m.pack_price, m.unit_price, m.units_per_pack
+      FROM hospital_prescription_items pi
+      LEFT JOIN medicines m ON pi.medicine_id = m.id
+      WHERE pi.prescription_id = ?
+    `);
+
+    const result = prescriptions.map(p => ({
+      ...p,
+      items: getItems.all(p.id)
+    }));
+
+    res.json({ prescriptions: result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 9. Dispense / Fulfill Prescription in Hospital Pharmacy
+app.put('/api/hospital/prescriptions/:id/dispense', (req, res) => {
+  try {
+    const user = getAuthenticatedUser(req);
+    const orgId = user?.organization_id || user?.id || 1;
+    const prescId = req.params.id;
+
+    db.prepare(`
+      UPDATE hospital_prescriptions
+      SET status = 'dispensed', dispensed_at = datetime('now')
+      WHERE id = ? AND organization_id = ?
+    `).run(prescId, orgId);
+
+    // Update items status
+    db.prepare('UPDATE hospital_prescription_items SET status = "dispensed" WHERE prescription_id = ?').run(prescId);
+
+    // If visit has no more pending orders, mark visit as completed
+    const presc = db.prepare('SELECT visit_id FROM hospital_prescriptions WHERE id = ?').get(prescId);
+    if (presc?.visit_id) {
+      db.prepare('UPDATE hospital_visits SET stage = "completed", status = "discharged" WHERE id = ?').run(presc.visit_id);
+    }
+
+    res.json({ message: 'Prescription marked as dispensed & patient visit completed' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 10. Lab Orders (Doctor -> Lab -> Doctor)
+app.post('/api/hospital/lab-orders', (req, res) => {
+  try {
+    const user = getAuthenticatedUser(req);
+    const orgId = user?.organization_id || user?.id || 1;
+    const { visit_id, patient_id, test_name, clinical_indication } = req.body;
+
+    if (!visit_id || !patient_id || !test_name) {
+      return res.status(400).json({ error: 'visit_id, patient_id, and test_name are required' });
+    }
+
+    const stmt = db.prepare(`
+      INSERT INTO hospital_lab_orders (
+        organization_id, visit_id, patient_id, test_name,
+        clinical_indication, ordered_by
+      ) VALUES (?, ?, ?, ?, ?, ?)
+    `);
+
+    const result = stmt.run(
+      orgId, visit_id, patient_id, test_name,
+      clinical_indication || '', user?.name || 'Doctor'
+    );
+
+    // Route patient to lab stage
+    db.prepare('UPDATE hospital_visits SET stage = "lab" WHERE id = ? AND organization_id = ?')
+      .run(visit_id, orgId);
+
+    res.status(201).json({ message: 'Lab test ordered', lab_order_id: result.lastInsertRowid });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/hospital/lab-orders', (req, res) => {
+  try {
+    const user = getAuthenticatedUser(req);
+    const orgId = user?.organization_id || user?.id || 1;
+
+    const orders = db.prepare(`
+      SELECT lo.*, p.full_name as patient_name, p.opd_number, p.gender, p.age
+      FROM hospital_lab_orders lo
+      JOIN hospital_patients p ON lo.patient_id = p.id
+      WHERE lo.organization_id = ?
+      ORDER BY lo.created_at DESC LIMIT 50
+    `).all(orgId);
+
+    res.json({ lab_orders: orders });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/hospital/lab-orders/:id/result', (req, res) => {
+  try {
+    const user = getAuthenticatedUser(req);
+    const orgId = user?.organization_id || user?.id || 1;
+    const orderId = req.params.id;
+    const { result_summary } = req.body;
+
+    db.prepare(`
+      UPDATE hospital_lab_orders
+      SET result_summary = ?, status = 'completed', completed_at = datetime('now')
+      WHERE id = ? AND organization_id = ?
+    `).run(result_summary || 'Normal / Negative', orderId, orgId);
+
+    // Send patient back to doctor with results
+    const order = db.prepare('SELECT visit_id FROM hospital_lab_orders WHERE id = ?').get(orderId);
+    if (order?.visit_id) {
+      db.prepare('UPDATE hospital_visits SET stage = "doctor" WHERE id = ?').run(order.visit_id);
+    }
+
+    res.json({ message: 'Lab result submitted and patient routed back to doctor' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

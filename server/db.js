@@ -224,7 +224,26 @@ export function initDatabase() {
   try { db.exec("ALTER TABLE users ADD COLUMN is_active INTEGER DEFAULT 1;"); } catch (e) {}
   try { db.exec("ALTER TABLE users ADD COLUMN work_domain TEXT;"); } catch (e) {}
   try { db.exec("ALTER TABLE users ADD COLUMN pin_code TEXT;"); } catch (e) {}
+  try { db.exec("ALTER TABLE users ADD COLUMN is_onboarded INTEGER DEFAULT 0;"); } catch (e) {}
   try { db.exec("ALTER TABLE depot_staff ADD COLUMN pin_code TEXT;"); } catch (e) {}
+
+  // Staff Shift & Attendance Audit Logs Table
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS staff_shift_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        organization_id INTEGER NOT NULL,
+        portal TEXT DEFAULT 'pharmacy',
+        staff_id TEXT NOT NULL,
+        staff_name TEXT NOT NULL,
+        staff_role TEXT NOT NULL,
+        action TEXT NOT NULL,
+        station_device TEXT,
+        created_at TEXT DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_shift_logs_org ON staff_shift_logs(organization_id, created_at);
+    `);
+  } catch (e) {}
 
   // Backfill existing users with 30-day trial and self-organization id
   try {
@@ -295,6 +314,93 @@ export function initDatabase() {
       WHERE form_category IS NULL OR form_category = '';
     `);
   } catch (e) {}
+
+  // ── Hospital Management System (HMS) Tables ─────────────────────────────
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS hospital_patients (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        organization_id INTEGER NOT NULL,
+        opd_number TEXT NOT NULL,
+        full_name TEXT NOT NULL,
+        age INTEGER,
+        gender TEXT,
+        phone TEXT,
+        national_id TEXT,
+        address TEXT,
+        emergency_contact TEXT,
+        insurance_provider TEXT DEFAULT 'Cash',
+        insurance_policy_no TEXT,
+        blood_group TEXT,
+        allergies TEXT,
+        created_at TEXT DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_hosp_patients_org ON hospital_patients(organization_id, opd_number);
+
+      CREATE TABLE IF NOT EXISTS hospital_visits (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        organization_id INTEGER NOT NULL,
+        patient_id INTEGER NOT NULL REFERENCES hospital_patients(id) ON DELETE CASCADE,
+        visit_date TEXT DEFAULT (datetime('now')),
+        stage TEXT DEFAULT 'triage', -- 'triage', 'doctor', 'lab', 'pharmacy', 'completed'
+        triage_priority TEXT DEFAULT 'normal', -- 'emergency', 'urgent', 'normal'
+        bp_systolic INTEGER,
+        bp_diastolic INTEGER,
+        pulse_rate INTEGER,
+        temperature REAL,
+        weight_kg REAL,
+        spo2 INTEGER,
+        blood_sugar REAL,
+        triage_notes TEXT,
+        assigned_doctor TEXT,
+        doctor_notes TEXT,
+        diagnosis TEXT,
+        ward_bed TEXT,
+        status TEXT DEFAULT 'active' -- 'active', 'discharged'
+      );
+      CREATE INDEX IF NOT EXISTS idx_hosp_visits_org ON hospital_visits(organization_id, stage, status);
+
+      CREATE TABLE IF NOT EXISTS hospital_prescriptions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        organization_id INTEGER NOT NULL,
+        visit_id INTEGER NOT NULL REFERENCES hospital_visits(id) ON DELETE CASCADE,
+        patient_id INTEGER NOT NULL REFERENCES hospital_patients(id) ON DELETE CASCADE,
+        prescribing_doctor TEXT NOT NULL,
+        status TEXT DEFAULT 'pending', -- 'pending', 'dispensed', 'cancelled'
+        created_at TEXT DEFAULT (datetime('now')),
+        dispensed_at TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS hospital_prescription_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        prescription_id INTEGER NOT NULL REFERENCES hospital_prescriptions(id) ON DELETE CASCADE,
+        medicine_id INTEGER,
+        medicine_name TEXT NOT NULL,
+        dosage TEXT,
+        frequency TEXT,
+        duration_days INTEGER,
+        quantity INTEGER DEFAULT 1,
+        instructions TEXT,
+        status TEXT DEFAULT 'pending' -- 'pending', 'dispensed'
+      );
+
+      CREATE TABLE IF NOT EXISTS hospital_lab_orders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        organization_id INTEGER NOT NULL,
+        visit_id INTEGER NOT NULL REFERENCES hospital_visits(id) ON DELETE CASCADE,
+        patient_id INTEGER NOT NULL REFERENCES hospital_patients(id) ON DELETE CASCADE,
+        test_name TEXT NOT NULL,
+        clinical_indication TEXT,
+        ordered_by TEXT NOT NULL,
+        status TEXT DEFAULT 'pending', -- 'pending', 'sample_collected', 'completed'
+        result_summary TEXT,
+        created_at TEXT DEFAULT (datetime('now')),
+        completed_at TEXT
+      );
+    `);
+  } catch (e) {
+    console.error('Error creating hospital tables:', e);
+  }
 
   // ── Wholesale Portal Tables ──────────────────────────────────────────────
   try {

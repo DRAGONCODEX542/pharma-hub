@@ -51,11 +51,13 @@ import {
   Building,
   Check,
   Briefcase,
-  Lock
+  Lock,
+  HeartPulse
 } from 'lucide-react';
 import SoloPOS from './components/SoloPOS';
 import PharmaGuide from './components/PharmaGuide';
 import WholesaleHub from './components/WholesaleHub';
+import HospitalHub from './components/HospitalHub';
 
 const DEPARTMENTS = [
   { id: 'All', label: 'All Products', icon: '✨' },
@@ -287,6 +289,30 @@ export const ROLE_PRESETS = [
     role: 'pharmacist',
     permissions: ['pos', 'stock_view', 'stock_edit', 'batch_view', 'batch_receive', 'loans_view', 'loans_manage', 'sales_view'],
     desc: 'Complete operational dispensing, batch intake, and patient management'
+  },
+  {
+    id: 'doctor',
+    label: '🩺 Medical Doctor / Clinician',
+    title: 'Medical Officer / Doctor',
+    role: 'doctor',
+    permissions: ['hospital', 'stock_view'],
+    desc: 'Consultation room: review patient vitals, enter diagnoses, and issue real-time e-prescriptions to Pharmacy'
+  },
+  {
+    id: 'nurse',
+    label: '🩹 Nurse / Triage Officer',
+    title: 'Staff Nurse & Triage Officer',
+    role: 'nurse',
+    permissions: ['hospital'],
+    desc: 'Nursing station: take vitals (BP, SpO2, Pulse, Temp), triage severity, and manage ward patient care'
+  },
+  {
+    id: 'receptionist',
+    label: '📋 Front Desk / Receptionist',
+    title: 'Receptionist & Patient Registrar',
+    role: 'receptionist',
+    permissions: ['hospital'],
+    desc: 'Patient intake: register OPD/IPD file numbers, capture insurance details, and queue patients for Triage'
   },
   {
     id: 'admin',
@@ -2804,6 +2830,7 @@ export default function App() {
             { id: 'batches',     label: 'Batch / FEFO',     icon: Boxes, color: 'emerald', perm: 'batch_view' },
             { id: 'loans',       label: 'Customer Loans',   icon: HandCoins, color: 'amber', badge: overdueLoansCount, perm: 'loans_view' },
             { id: 'sales',       label: 'Sales & P&L',      icon: BarChart3, color: 'blue', perm: 'sales_view' },
+            { id: 'hospital',    label: 'Hospital Hub',     icon: HeartPulse, color: 'blue', perm: 'hospital' },
             { id: 'wholesalers', label: 'Wholesale Hub',    icon: Building2, color: 'amber', perm: 'wholesalers' },
             ...(currentUser?.role === 'admin' && currentUser?.account_type !== 'solo' ? [{ id: 'staff', label: 'Staff & Roles', icon: Users, color: 'teal', perm: 'admin' }] : []),
             { id: 'settings',    label: 'Settings',         icon: Settings, color: 'purple', perm: 'settings' },
@@ -2894,6 +2921,7 @@ export default function App() {
                  activeTab === 'batches' ? '🗂️ Batch / FEFO' :
                  activeTab === 'loans' ? '🤝 Customer Loans' :
                  activeTab === 'sales' ? '📈 Sales & P&L' :
+                 activeTab === 'hospital' ? '🏥 Hospital Hub' :
                  activeTab === 'wholesalers' ? '🏭 Wholesale Hub' :
                  activeTab === 'staff' ? '👥 Staff & Roles' :
                  activeTab === 'settings' ? '⚙️ Settings' : 'PharmaHub'}
@@ -4202,6 +4230,19 @@ export default function App() {
                 </>
               )}
             </div>
+          )}
+
+          {/* ============================================================ */}
+          {/* HOSPITAL HUB: CLINICAL EHR, NURSING, DOCTOR & PHARMACY SYNC  */}
+          {/* ============================================================ */}
+          {activeTab === 'hospital' && (
+            <HospitalHub
+              currentUser={currentUser}
+              authFetch={authFetch}
+              showToast={showToast}
+              curr={curr}
+              medicines={medicines}
+            />
           )}
 
           {/* ============================================================ */}
