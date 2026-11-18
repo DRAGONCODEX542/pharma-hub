@@ -1726,6 +1726,7 @@ export default function App() {
         setCurrentUser(data.user);
         setIsDemoGuest(false);
         setShowAuthModal(false);
+        setShowPortalLoginModal(false);
         showToast(`Welcome back, ${data.user.name}!`, 'success');
         fetchAllData();
       } else {
@@ -1783,6 +1784,7 @@ export default function App() {
         setCurrentUser(data.user);
         setIsDemoGuest(false);
         setShowAuthModal(false);
+        setShowPortalLoginModal(false);
         showToast(`Account created for ${data.user.pharmacy_name}!`, 'success');
         fetchAllData();
       } else {
@@ -1811,6 +1813,9 @@ export default function App() {
         ? { credential: credentialResponse.credential }
         : { email: credentialResponse.email, name: credentialResponse.name, picture: credentialResponse.picture };
 
+      // Always send which hub/portal the user is signing into so new accounts get the right account_type
+      payload.account_type = landingPortalCategory || authForm.account_type || 'solo';
+
       const res = await fetch('/api/auth/google', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1823,6 +1828,7 @@ export default function App() {
         setCurrentUser(data.user);
         setIsDemoGuest(false);
         setShowAuthModal(false);
+        setShowPortalLoginModal(false);
         showToast(`Welcome${data.user.name ? ', ' + data.user.name.split(' ')[0] : ''}! 🎉`, 'success');
         fetchAllData();
       } else {
@@ -1848,7 +1854,8 @@ export default function App() {
       }
     }
     if (!activeClientId) {
-      showToast('To enable Google Sign-In, add your GOOGLE_CLIENT_ID in Render environment variables.', 'info');
+      showToast('Google Sign-In is not configured. Please use email/password below.', 'info');
+      return;
     }
     setShowAuthModal(true);
   };

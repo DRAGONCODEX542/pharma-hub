@@ -394,7 +394,9 @@ app.get('/api/auth/config', (req, res) => {
 // Google OAuth — verify credential securely
 app.post('/api/auth/google', authRateLimiter, async (req, res) => {
   try {
-    const { credential, email: directEmail, name: directName, picture: directPicture } = req.body;
+    const { credential, email: directEmail, name: directName, picture: directPicture, account_type: reqAccountType } = req.body;
+    const allowedTypes = ['solo', 'organization', 'wholesale', 'hospital'];
+    const requestedAccountType = allowedTypes.includes(reqAccountType) ? reqAccountType : 'solo';
     let googleId, email, name, picture;
 
     if (credential && !credential.startsWith('mock_')) {
@@ -439,12 +441,17 @@ app.post('/api/auth/google', authRateLimiter, async (req, res) => {
     let user = db.prepare('SELECT * FROM users WHERE google_id = ? OR email = ?').get(googleId, cleanEmail);
 
     if (!user) {
-      // New user — create clean account
-      const pharmacyName = `${name}'s Pharmacy`;
+      // New user — create clean account with the requested hub type
+      const isOrg = ['organization', 'wholesale', 'hospital'].includes(requestedAccountType);
+      const pharmacyName = requestedAccountType === 'hospital'
+        ? `${name}'s Hospital`
+        : requestedAccountType === 'wholesale'
+        ? `${name}'s Wholesale Depot`
+        : `${name}'s Pharmacy`;
       const result = db.prepare(`
-        INSERT INTO users (email, google_id, google_picture, name, pharmacy_name, role, currency_symbol, created_at)
-        VALUES (?, ?, ?, ?, ?, 'admin', 'KSh', ?)
-      `).run(cleanEmail, googleId, picture || '', name || cleanEmail.split('@')[0], pharmacyName, nowStr);
+        INSERT INTO users (email, google_id, google_picture, name, pharmacy_name, role, currency_symbol, account_type, created_at)
+        VALUES (?, ?, ?, ?, ?, 'admin', 'KSh', ?, ?)
+      `).run(cleanEmail, googleId, picture || '', name || cleanEmail.split('@')[0], pharmacyName, requestedAccountType, nowStr);
       user = db.prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid);
     } else if (!user.google_id) {
       // Existing email-password user — link Google account securely
