@@ -1224,6 +1224,19 @@ export default function App() {
             });
             setGoogleButtonReady(true);
           }
+
+          const portalEl = document.getElementById('google-btn-portal-modal');
+          if (portalEl) {
+            portalEl.innerHTML = '';
+            window.google.accounts.id.renderButton(portalEl, {
+              theme: isDarkMode ? 'filled_black' : 'outline',
+              size: 'large',
+              shape: 'pill',
+              width: 320,
+              text: 'continue_with'
+            });
+            setGoogleButtonReady(true);
+          }
         } catch (err) {
           console.warn('Google One Tap auto prompt:', err);
         }
@@ -1231,7 +1244,30 @@ export default function App() {
     };
     const timer = setTimeout(initGis, 800);
     return () => clearTimeout(timer);
-  }, [currentUser, isDemoGuest, googleClientId, showAuthModal, isDarkMode]);
+  }, [currentUser, isDemoGuest, googleClientId, showAuthModal, showPortalLoginModal, isDarkMode]);
+
+  // Dedicated effect to render official Google button when Portal modal opens
+  useEffect(() => {
+    if (!showPortalLoginModal) return;
+    const activeClientId = googleClientId || import.meta.env.VITE_GOOGLE_CLIENT_ID;
+    if (!activeClientId || !window.google?.accounts?.id) return;
+
+    const timer = setTimeout(() => {
+      const portalEl = document.getElementById('google-btn-portal-modal');
+      if (portalEl) {
+        portalEl.innerHTML = '';
+        window.google.accounts.id.renderButton(portalEl, {
+          theme: isDarkMode ? 'filled_black' : 'outline',
+          size: 'large',
+          shape: 'pill',
+          width: 320,
+          text: 'continue_with'
+        });
+        setGoogleButtonReady(true);
+      }
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [showPortalLoginModal, isDarkMode, googleClientId]);
 
   // Filtered medicines for POS
   const filteredMeds = useMemo(() => {
@@ -1699,6 +1735,50 @@ export default function App() {
     }
   };
 
+  // 1-Click Interactive Demo Access for Any Hub
+  const handleEnterDemo = async (portalType = landingPortalCategory || 'hospital') => {
+    try {
+      const res = await fetch('/api/auth/demo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account_type: portalType })
+      });
+      const data = await res.json();
+      if (data.success && data.user) {
+        localStorage.setItem('pharmahub_user', JSON.stringify(data.user));
+        localStorage.setItem('pharmahub_token', data.token);
+        setCurrentUser(data.user);
+        setIsDemoGuest(true);
+        setShowAuthModal(false);
+        setShowPortalLoginModal(false);
+        showToast(`Welcome to ${data.user.pharmacy_name} (Demo Mode)! 🚀`, 'success');
+        fetchAllData();
+        return;
+      }
+    } catch (e) {
+      console.warn('Demo auth API fallback:', e);
+    }
+
+    // Client-side fallback if offline / API error
+    const mockDemoUser = {
+      id: 99999,
+      name: 'Dr. Mwangi (Demo Guest)',
+      email: `demo_${portalType}@pharmahub.app`,
+      pharmacy_name: portalType === 'hospital' ? 'Kenyatta National Demo Hospital' : portalType === 'wholesale' ? 'Nairobi Wholesale Demo Depot' : 'CarePoint Community Chemist',
+      role: 'admin',
+      account_type: portalType,
+      subscription_tier: 'hospital_full',
+      trial_days_remaining: 30,
+      permissions: ['pos', 'inventory_read', 'inventory_write', 'accounting', 'settings', 'staff_management', 'hospital'],
+      allowed_departments: ['All']
+    };
+    setCurrentUser(mockDemoUser);
+    setIsDemoGuest(true);
+    setShowAuthModal(false);
+    setShowPortalLoginModal(false);
+    showToast(`Entered ${portalType.toUpperCase()} interactive demo mode! 🚀`, 'success');
+  };
+
   // User Auth Handlers
   const handleLogin = async (e) => {
     e?.preventDefault();
@@ -1717,7 +1797,11 @@ export default function App() {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: cleanEmail, password: authForm.password })
+        body: JSON.stringify({
+          email: cleanEmail,
+          password: authForm.password,
+          account_type: landingPortalCategory || authForm.account_type || 'solo'
+        })
       });
       const data = await res.json();
       if (data.success) {
@@ -2157,7 +2241,7 @@ export default function App() {
             <div className="flex items-center space-x-3">
               <button
                 type="button"
-                onClick={() => setIsDemoGuest(true)}
+                onClick={() => handleEnterDemo(landingPortalCategory || 'hospital')}
                 className="text-xs font-semibold px-3 py-2 text-slate-300 hover:text-white hover:bg-slate-800 rounded-xl transition"
               >
                 Explore Demo Mode
@@ -2705,10 +2789,7 @@ export default function App() {
               <div className="mt-5 pt-4 border-t border-black/[0.06] dark:border-white/[0.08] text-center">
                 <button
                   type="button"
-                  onClick={() => {
-                    setIsDemoGuest(true);
-                    showToast('Entered interactive demo mode', 'success');
-                  }}
+                  onClick={() => handleEnterDemo(landingPortalCategory || 'hospital')}
                   className="text-xs text-slate-500 hover:text-emerald-700 font-medium inline-flex items-center gap-1"
                 >
                   <span>Just want to take a look?</span>
@@ -2778,20 +2859,25 @@ export default function App() {
                 </button>
               </div>
 
-              {/* One-click Google Sign In */}
-              <button
-                type="button"
-                onClick={triggerGoogleSignIn}
-                className="w-full py-2.5 px-4 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-white/10 font-semibold text-xs text-slate-700 dark:text-slate-200 rounded-2xl flex items-center justify-center space-x-2 transition shadow-xs"
-              >
-                <svg className="w-4 h-4" viewBox="0 0 24 24">
-                  <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                  <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                  <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
-                  <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
-                </svg>
-                <span>Continue with Google</span>
-              </button>
+              {/* Official Google Sign In Container */}
+              <div>
+                <div id="google-btn-portal-modal" className="flex justify-center min-h-[44px]"></div>
+                {!googleButtonReady && (
+                  <button
+                    type="button"
+                    onClick={triggerGoogleSignIn}
+                    className="w-full py-2.5 px-4 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-white/10 font-semibold text-xs text-slate-700 dark:text-slate-200 rounded-2xl flex items-center justify-center space-x-2 transition shadow-xs"
+                  >
+                    <svg className="w-4 h-4" viewBox="0 0 24 24">
+                      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+                      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+                    </svg>
+                    <span>Continue with Google</span>
+                  </button>
+                )}
+              </div>
 
               <div className="relative my-2">
                 <div className="absolute inset-0 flex items-center">
@@ -2866,6 +2952,18 @@ export default function App() {
                   {authMode === 'login' ? 'Sign In & Enter Hub' : 'Complete Setup & Start 30-Day Free Trial'}
                 </button>
               </form>
+
+              {/* Instant Interactive Demo Test Button */}
+              <div className="pt-2 border-t border-slate-100 dark:border-white/10 text-center">
+                <button
+                  type="button"
+                  onClick={() => handleEnterDemo(landingPortalCategory || 'hospital')}
+                  className="w-full py-2.5 px-3 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/40 dark:hover:bg-blue-900/40 border border-blue-200 dark:border-blue-800/40 text-blue-700 dark:text-blue-300 font-bold text-xs rounded-xl flex items-center justify-center space-x-1.5 transition apple-spring"
+                >
+                  <span>⚡ Quick Test?</span>
+                  <span className="underline font-extrabold">Preview {landingPortalCategory === 'hospital' ? 'Hospital Hub' : landingPortalCategory === 'wholesale' ? 'Wholesale Depot' : 'Demo Mode'} Instantly →</span>
+                </button>
+              </div>
             </div>
           </div>
         )}

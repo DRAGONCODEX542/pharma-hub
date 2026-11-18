@@ -285,7 +285,7 @@ app.post('/api/auth/register', authRateLimiter, (req, res) => {
 
 app.post('/api/auth/login', authRateLimiter, (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, account_type: reqAccountType } = req.body;
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password are required' });
     }
@@ -296,6 +296,15 @@ app.post('/api/auth/login', authRateLimiter, (req, res) => {
     if (!user || !verifyPassword(password, user.password_hash)) {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
+
+    // If user explicitly signed in from a specific hub portal (hospital, wholesale, organization):
+    if (reqAccountType && ['solo', 'organization', 'wholesale', 'hospital'].includes(reqAccountType)) {
+      if (user.account_type !== reqAccountType) {
+        db.prepare('UPDATE users SET account_type = ? WHERE id = ?').run(reqAccountType, user.id);
+        user.account_type = reqAccountType;
+      }
+    }
+    ensureUserSystemLicenses(user.organization_id || user.id, user.account_type || 'solo');
 
     const token = crypto.randomBytes(48).toString('hex');
     const isSuperAdmin = user.role === 'superadmin' || (process.env.OWNER_EMAIL && cleanEmail === process.env.OWNER_EMAIL.trim().toLowerCase());
@@ -453,12 +462,23 @@ app.post('/api/auth/google', authRateLimiter, async (req, res) => {
         VALUES (?, ?, ?, ?, ?, 'admin', 'KSh', ?, ?)
       `).run(cleanEmail, googleId, picture || '', name || cleanEmail.split('@')[0], pharmacyName, requestedAccountType, nowStr);
       user = db.prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid);
-    } else if (!user.google_id) {
-      // Existing email-password user — link Google account securely
-      db.prepare('UPDATE users SET google_id = ?, google_picture = ? WHERE id = ?').run(googleId, picture || '', user.id);
-      user.google_id = googleId;
-      user.google_picture = picture || '';
+    } else {
+      if (!user.google_id) {
+        // Existing email-password user — link Google account securely
+        db.prepare('UPDATE users SET google_id = ?, google_picture = ? WHERE id = ?').run(googleId, picture || '', user.id);
+        user.google_id = googleId;
+        user.google_picture = picture || '';
+      }
+      // If user explicitly signed in from a specific hub portal (hospital, wholesale, organization):
+      if (requestedAccountType && ['hospital', 'wholesale', 'organization', 'solo'].includes(requestedAccountType)) {
+        if (user.account_type !== requestedAccountType) {
+          db.prepare('UPDATE users SET account_type = ? WHERE id = ?').run(requestedAccountType, user.id);
+          user.account_type = requestedAccountType;
+        }
+      }
     }
+
+    ensureUserSystemLicenses(user.organization_id || user.id, user.account_type || 'solo');
 
     const isSuperAdmin = user.role === 'superadmin' || (process.env.OWNER_EMAIL && cleanEmail === process.env.OWNER_EMAIL.trim().toLowerCase());
     const token = crypto.randomBytes(48).toString('hex');
@@ -878,7 +898,7 @@ app.post('/api/user/systems/activate-trial', (req, res) => {
     const user = getAuthUser(req);
     if (!user) return res.status(401).json({ error: 'Authentication required' });
     const { system_type } = req.body;
-    if (!['solo', 'organization', 'wholesale'].includes(system_type)) {
+    if (!['solo', 'organization', 'wholesale', 'hospital'].includes(system_type)) {
       return res.status(400).json({ error: 'Invalid system type' });
     }
     const orgId = user.organization_id || user.id;
@@ -921,7 +941,8 @@ app.post('/api/subscription/upgrade', (req, res) => {
     const validTiers = [
       'basic', 'standard', 'premium',
       'org_basic', 'org_enterprise',
-      'wholesale_basic', 'wholesale_growth', 'wholesale_enterprise'
+      'wholesale_basic', 'wholesale_growth', 'wholesale_enterprise',
+      'hospital_clinic', 'hospital_full'
     ];
     if (!validTiers.includes(tier)) {
       return res.status(400).json({ error: 'Invalid subscription tier selected' });
@@ -931,6 +952,7 @@ app.post('/api/subscription/upgrade', (req, res) => {
     let targetAccountType = 'solo';
     if (tier.startsWith('org_')) targetAccountType = 'organization';
     else if (tier.startsWith('wholesale_')) targetAccountType = 'wholesale';
+    else if (tier.startsWith('hospital_')) targetAccountType = 'hospital';
 
     ensureUserSystemLicenses(orgId, targetAccountType);
 
@@ -972,7 +994,26 @@ app.post('/api/user/switch-portal', (req, res) => {
     ensureUserSystemLicenses(orgId, user.account_type || 'solo');
 
     // Anti-theft check: Ensure user has an active paid subscription or running trial for this system
-    const lic = db.prepare('SELECT * FROM user_system_licenses WHERE user_id = ? AND system_type = ?').get(orgId, account_type);
+    let lic = db.prepare('SELECT * FROM user_system_licenses WHERE user_id = ? AND system_type = ?').get(orgId, account_type);
+    if (!lic || lic.status === 'unstarted') {
+      // First time entering this system — automatically start 30-day trial
+      const nowStr = new Date().toISOString().replace('T', ' ').slice(0, 19);
+      const thirtyDaysLater = new Date(Date.now() + 30 * 86400000).toISOString().replace('T', ' ').slice(0, 19);
+      if (!lic) {
+        db.prepare(`
+          INSERT INTO user_system_licenses (user_id, system_type, status, subscription_tier, trial_started_at, trial_ends_at, created_at)
+          VALUES (?, ?, 'trial', 'trial', ?, ?, ?)
+        `).run(orgId, account_type, nowStr, thirtyDaysLater, nowStr);
+      } else {
+        db.prepare(`
+          UPDATE user_system_licenses
+          SET status = 'trial', subscription_tier = 'trial', trial_started_at = ?, trial_ends_at = ?
+          WHERE id = ?
+        `).run(nowStr, thirtyDaysLater, lic.id);
+      }
+      lic = db.prepare('SELECT * FROM user_system_licenses WHERE user_id = ? AND system_type = ?').get(orgId, account_type);
+    }
+
     if (!lic || (lic.status !== 'active' && lic.status !== 'trial')) {
       return res.status(403).json({
         error: `Access to ${account_type.toUpperCase()} requires an active license or trial. Please subscribe to unlock this workspace.`,
@@ -993,6 +1034,44 @@ app.post('/api/user/switch-portal', (req, res) => {
 
     db.prepare('UPDATE users SET account_type = ? WHERE id = ? OR organization_id = ?').run(account_type, orgId, orgId);
     res.json({ success: true, account_type });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Interactive Demo Mode Endpoint — Instant access to any hub without login
+app.post('/api/auth/demo', (req, res) => {
+  try {
+    const { account_type: rawType } = req.body || {};
+    const account_type = ['solo', 'organization', 'wholesale', 'hospital'].includes(rawType) ? rawType : 'hospital';
+    const demoEmail = `demo_${account_type}@pharmahub.app`;
+
+    let user = db.prepare('SELECT * FROM users WHERE email = ?').get(demoEmail);
+    const nowStr = new Date().toISOString().replace('T', ' ').slice(0, 19);
+
+    if (!user) {
+      const hubName = account_type === 'hospital'
+        ? 'Kenyatta National Demo Hospital'
+        : account_type === 'wholesale'
+        ? 'Nairobi Central Wholesale Depot'
+        : account_type === 'organization'
+        ? 'Metropolitan Health Demo Chain'
+        : 'CarePoint Community Chemist';
+
+      const result = db.prepare(`
+        INSERT INTO users (email, name, pharmacy_name, role, currency_symbol, account_type, subscription_tier, is_active, created_at)
+        VALUES (?, ?, ?, 'admin', 'KSh', ?, 'hospital_full', 1, ?)
+      `).run(demoEmail, 'Dr. Mwangi (Demo)', hubName, account_type, nowStr);
+      user = db.prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid);
+    }
+
+    ensureUserSystemLicenses(user.id, account_type);
+
+    const token = 'demo_' + crypto.randomBytes(32).toString('hex');
+    const userObj = formatUserResponse(user);
+    saveSession(token, userObj, 24 * 60 * 60 * 1000);
+
+    res.json({ success: true, token, user: userObj });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
