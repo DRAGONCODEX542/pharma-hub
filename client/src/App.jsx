@@ -386,6 +386,41 @@ export const ROLE_PRESETS = [
   }
 ];
 
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error, errorInfo) {
+    console.error("ErrorBoundary caught error:", error, errorInfo);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-6 text-center">
+          <div className="w-16 h-16 rounded-3xl bg-rose-500/20 text-rose-400 flex items-center justify-center text-2xl font-black mb-4 border border-rose-500/30">
+            🏥
+          </div>
+          <h2 className="text-xl font-bold mb-2">Hospital Hub Module Notice</h2>
+          <p className="text-xs text-slate-400 max-w-md mb-6 leading-relaxed">
+            {this.state.error?.message || "An unexpected error occurred while loading this view."}
+          </p>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-6 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl text-xs font-bold transition shadow-lg shadow-blue-600/30"
+          >
+            Reload Hospital Hub
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function App() {
   const [activeTab, setActiveTab] = useState('pos'); // 'pos', 'dashboard', 'inventory', 'batches', 'loans', 'sales', 'settings', 'staff', 'accounting'
   const [showProfileMenu, setShowProfileMenu] = useState(false);
@@ -2974,32 +3009,36 @@ export default function App() {
   // Dedicated Wholesale Distribution System (Wholesale Hub Portal)
   if (currentUser?.account_type === 'wholesale') {
     return (
-      <WholesaleHub
-        currentUser={currentUser}
-        authFetch={authFetch}
-        showToast={showToast}
-        isDarkMode={isDarkMode}
-        setIsDarkMode={setIsDarkMode}
-        handleLogout={handleLogout}
-        handleSwitchAccountType={handleSwitchAccountType}
-        setShowSubscriptionModal={setShowSubscriptionModal}
-      />
+      <ErrorBoundary>
+        <WholesaleHub
+          currentUser={currentUser}
+          authFetch={authFetch}
+          showToast={showToast}
+          isDarkMode={isDarkMode}
+          setIsDarkMode={setIsDarkMode}
+          handleLogout={handleLogout}
+          handleSwitchAccountType={handleSwitchAccountType}
+          setShowSubscriptionModal={setShowSubscriptionModal}
+        />
+      </ErrorBoundary>
     );
   }
 
   // Dedicated Hospital Management System (Hospital Hub Portal)
   if (currentUser?.account_type === 'hospital') {
     return (
-      <HospitalHub
-        currentUser={currentUser}
-        authFetch={authFetch}
-        showToast={showToast}
-        isDarkMode={isDarkMode}
-        setIsDarkMode={setIsDarkMode}
-        handleLogout={handleLogout}
-        handleSwitchAccountType={handleSwitchAccountType}
-        setShowSubscriptionModal={setShowSubscriptionModal}
-      />
+      <ErrorBoundary>
+        <HospitalHub
+          currentUser={currentUser}
+          authFetch={authFetch}
+          showToast={showToast}
+          isDarkMode={isDarkMode}
+          setIsDarkMode={setIsDarkMode}
+          handleLogout={handleLogout}
+          handleSwitchAccountType={handleSwitchAccountType}
+          setShowSubscriptionModal={setShowSubscriptionModal}
+        />
+      </ErrorBoundary>
     );
   }
 

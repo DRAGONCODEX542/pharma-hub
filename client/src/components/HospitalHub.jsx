@@ -39,7 +39,8 @@ import {
   Eye,
   AlertTriangle,
   Building2,
-  Filter
+  Filter,
+  ShoppingCart
 } from 'lucide-react';
 import SoloPOS from './SoloPOS';
 
