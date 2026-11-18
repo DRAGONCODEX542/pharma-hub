@@ -291,20 +291,36 @@ export const ROLE_PRESETS = [
     desc: 'Complete operational dispensing, batch intake, and patient management'
   },
   {
-    id: 'doctor',
-    label: '🩺 Medical Doctor / Clinician',
-    title: 'Medical Officer / Doctor',
+    id: 'doctor_general',
+    label: '🩺 General Practitioner (GP)',
+    title: 'General Practitioner / Medical Officer',
     role: 'doctor',
     permissions: ['hospital', 'stock_view'],
-    desc: 'Consultation room: review patient vitals, enter diagnoses, and issue real-time e-prescriptions to Pharmacy'
+    desc: 'Consultation room: review vitals, enter diagnoses, check pharmacy drug stock, and issue real-time e-prescriptions'
   },
   {
-    id: 'nurse',
-    label: '🩹 Nurse / Triage Officer',
+    id: 'doctor_specialist',
+    label: '👨‍⚕️ Specialist Consultant',
+    title: 'Consultant Physician / Specialist',
+    role: 'doctor',
+    permissions: ['hospital', 'stock_view'],
+    desc: 'Specialized clinic consultations: Pediatrician, Surgeon, Gynecologist, Cardiologist with full clinical notes & Rx'
+  },
+  {
+    id: 'nurse_triage',
+    label: '🩹 Triage Nurse',
     title: 'Staff Nurse & Triage Officer',
     role: 'nurse',
-    permissions: ['hospital'],
-    desc: 'Nursing station: take vitals (BP, SpO2, Pulse, Temp), triage severity, and manage ward patient care'
+    permissions: ['hospital', 'stock_view'],
+    desc: 'Nursing triage station: capture vital signs (BP, SpO2, Pulse, Temp, Sugar), priority tagging, and forward to doctors'
+  },
+  {
+    id: 'nurse_ward',
+    label: '🛏️ Inpatient Ward Nurse',
+    title: 'Inpatient / Ward Charge Nurse',
+    role: 'nurse',
+    permissions: ['hospital', 'stock_view'],
+    desc: 'Ward care: bed allocation, medication administration charting, check pharmacy medication availability, and doctor follow-up'
   },
   {
     id: 'receptionist',
@@ -312,7 +328,7 @@ export const ROLE_PRESETS = [
     title: 'Receptionist & Patient Registrar',
     role: 'receptionist',
     permissions: ['hospital'],
-    desc: 'Patient intake: register OPD/IPD file numbers, capture insurance details, and queue patients for Triage'
+    desc: 'Patient intake: register OPD/IPD file numbers, capture insurance details, and queue patients for Triage or Doctor'
   },
   {
     id: 'admin',
@@ -918,7 +934,7 @@ export default function App() {
         const updated = { ...currentUser, account_type: type };
         setCurrentUser(updated);
         localStorage.setItem('pharmahub_user', JSON.stringify(updated));
-        showToast(`Switched to ${type === 'wholesale' ? 'Wholesale Depot Hub' : type === 'organization' ? 'Enterprise Hospital Hub' : 'Solo Chemist Hub'}`, 'success');
+        showToast(`Switched to ${type === 'wholesale' ? 'Wholesale Depot Hub' : type === 'organization' ? 'Enterprise Pharmacy Hub' : 'Solo Chemist Hub'}`, 'success');
         if (type === 'wholesale') setActiveTab('wholesalers');
         else if (type === 'organization') setActiveTab('dashboard');
         else setActiveTab('pos');
@@ -2157,12 +2173,12 @@ export default function App() {
                 }`}
               >
                 <div className="w-10 h-10 rounded-xl bg-cyan-500/20 text-cyan-400 flex items-center justify-center text-lg mb-3">
-                  🏥
+                  🏢
                 </div>
                 <h4 className="font-bold text-white text-sm group-hover:text-cyan-400 transition">Enterprise Hub</h4>
-                <p className="text-[11px] text-slate-400 mt-1 leading-snug">Hospital chains, multi-staff roles (Vet, Ointment), executive P&L</p>
+                <p className="text-[11px] text-slate-400 mt-1 leading-snug">Multi-branch pharmacy chains, departmental staff roles, and executive accounting</p>
                 <div className="mt-3 flex items-center justify-between pt-2 border-t border-slate-800/80">
-                  <span className="text-[10px] font-bold text-cyan-400">Admin Setup</span>
+                  <span className="text-[10px] font-bold text-cyan-400">Enterprise Pharmacy</span>
                   <span className="text-xs text-slate-400 group-hover:translate-x-1 transition">Enter →</span>
                 </div>
               </button>
@@ -2322,12 +2338,12 @@ export default function App() {
 
               <div className="mb-5">
                 <div className="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold mb-2.5 bg-black/[0.04] dark:bg-white/[0.06] text-slate-700 dark:text-slate-300">
-                  <span>{landingPortalCategory === 'solo' ? '💊 Solo Pharmacy Portal' : landingPortalCategory === 'organization' ? '🏥 Enterprise Hospital Portal' : '🏭 Wholesale Distribution Portal'}</span>
+                  <span>{landingPortalCategory === 'solo' ? '💊 Solo Pharmacy Portal' : landingPortalCategory === 'organization' ? '🏢 Enterprise Pharmacy Portal' : '🏭 Wholesale Distribution Portal'}</span>
                 </div>
                 <h2 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight">
                   {authMode === 'login'
                     ? (landingPortalCategory === 'wholesale' ? 'Sign in to Wholesale Hub' : landingPortalCategory === 'organization' ? 'Sign in to Enterprise Hub' : 'Sign in to Pharmacy Hub')
-                    : (landingPortalCategory === 'wholesale' ? 'Register Wholesale Depot' : landingPortalCategory === 'organization' ? 'Register Enterprise Account' : 'Set up your Solo Pharmacy')}
+                    : (landingPortalCategory === 'wholesale' ? 'Register Wholesale Depot' : landingPortalCategory === 'organization' ? 'Register Enterprise Pharmacy' : 'Set up your Solo Pharmacy')}
                 </h2>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                   {authMode === 'login'
@@ -2628,11 +2644,11 @@ export default function App() {
                 <div className={`w-10 h-10 rounded-2xl flex items-center justify-center text-lg font-black ${
                   landingPortalCategory === 'wholesale' ? 'bg-amber-500/20 text-amber-500' : landingPortalCategory === 'organization' ? 'bg-cyan-500/20 text-cyan-500' : 'bg-emerald-500/20 text-emerald-500'
                 }`}>
-                  {landingPortalCategory === 'wholesale' ? '🏭' : landingPortalCategory === 'organization' ? '🏥' : '💊'}
+                  {landingPortalCategory === 'wholesale' ? '🏭' : landingPortalCategory === 'organization' ? '🏢' : '💊'}
                 </div>
                 <div>
                   <h3 className="font-extrabold text-slate-900 dark:text-white text-base">
-                    {landingPortalCategory === 'wholesale' ? 'Wholesale Hub Access' : landingPortalCategory === 'organization' ? 'Enterprise Hospital Hub' : 'Solo Pharmacy Chemist'}
+                    {landingPortalCategory === 'wholesale' ? 'Wholesale Hub Access' : landingPortalCategory === 'organization' ? 'Enterprise Pharmacy Hub' : 'Solo Pharmacy Chemist'}
                   </h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
                     {authMode === 'login' ? 'Input your account credentials below' : 'First-time setup: Create Administrator Account'}
@@ -2709,7 +2725,7 @@ export default function App() {
                     </div>
                     <div>
                       <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                        {landingPortalCategory === 'wholesale' ? 'Distributor Depot Name' : landingPortalCategory === 'organization' ? 'Hospital / Organization Name' : 'Pharmacy / Chemist Name'}
+                        {landingPortalCategory === 'wholesale' ? 'Distributor Depot Name' : landingPortalCategory === 'organization' ? 'Enterprise Pharmacy / Chain Name' : 'Pharmacy / Chemist Name'}
                       </label>
                       <input
                         type="text"
@@ -2814,7 +2830,7 @@ export default function App() {
                     ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
                     : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
                 }`}>
-                  {currentUser?.account_type === 'wholesale' ? 'Wholesale Depot' : currentUser?.account_type === 'organization' ? 'Hospital Hub' : 'Solo Chemist'}
+                  {currentUser?.account_type === 'wholesale' ? 'Wholesale Depot' : currentUser?.account_type === 'organization' ? 'Enterprise Pharmacy' : 'Solo Chemist'}
                 </span>
               </div>
             </div>
@@ -4846,6 +4862,24 @@ export default function App() {
                     </div>
                   </button>
                 )}
+
+                <button
+                  type="button"
+                  onClick={() => { setActiveTab('hospital'); setShowMobileMoreMenu(false); }}
+                  className={`p-3 rounded-2xl border flex items-center space-x-3 text-left transition apple-spring ${
+                    activeTab === 'hospital'
+                      ? 'bg-blue-50 dark:bg-blue-950/40 border-blue-500/40 text-blue-800 dark:text-blue-300 font-bold'
+                      : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200/80 dark:border-white/5 text-slate-700 dark:text-slate-200'
+                  }`}
+                >
+                  <div className="w-9 h-9 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
+                    <HeartPulse className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold leading-tight">Hospital Hub</p>
+                    <p className="text-[10px] text-slate-400">Reception, Doctors, Triage & Rx</p>
+                  </div>
+                </button>
 
                 <button
                   type="button"
