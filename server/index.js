@@ -2859,6 +2859,7 @@ app.post('/api/sales', requireActiveSubscription, (req, res) => {
     const nowStr = new Date().toISOString().replace('T', ' ').slice(0, 19);
 
     const user = getAuthUser(req);
+    const orgId = user ? (user.organization_id || user.id) : -1;
     const userId = user ? user.id : -1;
 
     const saleStmt = db.prepare(`
@@ -2871,7 +2872,7 @@ app.post('/api/sales', requireActiveSubscription, (req, res) => {
     const saleResult = saleStmt.run(
       receiptNumber, customer_name || 'Walk-in Customer', customer_phone || '',
       payment_method || 'cash', prescribing_doctor || '', prescription_number || '',
-      subtotal, Number(discount), total, nowStr, userId
+      subtotal, Number(discount), total, nowStr, orgId
     );
     const saleId = saleResult.lastInsertRowid;
 
@@ -2889,12 +2890,12 @@ app.post('/api/sales', requireActiveSubscription, (req, res) => {
     `);
 
     for (const item of items) {
-      // Find active batches for this medicine ordered by expiry date (FEFO) scoped to active user
+      // Find active batches for this medicine ordered by expiry date (FEFO) scoped to active user or organization
       const batches = db.prepare(`
         SELECT * FROM batches
-        WHERE medicine_id = ? AND status = 'active' AND (packs_available > 0 OR loose_units_available > 0) AND user_id = ?
+        WHERE medicine_id = ? AND status = 'active' AND (packs_available > 0 OR loose_units_available > 0) AND (user_id = ? OR user_id = ?)
         ORDER BY expiry_date ASC
-      `).all(item.medicine_id, userId);
+      `).all(item.medicine_id, userId, orgId);
 
       const med = db.prepare('SELECT units_per_pack, units_per_strip FROM medicines WHERE id = ?').get(item.medicine_id);
       const unitsPerPack = med.units_per_pack || 100;

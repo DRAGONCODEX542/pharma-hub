@@ -41,6 +41,7 @@ import {
   Building2,
   Filter
 } from 'lucide-react';
+import SoloPOS from './SoloPOS';
 
 // Hospital Staff Role Presets
 export const HOSPITAL_ROLE_PRESETS = [
@@ -133,6 +134,14 @@ export default function HospitalHub({
   // Filter & Search states
   const [patientSearch, setPatientSearch] = useState('');
   const [medicineSearch, setMedicineSearch] = useState('');
+
+  // Dual-mode Hospital Pharmacy states
+  const [pharmacySubTab, setPharmacySubTab] = useState('prescriptions'); // 'prescriptions' | 'pos' | 'stock'
+  const [posLoadedCart, setPosLoadedCart] = useState([]);
+  const [posLoadedCustomer, setPosLoadedCustomer] = useState(null);
+  const [activeLoadedPrescription, setActiveLoadedPrescription] = useState(null);
+  const [stockSearchQuery, setStockSearchQuery] = useState('');
+  const [stockCategoryFilter, setStockCategoryFilter] = useState('All');
 
   // Modals
   const [showNewPatientModal, setShowNewPatientModal] = useState(false);
@@ -479,7 +488,7 @@ export default function HospitalHub({
     }
   };
 
-  // 6. Dispense Prescription in Hospital Pharmacy
+  // 6. Dispense Prescription in Hospital Pharmacy (Route to Cashier)
   const handleDispensePrescription = async (prescriptionId) => {
     try {
       const res = await authFetch(`/api/hospital/prescriptions/${prescriptionId}/dispense`, {
@@ -490,9 +499,108 @@ export default function HospitalHub({
         fetchPendingPrescriptions();
         fetchQueue();
         fetchHospitalStats();
+        fetchMedicines();
       }
     } catch {
       showToast('Error dispensing prescription', 'error');
+    }
+  };
+
+  // 6B. Load Doctor Prescription directly into POS Counter for immediate checkout
+  const handleLoadPrescriptionIntoPOS = (presc) => {
+    const loadedItems = (presc.items || []).map(it => {
+      const drug = medicines.find(m =>
+        (it.medicine_id && String(m.id) === String(it.medicine_id)) ||
+        (m.brand_name && m.brand_name.toLowerCase() === (it.medication_name || '').toLowerCase()) ||
+        (m.molecule_name && m.molecule_name.toLowerCase() === (it.medication_name || '').toLowerCase())
+      );
+
+      const unitPrice = drug?.unit_price || drug?.pack_price || 50;
+      const drugName = drug?.brand_name || it.medication_name || 'Prescribed Medicine';
+      const drugDosage = drug?.strength || it.dosage || '';
+      const maxStock = drug?.total_packs ?? drug?.stock_boxes ?? 999;
+
+      return {
+        drugId: drug?.id || it.medicine_id || Math.floor(Math.random() * 10000),
+        name: drugName,
+        dosage: drugDosage,
+        unitType: 'unit',
+        unitPrice: Number(unitPrice),
+        quantity: Number(it.quantity || 1),
+        maxStock: Number(maxStock)
+      };
+    });
+
+    setPosLoadedCart(loadedItems);
+    setPosLoadedCustomer({
+      name: `${presc.patient_name} (${presc.opd_number})`,
+      phone: presc.phone || ''
+    });
+    setActiveLoadedPrescription(presc);
+    setPharmacySubTab('pos');
+    showToast(`Loaded prescription for ${presc.patient_name} into POS Counter! 🛒`, 'success');
+  };
+
+  // 6C. Complete POS Sale at Hospital Pharmacy Counter
+  const handleHospitalPOSSale = async (salePayload) => {
+    try {
+      const payload = {
+        customer_name: salePayload.customer_name || 'Walk-in Patient',
+        customer_phone: salePayload.customer_phone || '',
+        payment_method: salePayload.payment_method === 'credit' ? 'loan' : salePayload.payment_method,
+        prescribing_doctor: activeLoadedPrescription?.doctor_name || '',
+        prescription_number: activeLoadedPrescription?.opd_number || '',
+        discount: Number(salePayload.discount || 0),
+        items: salePayload.items.map(it => ({
+          medicine_id: it.drug_id,
+          unit_type: it.unit_type || 'unit',
+          quantity: it.quantity,
+          unit_price: it.unit_price,
+          total_price: it.total_price || (it.unit_price * it.quantity),
+          dosage_instruction: it.dosage || ''
+        }))
+      };
+
+      const res = await authFetch('/api/sales', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        if (activeLoadedPrescription?.id) {
+          try {
+            await authFetch(`/api/hospital/prescriptions/${activeLoadedPrescription.id}/dispense`, {
+              method: 'PUT'
+            });
+          } catch (e) {
+            console.warn('Prescription dispense fallback:', e);
+          }
+          setActiveLoadedPrescription(null);
+          setPosLoadedCart([]);
+          setPosLoadedCustomer(null);
+          fetchPendingPrescriptions();
+        }
+
+        showToast(
+          salePayload.payment_method === 'credit'
+            ? 'Customer loan recorded!'
+            : `Sale completed & medicines dispensed! Receipt #${data.receipt_number || data.sale_id}`,
+          'success'
+        );
+
+        fetchMedicines();
+        fetchQueue();
+        fetchHospitalStats();
+        return { success: true, sale_id: data.sale_id, receipt_number: data.receipt_number };
+      } else {
+        showToast(data.error || 'Sale failed', 'error');
+        throw new Error(data.error || 'Sale failed');
+      }
+    } catch (err) {
+      showToast(err.message || 'Checkout failed', 'error');
+      throw err;
     }
   };
 
@@ -1209,83 +1317,390 @@ export default function HospitalHub({
           )}
 
           {/* ══════════════════════════════════════════════════════════ */}
-          {/* TAB 5: IN-HOUSE HOSPITAL PHARMACY (DISPENSING)             */}
+          {/* TAB 5: IN-HOUSE HOSPITAL PHARMACY & DISPENSING             */}
           {/* ══════════════════════════════════════════════════════════ */}
           {activeTab === 'pharmacy' && (
             <div className="space-y-6">
-              <div className="p-4 rounded-2xl bg-purple-500/10 border border-purple-500/20 text-purple-800 dark:text-purple-300 text-xs flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  <Pill className="w-4 h-4 text-purple-500 shrink-0" />
-                  <span><strong>Hospital In-House Pharmacy:</strong> Live stream of electronic prescriptions sent directly from doctor consultation rooms. Dispensing moves patients to Reception Billing.</span>
+              {/* Dual-Mode Pharmacy Sub-Navigation Header */}
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 p-2 sm:p-2.5 rounded-3xl border border-slate-200 dark:border-white/10 shadow-sm">
+                <div className="flex items-center space-x-1.5 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0">
+                  <button
+                    type="button"
+                    onClick={() => setPharmacySubTab('prescriptions')}
+                    className={`px-4 py-2.5 rounded-2xl font-bold text-xs transition apple-spring flex items-center space-x-2 shrink-0 ${
+                      pharmacySubTab === 'prescriptions'
+                        ? 'bg-purple-600 text-white shadow-md shadow-purple-600/20'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+                    }`}
+                  >
+                    <FileText className="w-3.5 h-3.5" />
+                    <span>Doctor Prescriptions Queue</span>
+                    <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${
+                      pharmacySubTab === 'prescriptions' ? 'bg-white/20 text-white' : 'bg-purple-500/20 text-purple-600 dark:text-purple-400'
+                    }`}>
+                      {pendingPrescriptions.length}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPharmacySubTab('pos')}
+                    className={`px-4 py-2.5 rounded-2xl font-bold text-xs transition apple-spring flex items-center space-x-2 shrink-0 ${
+                      pharmacySubTab === 'pos'
+                        ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/20'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+                    }`}
+                  >
+                    <ShoppingCart className="w-3.5 h-3.5" />
+                    <span>Walk-In POS Dispensing Counter</span>
+                    {activeLoadedPrescription && (
+                      <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPharmacySubTab('stock')}
+                    className={`px-4 py-2.5 rounded-2xl font-bold text-xs transition apple-spring flex items-center space-x-2 shrink-0 ${
+                      pharmacySubTab === 'stock'
+                        ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+                    }`}
+                  >
+                    <Pill className="w-3.5 h-3.5" />
+                    <span>Hospital Formulary & Stock</span>
+                    <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${
+                      pharmacySubTab === 'stock' ? 'bg-white/20 text-white' : 'bg-blue-500/20 text-blue-600 dark:text-blue-400'
+                    }`}>
+                      {medicines.length}
+                    </span>
+                  </button>
                 </div>
-                <span className="font-bold px-2 py-0.5 rounded-full bg-purple-600 text-white text-[10px]">
-                  {pendingPrescriptions.length} Pending Dispense
-                </span>
+
+                <div className="hidden sm:flex items-center space-x-2 text-xs text-slate-500 pr-2">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                  <span className="font-semibold text-[11px]">Live Stock Sync Active</span>
+                </div>
               </div>
 
-              <div className="space-y-4">
-                {pendingPrescriptions.map(presc => (
-                  <div key={presc.id} className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 shadow-sm space-y-4">
-                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-slate-100 dark:border-white/5 pb-3">
+              {/* ────────────────────────────────────────────────────────── */}
+              {/* SUB-VIEW 1: DOCTOR PRESCRIPTIONS LIVE STREAM QUEUE        */}
+              {/* ────────────────────────────────────────────────────────── */}
+              {pharmacySubTab === 'prescriptions' && (
+                <div className="space-y-4">
+                  <div className="p-4 rounded-3xl bg-gradient-to-r from-purple-500/10 via-blue-500/10 to-transparent border border-purple-500/20 text-purple-900 dark:text-purple-300 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-9 h-9 rounded-2xl bg-purple-600 text-white flex items-center justify-center font-bold text-sm shadow-md">
+                        Rx
+                      </div>
                       <div>
-                        <div className="flex items-center space-x-2">
-                          <span className="text-xs font-mono font-bold text-blue-500">{presc.opd_number}</span>
-                          <span className="text-slate-300">&bull;</span>
-                          <h4 className="font-black text-slate-900 dark:text-white text-base">{presc.patient_name}</h4>
-                          <span className="text-xs text-slate-400">({presc.age} yrs, {presc.gender})</span>
-                        </div>
-                        <p className="text-xs text-slate-500 mt-0.5">
-                          Prescribed by: <strong className="text-slate-700 dark:text-slate-300">{presc.doctor_name || 'Dr. On Duty'}</strong> &bull; {new Date(presc.created_at).toLocaleString()}
+                        <h4 className="font-bold text-slate-900 dark:text-white text-sm">Doctor E-Prescriptions Stream</h4>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                          Prescriptions sent from Doctor Clinic rooms appear here live. Dispense directly to Reception Cashier or load into POS Counter.
                         </p>
+                      </div>
+                    </div>
+                    <span className="font-black px-3 py-1 rounded-full bg-purple-600 text-white text-xs self-start sm:self-center shadow-xs">
+                      {pendingPrescriptions.length} Waiting
+                    </span>
+                  </div>
+
+                  <div className="space-y-4">
+                    {pendingPrescriptions.map(presc => (
+                      <div key={presc.id} className="p-5 sm:p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 shadow-sm space-y-4 transition hover:border-purple-500/40">
+                        <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3 border-b border-slate-100 dark:border-white/5 pb-4">
+                          <div>
+                            <div className="flex items-center space-x-2.5 flex-wrap">
+                              <span className="px-2.5 py-0.5 rounded-lg text-xs font-mono font-black bg-blue-500/15 text-blue-600 dark:text-blue-400 border border-blue-500/20">
+                                {presc.opd_number}
+                              </span>
+                              <h4 className="font-black text-slate-900 dark:text-white text-lg">{presc.patient_name}</h4>
+                              <span className="text-xs text-slate-500 dark:text-slate-400">({presc.age} yrs &bull; {presc.gender})</span>
+                              {presc.insurance_provider && (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-600 border border-emerald-500/20">
+                                  {presc.insurance_provider}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center space-x-3 text-xs text-slate-500 mt-1">
+                              <span>Prescribed by: <strong className="text-slate-800 dark:text-slate-200">{presc.doctor_name || 'Dr. On Duty'}</strong></span>
+                              <span>&bull;</span>
+                              <span>{new Date(presc.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                              {presc.diagnosis && (
+                                <>
+                                  <span>&bull;</span>
+                                  <span className="text-purple-600 dark:text-purple-400 font-semibold italic">Dx: {presc.diagnosis}</span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Dual Action Buttons */}
+                          <div className="flex items-center space-x-2 w-full lg:w-auto">
+                            <button
+                              type="button"
+                              onClick={() => handleLoadPrescriptionIntoPOS(presc)}
+                              className="flex-1 lg:flex-none px-4 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md shadow-emerald-600/20 transition apple-spring flex items-center justify-center space-x-1.5"
+                              title="Load prescribed items into Walk-in POS counter to collect payment right here"
+                            >
+                              <ShoppingCart className="w-3.5 h-3.5" />
+                              <span>Load into POS & Charge Here</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleDispensePrescription(presc.id)}
+                              className="flex-1 lg:flex-none px-4 py-2.5 rounded-2xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs shadow-md shadow-purple-600/20 transition apple-spring flex items-center justify-center space-x-1.5"
+                              title="Dispense medicines and route patient to Reception Billing desk"
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              <span>Dispense & Route to Cashier</span>
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Prescribed Items Table with Live Stock Verification */}
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-xs text-left">
+                            <thead className="bg-slate-50 dark:bg-slate-800/40 text-slate-500 uppercase font-black text-[9px] tracking-wider rounded-xl">
+                              <tr>
+                                <th className="py-2.5 px-3">Medication</th>
+                                <th className="py-2.5 px-3">Dosage & Frequency</th>
+                                <th className="py-2.5 px-3">Duration</th>
+                                <th className="py-2.5 px-3">Qty Prescribed</th>
+                                <th className="py-2.5 px-3">Hospital Stock Availability</th>
+                                <th className="py-2.5 px-3">Instructions</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 dark:divide-white/5 font-medium">
+                              {(presc.items || []).map((it, idx) => {
+                                const stockMatch = medicines.find(m =>
+                                  (it.medicine_id && String(m.id) === String(it.medicine_id)) ||
+                                  (m.brand_name && m.brand_name.toLowerCase() === (it.medication_name || '').toLowerCase()) ||
+                                  (m.molecule_name && m.molecule_name.toLowerCase() === (it.medication_name || '').toLowerCase())
+                                );
+                                const availablePacks = stockMatch?.total_packs ?? stockMatch?.stock_boxes ?? 0;
+                                const isAvailable = availablePacks > 0 || (stockMatch?.loose_units_available || 0) > 0;
+
+                                return (
+                                  <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-white/[0.02]">
+                                    <td className="py-2.5 px-3 font-bold text-slate-900 dark:text-white">
+                                      <div className="flex items-center space-x-1.5">
+                                        <Pill className="w-3 h-3 text-purple-500 shrink-0" />
+                                        <span>{it.medication_name}</span>
+                                      </div>
+                                    </td>
+                                    <td className="py-2.5 px-3 text-slate-600 dark:text-slate-300">
+                                      {it.dosage} &bull; {it.frequency}
+                                    </td>
+                                    <td className="py-2.5 px-3 text-slate-600 dark:text-slate-300">{it.duration_days} days</td>
+                                    <td className="py-2.5 px-3 font-bold text-blue-600">{it.quantity} units</td>
+                                    <td className="py-2.5 px-3">
+                                      {isAvailable ? (
+                                        <span className="inline-flex items-center space-x-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                                          <Check className="w-3 h-3" />
+                                          <span>In Stock ({availablePacks} packs)</span>
+                                        </span>
+                                      ) : (
+                                        <span className="inline-flex items-center space-x-1 text-[11px] font-bold text-rose-600 dark:text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded-full border border-rose-500/20">
+                                          <AlertTriangle className="w-3 h-3" />
+                                          <span>Out of Stock / Restock</span>
+                                        </span>
+                                      )}
+                                    </td>
+                                    <td className="py-2.5 px-3 text-slate-500 italic">{it.instructions || 'As directed'}</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    ))}
+
+                    {pendingPrescriptions.length === 0 && (
+                      <div className="p-12 text-center text-slate-400 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-white/10">
+                        <Pill className="w-10 h-10 mx-auto opacity-30 text-purple-500 mb-2" />
+                        <p className="font-bold text-sm">No doctor prescriptions awaiting dispense</p>
+                        <p className="text-xs mt-1">When doctors write electronic prescriptions in the Clinic room, they stream here live in real time.</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* ────────────────────────────────────────────────────────── */}
+              {/* SUB-VIEW 2: FULL STANDALONE WALK-IN POS COUNTER            */}
+              {/* ────────────────────────────────────────────────────────── */}
+              {pharmacySubTab === 'pos' && (
+                <div className="space-y-4">
+                  {/* Alert banner if loaded from a doctor's prescription */}
+                  {activeLoadedPrescription && (
+                    <div className="p-4 rounded-3xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-between gap-3 text-amber-900 dark:text-amber-200">
+                      <div className="flex items-center space-x-2.5 text-xs">
+                        <div className="w-8 h-8 rounded-xl bg-amber-500 text-slate-950 font-black flex items-center justify-center shrink-0">
+                          Rx
+                        </div>
+                        <div>
+                          <p className="font-bold">
+                            Prescription Loaded for Patient: {activeLoadedPrescription.patient_name} ({activeLoadedPrescription.opd_number})
+                          </p>
+                          <p className="text-[11px] text-amber-700 dark:text-amber-300">
+                            Prescribed by {activeLoadedPrescription.doctor_name || 'Dr. On Duty'}. Adjust quantities if needed, then complete sale to deduct stock and fulfill.
+                          </p>
+                        </div>
                       </div>
 
                       <button
-                        onClick={() => handleDispensePrescription(presc.id)}
-                        className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs shadow-md shadow-purple-500/20 transition apple-spring flex items-center space-x-1.5"
+                        type="button"
+                        onClick={() => {
+                          setActiveLoadedPrescription(null);
+                          setPosLoadedCart([]);
+                          setPosLoadedCustomer(null);
+                          showToast('Cleared active prescription from counter', 'info');
+                        }}
+                        className="px-3 py-1.5 rounded-xl bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-bold transition shadow-xs shrink-0"
                       >
-                        <CheckCircle2 className="w-4 h-4" />
-                        <span>Dispense All & Route to Cashier</span>
+                        Clear Prescription
                       </button>
                     </div>
+                  )}
 
-                    {/* Prescribed Items Table */}
+                  {/* Render Full SoloPOS Counter Engine */}
+                  <div className="rounded-3xl overflow-hidden">
+                    <SoloPOS
+                      drugs={medicines}
+                      currency={currentUser?.currency_symbol || 'KSh'}
+                      onCompleteSale={handleHospitalPOSSale}
+                      showToast={showToast}
+                      externalCart={posLoadedCart}
+                      externalCustomer={posLoadedCustomer}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* ────────────────────────────────────────────────────────── */}
+              {/* SUB-VIEW 3: HOSPITAL FORMULARY & STOCK INVENTORY           */}
+              {/* ────────────────────────────────────────────────────────── */}
+              {pharmacySubTab === 'stock' && (
+                <div className="space-y-4">
+                  {/* Search and Category Filters */}
+                  <div className="p-4 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 shadow-sm flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+                    <div className="relative flex-1">
+                      <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        placeholder="Search medicines by brand name, generic molecule, manufacturer..."
+                        value={stockSearchQuery}
+                        onChange={e => setStockSearchQuery(e.target.value)}
+                        className="w-full pl-10 pr-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-2xl text-xs text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 md:pb-0">
+                      {['All', 'OTC', 'Prescription', 'Antibiotics', 'Pain Relief', 'Vitamins', 'Cough & Cold'].map(cat => (
+                        <button
+                          key={cat}
+                          type="button"
+                          onClick={() => setStockCategoryFilter(cat)}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-bold transition whitespace-nowrap ${
+                            stockCategoryFilter === cat
+                              ? 'bg-blue-600 text-white shadow-xs'
+                              : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                          }`}
+                        >
+                          {cat}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Stock Table */}
+                  <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-white/10 shadow-sm overflow-hidden">
                     <div className="overflow-x-auto">
                       <table className="w-full text-xs text-left">
-                        <thead className="bg-slate-50 dark:bg-slate-800/40 text-slate-500 uppercase font-black text-[9px] tracking-wider">
+                        <thead className="bg-slate-50 dark:bg-slate-800/40 text-slate-500 uppercase font-black text-[9px] tracking-wider border-b border-slate-100 dark:border-white/5">
                           <tr>
-                            <th className="py-2.5 px-3">Medication</th>
-                            <th className="py-2.5 px-3">Dosage</th>
-                            <th className="py-2.5 px-3">Frequency</th>
-                            <th className="py-2.5 px-3">Duration</th>
-                            <th className="py-2.5 px-3">Qty</th>
-                            <th className="py-2.5 px-3">Instructions</th>
+                            <th className="py-3 px-4">Brand / Medication</th>
+                            <th className="py-3 px-4">Generic Molecule</th>
+                            <th className="py-3 px-4">Form & Strength</th>
+                            <th className="py-3 px-4">Category</th>
+                            <th className="py-3 px-4 text-center">Stock Level</th>
+                            <th className="py-3 px-4 text-right">Pack Price</th>
+                            <th className="py-3 px-4 text-right">Unit Price</th>
+                            <th className="py-3 px-4 text-center">Status</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100 dark:divide-white/5 font-medium">
-                          {(presc.items || []).map((it, idx) => (
-                            <tr key={idx}>
-                              <td className="py-2.5 px-3 font-bold text-slate-900 dark:text-white">{it.medication_name}</td>
-                              <td className="py-2.5 px-3 text-slate-600 dark:text-slate-300">{it.dosage}</td>
-                              <td className="py-2.5 px-3 text-slate-600 dark:text-slate-300">{it.frequency}</td>
-                              <td className="py-2.5 px-3 text-slate-600 dark:text-slate-300">{it.duration_days} days</td>
-                              <td className="py-2.5 px-3 font-bold text-blue-600">{it.quantity} units</td>
-                              <td className="py-2.5 px-3 text-slate-500 italic">{it.instructions || 'As directed'}</td>
-                            </tr>
-                          ))}
+                          {medicines
+                            .filter(m => {
+                              const q = stockSearchQuery.toLowerCase().trim();
+                              const name = (m.brand_name || m.name || '').toLowerCase();
+                              const generic = (m.molecule_name || m.generic_name || '').toLowerCase();
+                              const matchSearch = !q || name.includes(q) || generic.includes(q);
+                              const matchCat = stockCategoryFilter === 'All' || (m.category && m.category.toLowerCase() === stockCategoryFilter.toLowerCase());
+                              return matchSearch && matchCat;
+                            })
+                            .map(med => {
+                              const totalPacks = med.total_packs ?? med.stock_boxes ?? 0;
+                              const isLow = totalPacks <= (med.min_stock_alert || 5);
+
+                              return (
+                                <tr key={med.id} className="hover:bg-slate-50/50 dark:hover:bg-white/[0.02]">
+                                  <td className="py-3 px-4 font-bold text-slate-900 dark:text-white">
+                                    <div className="flex items-center space-x-2">
+                                      <span className="w-6 h-6 rounded-lg bg-blue-500/10 text-blue-600 flex items-center justify-center text-[10px] font-bold">
+                                        💊
+                                      </span>
+                                      <span>{med.brand_name || med.name}</span>
+                                    </div>
+                                  </td>
+                                  <td className="py-3 px-4 text-slate-600 dark:text-slate-400 font-mono text-[11px]">
+                                    {med.molecule_name || med.generic_name || '—'}
+                                  </td>
+                                  <td className="py-3 px-4 text-slate-600 dark:text-slate-300">
+                                    {med.form_category || 'Tablet'} &bull; {med.strength || 'Standard'}
+                                  </td>
+                                  <td className="py-3 px-4">
+                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                                      {med.category || 'General'}
+                                    </span>
+                                  </td>
+                                  <td className="py-3 px-4 text-center">
+                                    <span className="font-extrabold text-slate-900 dark:text-white">
+                                      {totalPacks} packs
+                                    </span>
+                                    {med.loose_units_available > 0 && (
+                                      <span className="text-[10px] text-slate-400 block">+{med.loose_units_available} units</span>
+                                    )}
+                                  </td>
+                                  <td className="py-3 px-4 text-right font-mono font-bold text-slate-900 dark:text-white">
+                                    {currentUser?.currency_symbol || 'KSh'} {(med.pack_price || 0).toLocaleString()}
+                                  </td>
+                                  <td className="py-3 px-4 text-right font-mono text-slate-600 dark:text-slate-300">
+                                    {currentUser?.currency_symbol || 'KSh'} {(med.unit_price || 0).toLocaleString()}
+                                  </td>
+                                  <td className="py-3 px-4 text-center">
+                                    {isLow ? (
+                                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-600 border border-amber-500/20">
+                                        Low Stock
+                                      </span>
+                                    ) : (
+                                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-600 border border-emerald-500/20">
+                                        Available
+                                      </span>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
                         </tbody>
                       </table>
                     </div>
                   </div>
-                ))}
-
-                {pendingPrescriptions.length === 0 && (
-                  <div className="p-12 text-center text-slate-400 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-white/10">
-                    <Pill className="w-10 h-10 mx-auto opacity-30 text-purple-500 mb-2" />
-                    <p className="font-bold text-sm">No prescriptions awaiting dispense</p>
-                    <p className="text-xs mt-1">Doctor e-prescriptions will appear here instantly in real time.</p>
-                  </div>
-                )}
-              </div>
+                </div>
+              )}
             </div>
           )}
 

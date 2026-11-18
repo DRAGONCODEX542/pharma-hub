@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Search,
   ShoppingCart,
@@ -27,18 +27,34 @@ export default function SoloPOS({
   currency = 'KSh',
   onCompleteSale,
   isSubmitting = false,
-  showToast
+  showToast,
+  externalCart = null,
+  externalCustomer = null
 }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedSupplier, setSelectedSupplier] = useState('All');
-  const [cart, setCart] = useState([]);
+  const [cart, setCart] = useState(externalCart || []);
   const [paymentMode, setPaymentMode] = useState('cash'); // 'cash', 'mpesa', 'credit'
-  const [customerName, setCustomerName] = useState('');
-  const [customerPhone, setCustomerPhone] = useState('');
+  const [customerName, setCustomerName] = useState(externalCustomer?.name || '');
+  const [customerPhone, setCustomerPhone] = useState(externalCustomer?.phone || '');
   const [mobileCartOpen, setMobileCartOpen] = useState(false);
   const [completedReceipt, setCompletedReceipt] = useState(null);
   const [justAddedId, setJustAddedId] = useState(null);
+
+  // Sync external prescription items loaded from Hospital Doctor
+  useEffect(() => {
+    if (externalCart && Array.isArray(externalCart) && externalCart.length > 0) {
+      setCart(externalCart);
+    }
+  }, [externalCart]);
+
+  useEffect(() => {
+    if (externalCustomer) {
+      if (externalCustomer.name) setCustomerName(externalCustomer.name);
+      if (externalCustomer.phone) setCustomerPhone(externalCustomer.phone);
+    }
+  }, [externalCustomer]);
 
   // Categories
   const categories = ['All', 'OTC', 'Prescription', 'Pain Relief', 'Antibiotics', 'Vitamins', 'Cough & Cold'];
